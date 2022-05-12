@@ -39,54 +39,66 @@ import warnings
 
 
 def signal_orthogonalization_cpu(signal_1, signal_2):
-    """
-    This function ortogonalizes each channel of signal_1 regarding all the
-    channels in signal_2. Based in O'Neill et al. 2015
+    """ This method implements the ortogonalization of each channel of signal_1
+    regarding all the channels in signal_2 using CPU
+
+    REFERENCES: O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., &
+    Brookes, M.J. (2015). Measuring electrophysiological connectivity by power
+    envelope correlation: a technical review on MEG methods. Physics in Medicine
+    & Biology, 60(21), R271.
 
     Parameters
     ----------
     signal_1 : numpy 2D matrix
-        MEEG Signal. SamplesXChannel
+        First MEEG Signal. [n_samples x n_channels].
     signal_2 : numpy 2D matrix
-        MEEG Signal. SamplesXChannel
+        Second MEEG Signal. If empty signal_2 will be set to be equal to
+        signal_1. [n_samples x n_channels].
 
     Returns
     -------
-    signal_ort : np.ndarray
-        MEEG ortogonalised signals. Shape [samples x channels x channels].
-        The first dimension are the samples, the third is the base channel
-        used to ortogonalize the other channels and the second dimension are
-        the ortogonalized channels regarding the third dimension
+    signal_ort : numpy 3D matrix
+        MEEG ortogonalised signals. The first dimension is samples. The third
+        dimension is the channel of first signal, and the second dimension is
+        regarding which channel of second signal it has been orthogonalized the
+        channel in third dimension. [n_samples x n_channels x n_channels].
 
     """
-    # ERROR CHECK
+    # Error check
+    if signal_2 is None:
+        signal_2 = signal_1
     if len(signal_1) != len(signal_2):
         raise ValueError("Signals must have the same length")
     if (type(signal_1) != np.ndarray) or (type(signal_2) != np.ndarray):
         raise ValueError("Parameter signal_1 and signal_2 must be of type "
                          "numpy.ndarray")
     if signal_1.shape[0] < signal_1.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more samples than channels, comment this "
+        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
+                      " samples than channels, comment this "
                       "line")
         signal_1 = signal_1.T
     if signal_2.shape[0] < signal_2.shape[1]:
         warnings.warn(
-            "Warning: Signal dimensions flipped out. If you have more samples than channels, comment this "
+            "Warning: Signal dimensions flipped out. If you have more samples"
+            " than channels, comment this "
             "line")
         signal_2 = signal_2.T
 
-    # VARIABLE INITIALIZE
-    signal_ort = np.empty((signal_1.shape[0], signal_2.shape[1], signal_1.shape[1]))
+    # Variable initialization
+    signal_ort = np.empty((signal_1.shape[0], signal_2.shape[1],
+                           signal_1.shape[1]))
     signal_ort[:] = np.nan
 
-    # ORTHOGONALIZATION PROCESS
+    # Orthogonalization process
     for chan_1 in range(0, signal_1.shape[1]):
         for chan_2 in range(0, signal_2.shape[1]):
             signal_1_chan = signal_1[:, chan_1]
             signal_2_chan = signal_2[:, chan_2]
             if not np.array_equal(signal_1_chan, signal_2_chan):
-                beta = np.matmul(signal_2_chan[None], np.linalg.pinv(signal_1_chan[None]))
-                signal_ort[:, chan_2, chan_1] = signal_2_chan - beta * signal_1_chan
+                beta = np.matmul(signal_2_chan[None],
+                                 np.linalg.pinv(signal_1_chan[None]))
+                signal_ort[:, chan_2, chan_1] = signal_2_chan - beta * \
+                                                signal_1_chan
             else:
                 signal_ort[:, chan_2, chan_1] = signal_1_chan
 
@@ -97,9 +109,9 @@ def signal_orthogonalization_cpu(signal_1, signal_2):
 
 def signal_orthogonalization_gpu(signal_1, signal_2):
     """
-    This function ortogonalizes each channel of signal_1 regarding all the 
+    This function ortogonalizes each channel of signal_1 regarding all the
     channels in signal_2. Based in O'Neill et al. 2015
-    
+
     Parameters
     ----------
     signal_1 : numpy 2D matrix
@@ -111,31 +123,31 @@ def signal_orthogonalization_gpu(signal_1, signal_2):
     -------
     signal_ort : numpy 3D matrix
         MEEG ortogonalised signals. Samples x Channel x Channel.
-        
+
         The first dimension are the samples, the third is the base channel
         used to ortogonalize the other channels and the second dimension are
         the ortogonalized channels regarding the third dimension
     """
 
     import tensorflow as tf
-    # ERROR CHECK
+    # Error check
     if len(signal_1) != len(signal_2):
         raise ValueError("Signals must have the same length")
     if (type(signal_1) != np.ndarray) or (type(signal_2) != np.ndarray):
         raise ValueError("Parameter signal_1 and signal_2 must be of type "
                          "numpy.ndarray")
-        
-    # VARIABLE INITIALIZE
+
+    # Variable initialization
     signal_ort = tf.zeros((len(signal_1), len(signal_2[0]), len(signal_1[0])),
                           dtype=tf.dtypes.float64)
     i1 = tf.range(0, len(signal_1))
     i2 = tf.ones_like(i1)
     i3 = tf.ones_like(i1)
-            
-    # ORTHOGONALIZATION PROCESS
+
+    # Orthogonalization process
     signal_1_tf = tf.convert_to_tensor(signal_1)
     signal_2_tf = tf.convert_to_tensor(signal_2)
-    
+
     for chan_1 in range(0, len(signal_1[0])):
 
         for chan_2 in range(0, len(signal_2[0])):
@@ -154,7 +166,7 @@ def signal_orthogonalization_gpu(signal_1, signal_2):
                 tmp = tf.math.subtract(
                     signal_2_chan, tf.math.multiply(beta,signal_1_chan)
                 )
-                idx = tf.stack([i1, chan_2 * i2, chan_1 * i3], axis=-1)                
+                idx = tf.stack([i1, chan_2 * i2, chan_1 * i3], axis=-1)
                 signal_ort = tf.tensor_scatter_nd_update(
                     signal_ort, idx, tf.squeeze(tmp)
                 )

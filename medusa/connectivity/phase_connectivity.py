@@ -7,6 +7,28 @@ import warnings
 
 @jit(nopython=True, cache=True, parallel=True)
 def reshape_angles_loops(phase_data):
+    """ Additional method require for the implementation of PLV, PLI, and wPLI
+    in Numba. It receives the phases of the signal and return the PLV, PLI and
+    wPLI connectivity matrices.
+
+    NOTE: The shape of "phase_data" is [n_channels x n_samples], not the usual
+    [n_samples x n_channels]
+
+    Parameters
+    ----------
+    phase_data : numpy 2D matrix
+        phases of the MEEG Signal. [n_channels x n_samples].
+
+    Returns
+    -------
+    plv : numpy 2D square matrix
+        plv-based connectivity matrix. [n_channels x n_channels].
+    pli : numpy 2D square matrix
+        pli-based connectivity matrix. [n_channels x n_channels].
+    wpli : numpy 2D square matrix
+        wpli-based connectivity matrix. [n_channels x n_channels].
+
+    """
     n_cha = phase_data.shape[0]
 
     m = np.empty((phase_data.shape[0] * phase_data.shape[0],
@@ -36,22 +58,55 @@ def reshape_angles_loops(phase_data):
     wpli_vector = np.divide(num, den)
     wpli = np.reshape(wpli_vector, (n_cha, n_cha))
 
-    return pli, wpli, plv
+    return plv, pli, wpli
 
 
 def __phase_connectivity_numba(data):
-    # ERROR CHECK
+    """ This method implements three phase-based connectivity parameters using
+    Numba: PLV, PLI, and wPLI.
+
+    REFERENCES: PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
+    (2000). Mean phase coherence as a measure for phase synchronization and its
+    application to the EEG of epilepsy patients. Physica D: Nonlinear Phenomena,
+    144(3-4), 358-369.
+    PLI: Nolte, G., Bai, O., Wheaton, L., Mari, Z., Vorbach, S., & Hallett, M.
+    (2004). Identifying true brain interaction from EEG data using the imaginary
+    part of coherency. Clinical neurophysiology, 115(10), 2292-2307.
+    wPLI: Vinck, M., Oostenveld, R., Van Wingerden, M., Battaglia, F., &
+    Pennartz, C. M. (2011). An improved index of phase-synchronization for
+    electrophysiological data in the presence of volume-conduction, noise and
+    sample-size bias. Neuroimage, 55(4), 1548-1565.
+
+    NOTE: PLV is sensitive to volume conduction effects
+
+    Parameters
+    ----------
+    data : numpy 2D matrix
+        MEEG Signal. [n_samples x n_channels].
+
+    Returns
+    -------
+    plv : numpy 2D square matrix
+        plv-based connectivity matrix. [n_channels x n_channels].
+    pli : numpy 2D square matrix
+        pli-based connectivity matrix. [n_channels x n_channels].
+    wpli : numpy 2D square matrix
+        wpli-based connectivity matrix. [n_channels x n_channels].
+
+    """
+    # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
     if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more samples than channels, comment this "
+        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
+                      " samples than channels, comment this "
                       "line")
         data = data.T
 
-    # VARIABLE INITIALIZATION
+    # Variable initialization
     num_chan = data.shape[1]
 
-    # CONNECTIVITY CALCULATION
+    # Connectivity computation
     phase_data = np.transpose(np.angle(sp_signal.hilbert(np.transpose(data))))
     phase_data = np.ascontiguousarray(phase_data.T)
     # angles_1 = np.reshape(np.tile(phase_data, (num_chan, 1)),
@@ -61,24 +116,57 @@ def __phase_connectivity_numba(data):
 
     # pli_vector = abs(np.mean(np.sign(np.sin(angles_1 - angles_2)), axis=0))
 
-    pli, wpli, plv = reshape_angles_loops(phase_data)
+    plv, pli, wpli, = reshape_angles_loops(phase_data)
 
-    return pli, wpli, plv
+    return plv, pli, wpli,
 
 
 def __phase_connectivity_cpu(data):
-    # ERROR CHECK
+    """ This method implements three phase-based connectivity parameters using
+    CPU: PLV, PLI, and wPLI.
+
+    REFERENCES: PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
+    (2000). Mean phase coherence as a measure for phase synchronization and its
+    application to the EEG of epilepsy patients. Physica D: Nonlinear Phenomena,
+    144(3-4), 358-369.
+    PLI: Nolte, G., Bai, O., Wheaton, L., Mari, Z., Vorbach, S., & Hallett, M.
+    (2004). Identifying true brain interaction from EEG data using the imaginary
+    part of coherency. Clinical neurophysiology, 115(10), 2292-2307.
+    wPLI: Vinck, M., Oostenveld, R., Van Wingerden, M., Battaglia, F., &
+    Pennartz, C. M. (2011). An improved index of phase-synchronization for
+    electrophysiological data in the presence of volume-conduction, noise and
+    sample-size bias. Neuroimage, 55(4), 1548-1565.
+
+    NOTE: PLV is sensitive to volume conduction effects
+
+    Parameters
+    ----------
+    data : numpy 2D matrix
+        MEEG Signal. [n_samples x n_channels].
+
+    Returns
+    -------
+    plv : numpy 2D square matrix
+        plv-based connectivity matrix. [n_channels x n_channels].
+    pli : numpy 2D square matrix
+        pli-based connectivity matrix. [n_channels x n_channels].
+    wpli : numpy 2D square matrix
+        wpli-based connectivity matrix. [n_channels x n_channels].
+
+    """
+    # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
     if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more samples than channels, comment this "
+        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
+                      " samples than channels, comment this "
                       "line")
         data = data.T
 
-    # VARIABLE INITIALIZATION
+    # Variable initialization
     num_chan = data.shape[1]
 
-    # CONNECTIVITY CALCULATION
+    # Connectivity computation
     phase_data = np.transpose(np.angle(sp_signal.hilbert(np.transpose(data))))
     phase_data = np.ascontiguousarray(phase_data)
     angles_1 = np.reshape(np.tile(phase_data, (num_chan, 1)),
@@ -102,23 +190,56 @@ def __phase_connectivity_cpu(data):
         )
     wpli = np.reshape(wpli_vector, (num_chan, num_chan), order='F')
 
-    return pli, wpli, plv
+    return plv, pli, wpli,
 
 
 def __phase_connectivity_gpu(data):
+    """ This method implements three phase-based connectivity parameters using
+    GPU: PLV, PLI, and wPLI.
+
+    REFERENCES: PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
+    (2000). Mean phase coherence as a measure for phase synchronization and its
+    application to the EEG of epilepsy patients. Physica D: Nonlinear Phenomena,
+    144(3-4), 358-369.
+    PLI: Nolte, G., Bai, O., Wheaton, L., Mari, Z., Vorbach, S., & Hallett, M.
+    (2004). Identifying true brain interaction from EEG data using the imaginary
+    part of coherency. Clinical neurophysiology, 115(10), 2292-2307.
+    wPLI: Vinck, M., Oostenveld, R., Van Wingerden, M., Battaglia, F., &
+    Pennartz, C. M. (2011). An improved index of phase-synchronization for
+    electrophysiological data in the presence of volume-conduction, noise and
+    sample-size bias. Neuroimage, 55(4), 1548-1565.
+
+    NOTE: PLV is sensitive to volume conduction effects
+
+    Parameters
+    ----------
+    data : numpy 2D matrix
+        MEEG Signal. [n_samples x n_channels].
+
+    Returns
+    -------
+    plv : numpy 2D square matrix
+        plv-based connectivity matrix. [n_channels x n_channels].
+    pli : numpy 2D square matrix
+        pli-based connectivity matrix. [n_channels x n_channels].
+    wpli : numpy 2D square matrix
+        wpli-based connectivity matrix. [n_channels x n_channels].
+
+    """
     import tensorflow as tf
-    # ERROR CHECK
+    # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
     if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more samples than channels, comment this "
+        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
+                      " samples than channels, comment this "
                       "line")
         data = data.T
 
-    # VARIABLE INITIALIZATION
+    # Variable initialization
     num_chan = data.shape[1]
 
-    # CONNECTIVITY CALCULATION
+    # Connectivity computation
     phase_data = tf.math.angle(hilbert.hilbert(data))
 
     angles_1 = tf.transpose(
@@ -158,91 +279,51 @@ def __phase_connectivity_gpu(data):
                     tf.math.reduce_mean(tf.math.abs(imz), axis=0))
     wpli = tf.reshape(wpli_vector, (num_chan, num_chan))
 
-    return pli, wpli, plv
+    return plv, pli, wpli,
 
 
 def phase_connectivity(data):
-    """This function calculates three phase-based connectivity parameters
-        - Phase locking value (PLV): Mormann, 2000, Physica D: Nonlinear
-        Phenomena, DOI: 10.1016/S0167-2789(00)00087-7. ¡CAUTION! Sensitive to
-        volume conduction effects
-        - Phase lag index (PLI): Nolte, 2007, Human Brain Mapping, DOI:
-        10.1016/j.clinph.2004.04.029
-        - weighted Phase Lag Index (wPLI): Vinck, 2011, NeuroImage, DOI:
-        10.1016/j.neuroimage.2011.01.055
+    """ This method implements three phase-based connectivity parameters: PLV,
+    PLI, and wPLI.
+
+    REFERENCES: PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
+    (2000). Mean phase coherence as a measure for phase synchronization and its
+    application to the EEG of epilepsy patients. Physica D: Nonlinear Phenomena,
+    144(3-4), 358-369.
+    PLI: Nolte, G., Bai, O., Wheaton, L., Mari, Z., Vorbach, S., & Hallett, M.
+    (2004). Identifying true brain interaction from EEG data using the imaginary
+    part of coherency. Clinical neurophysiology, 115(10), 2292-2307.
+    wPLI: Vinck, M., Oostenveld, R., Van Wingerden, M., Battaglia, F., &
+    Pennartz, C. M. (2011). An improved index of phase-synchronization for
+    electrophysiological data in the presence of volume-conduction, noise and
+    sample-size bias. Neuroimage, 55(4), 1548-1565.
+
+    NOTE: PLV is sensitive to volume conduction effects
 
     Parameters
     ----------
     data : numpy 2D matrix
-        MEEG Signal. SamplesXChannel.
+        MEEG Signal. [n_samples x n_channels].
 
     Returns
     -------
-    pli : numpy 2D matrix
-        Array of size ChannelsXChannels containing PLI values.
-    wpli : numpy 2D matrix
-        Array of size ChannelsXChannels containing wPLI values.
-    plv : numpy 2D matrix
-        Array of size ChannelsXChannels containing PLV values.
+    plv : numpy 2D square matrix
+        plv-based connectivity matrix. [n_channels x n_channels].
+    pli : numpy 2D square matrix
+        pli-based connectivity matrix. [n_channels x n_channels].
+    wpli : numpy 2D square matrix
+        wpli-based connectivity matrix. [n_channels x n_channels].
 
     """
     from medusa import tensorflow_integration
-    # ERROR CHECK
+    # Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
 
     if tensorflow_integration.check_tf_config(autoconfig=True):
-        pli, wpli, plv = __phase_connectivity_gpu(data)
+        plv, pli, wpli, = __phase_connectivity_gpu(data)
     else:
-        pli, wpli, plv = __phase_connectivity_cpu(data)
+        # plv, pli, wpli, = __phase_connectivity_numba(data)
+        plv, pli, wpli, = __phase_connectivity_cpu(data)
 
-    return pli, wpli, plv
-
-
-if __name__ == "__main__":
-    import scipy.io
-    import time
-    import matplotlib.pyplot as plt
-    mat = scipy.io.loadmat('Q:/VRG/0001_Control.mat')
-    vector = np.array(mat["signal"])[0:20, 0:5000]
-
-    t0 = time.time()
-    pli, wpli, plv = __phase_connectivity_cpu(vector)
-    t1 = time.time()
-    plt.imshow(pli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(wpli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(plv)
-    plt.clim(0, 0.3)
-    plt.show()
-    t2 = time.time()
-    pli, wpli, plv = __phase_connectivity_gpu(vector)
-    t3 = time.time()
-    plt.imshow(pli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(wpli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(plv)
-    plt.clim(0, 0.3)
-    plt.show()
-    t4 = time.time()
-    pli, wpli, plv = __phase_connectivity_numba(vector)
-    t5 = time.time()
-    plt.imshow(pli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(wpli)
-    plt.clim(0, 0.3)
-    plt.show()
-    plt.imshow(plv)
-    plt.clim(0, 0.3)
-    plt.show()
-
-    print('Time CPU: ', t1 - t0)
-    print('Time GPU: ', t3 - t2)
-    print('Time Numba: ', t5 - t4)
+    return plv, pli, wpli,

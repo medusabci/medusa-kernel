@@ -4,6 +4,13 @@ from medusa.connectivity import aec
 from medusa.connectivity import pli
 import warnings
 
+
+
+######################## TO BE DONE
+
+
+
+
 def calculate_connectivity(signal,mode,signal_type,fs,param,trial_len,trial_overlapping,filt_mode,**config):
     
     # Variable debugging
