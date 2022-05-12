@@ -1,0 +1,6 @@
+{
+  "sql_host": "localhost",
+  "sql_user": "root",
+  "sql_passwd": "",
+  "db_folder": "E://BBDD/medusa-server-databases/"
+}

@@ -1,0 +1,15 @@
+# Add any directories, files, or patterns you don't want to be tracked by version control
+.idea/
+.idea/*
+medusa.egg-info/
+medusa.egg-info/*
+*.pyc
+*.pyo
+*.mds
+*.csv
+*.mat
+venv/
+python-env/
+build/
+dist/
+*.egg*
