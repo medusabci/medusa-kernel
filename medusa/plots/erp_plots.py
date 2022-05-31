@@ -1,6 +1,6 @@
 from medusa import frequency_filtering, spatial_filtering
 from medusa import epoching
-from medusa.bci.io import ERPSpellerRun
+from medusa import components
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
@@ -17,23 +17,27 @@ def plot_erp(erp_speller_runs, channel, window=(0, 1000), plot=True):
     trials_noerp_mean = list()
     trials_noerp_dev = list()
     for d in data:
-        if not isinstance(d, ERPSpellerRun):
+        if not isinstance(d, components.Recording):
             raise ValueError("")
         # Preprocessing
-        [b, a] = frequency_filtering.filter_designer([0.5, 30], d.eeg.fs, 500, ftype="FIR", btype="bandpass")
-        d.eeg.signal = frequency_filtering.apply_filter_offline(d.eeg.signal, b, a)
-        d.eeg.signal = spatial_filtering.apply_car(d.eeg.signal)
+        filter = frequency_filtering.FIRFilter(
+            order=500, cutoff=[0.5, 30], btype="bandpass", width=None,
+            window='hamming', scale=True, filt_method='filtfilt', axis=0)
+        d.eeg.signal = filter.fit_transform(d.eeg.signal, d.eeg.fs)
+        d.eeg.signal = spatial_filtering.car(d.eeg.signal)
         # Extract epochs
         epochs = epoching.get_epochs_of_events(timestamps=d.eeg.times,
                                                signal=d.eeg.signal,
-                                               onsets=d.paradigm_data.onsets,
+                                               onsets=d.erpspellerdata.onsets,
                                                fs=d.eeg.fs,
                                                w_epoch_t=window,
                                                w_baseline_t=[-200, 0],
                                                norm='z')
         # Epochs
-        erp_epochs_cha = epochs[d.paradigm_data.erp_labels == 1, :, channel]
-        noerp_epochs_cha = epochs[d.paradigm_data.erp_labels == 0, :, channel]
+        erp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 1
+        noerp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 0
+        erp_epochs_cha = epochs[erp_epochs_idx, :, channel]
+        noerp_epochs_cha = epochs[noerp_epochs_idx, :, channel]
 
         # Compute mean and dev measure
         erp_mean = np.mean(erp_epochs_cha, 0)
