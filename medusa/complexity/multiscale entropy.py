@@ -27,14 +27,15 @@ def MSE(signal,MaxScale,m = 1,r = 0.3):
     return mse_result
 
 
-def coarse_grain(signal,scale, decimate_mode = True):
+def coarse_grain(signal, scale, decimate_mode=True):
 
     if decimate_mode:
-        return decimate(signal,scale)
+        return decimate(signal, scale)
     else:
         N = len(signal)  # Signal length
-        tau = int(round(N / scale))  # Number of coarse grains in which the signal is splitted
-        y = np.empty(tau) # Returned signal
+        tau = int(round(N / scale))  # Number of coarse grains in which the
+        # signal is splitted
+        y = np.empty(tau)  # Returned signal
         for i in range(tau):
             y[i] = np.mean(signal[i*scale:(i*scale + scale)])
         return y
