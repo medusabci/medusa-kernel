@@ -959,7 +959,10 @@ class EEGChannelSet(components.SerializableComponent):
                 standard_data = eeg_1005.copy()
         else:
             standard_data = standard
-
+        # Check error
+        if label not in standard_data:
+            raise UnknownStandardChannel(
+                'Unkown standard channel with label %s' % label)
         cha_data = {'label': label}
         if self.dim == '2D':
             if self.coord_system == 'cartesian':
@@ -1672,6 +1675,21 @@ class Connecitivity:
         # Optional attributes
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+
+class UnknownStandardChannel(Exception):
+
+    def __init__(self, msg=None):
+        """Class constructor
+
+        Parameters
+        ----------
+        msg: string or None
+            Custom message
+        """
+        if msg is None:
+            msg = 'Unknown standard channel'
+        super().__init__(msg)
 
 
 if __name__ == "__main__":
