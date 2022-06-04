@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import stats as sp_stats
 from medusa import signal_orthogonalization as orthogonalizate
-from medusa.hilbert import hilbert
+from medusa.transforms import hilbert
 from medusa import pearson_corr_matrix as corr
 import warnings
 
