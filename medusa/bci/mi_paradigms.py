@@ -23,6 +23,7 @@ from medusa import get_epochs_of_events, resample_epochs
 from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import CSP, LaplacianFilter
+from medusa.deep_learning_models import EEGSym
 
 
 class MIData(components.ExperimentData):
@@ -33,16 +34,14 @@ class MIData(components.ExperimentData):
     MI paradigms in BCI module.
     """
 
-    def __init__(self, mode, onsets, w_trial_t, mi_result,
-                 calibration_t=None,
-                 mi_labels=None, mi_labels_info=None,
-                 control_state_labels=None, w_rest_t=None,
-                 **kwargs):
+    def __init__(self, mode, onsets, w_trial_t, mi_result=None,
+                 calibration_t=None, mi_labels=None, mi_labels_info=None,
+                 w_rest_t=None, **kwargs):
         """MIData constructor
 
         Parameters
         ----------
-        mode : str {"train"|"test"}
+        mode : str {"train"|"test"|"guided_test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
             Timestamp of each stimulation
@@ -51,23 +50,23 @@ class MIData(components.ExperimentData):
             ms. For example, if  w_trial_t = [500, 4000] the subject was
             performing the motor imagery task from 500ms after to 4000ms after
             the onset.
-        mi_result : list or numpy.ndarray [n_mi_labels x 1]
-            Result of this run. Each position contains the data of the
-            selected target at each trial.
         calibration_t: int end
             Time duration of the calibration recorded normally at the
             beginning of each run. For example, if calibration_t = 5000 the
             subject was in resting state for the first 5 seconds of the run.
+        mi_result : list or numpy.ndarray [n_mi_labels x 1]
+            Result of this run. Each position contains the data of the
+            selected target at each trial.
         mi_labels : list or numpy.ndarray [n_mi_labels x 1]
             Only in train mode. Contains the mi labels of each stimulation,
             as many as classes in the experiment.
         mi_labels_info : dict
             Contains the description of the mi labels.
             Example:
-                mi_labels_dict =
-                    {0: Rest,
-                    1: Left_hand,
-                    2: Right_hand}
+                mi_labels_info =
+                    {0: "Rest",
+                    1: "Left_hand",
+                    2: "Right_hand"}
         w_rest_t: list [start, end]
             Temporal window of the rest with respect to each onset in ms. For
             example, if w_rest_t = [-1000, 0] the subject was resting from
@@ -78,8 +77,9 @@ class MIData(components.ExperimentData):
         """
 
         # Check errors
+        mode = mode.lower()
         if mode == 'train':
-            if mi_labels is None or control_state_labels is None:
+            if mi_labels is None:
                 raise ValueError('Attributes mi_labels, control_state_labels '
                                  'should be provided in train mode')
 
@@ -88,7 +88,8 @@ class MIData(components.ExperimentData):
         self.onsets = np.array(onsets)
         self.w_trial_t = np.array(w_trial_t)
         self.calibration_t = np.array(calibration_t)
-        self.mi_result = np.array(mi_result)
+        self.mi_result = np.array(mi_result) if mi_result is not None else \
+            mi_result
         self.mi_labels = np.array(mi_labels) if mi_labels is not None else \
             mi_labels
         self.mi_labels_info = mi_labels_info
@@ -170,7 +171,7 @@ class MIDataset(components.Dataset):
         """
         # Check errors
         if experiment_mode is not None:
-            if experiment_mode not in ('train', 'test'):
+            if experiment_mode not in ('train', 'test', 'guided_test'):
                 raise ValueError('Parameter experiment_mode must be '
                                  '{train|test|None}')
 
@@ -180,8 +181,12 @@ class MIDataset(components.Dataset):
                 'track_mode': 'append',
                 'parent': None
             },
-            'paradigm_conf': {
-                'track_mode': 'append',
+            'w_trial_t': {
+                'track_mode': 'concatenate',
+                'parent': experiment_att_key
+            },
+            'w_rest_t': {
+                'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
             'calibration_t': {
@@ -189,10 +194,6 @@ class MIDataset(components.Dataset):
                 'parent': experiment_att_key
             },
             'onsets': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'mi_result': {
                 'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
@@ -213,7 +214,17 @@ class MIDataset(components.Dataset):
                 **default_track_attributes,
                 **default_track_attributes_train
             }
-
+        elif experiment_mode in ['test', 'guided_test']:
+            default_track_attributes_train = {
+                'mi_result': {
+                    'track_mode': 'concatenate',
+                    'parent': experiment_att_key
+                }
+            }
+            default_track_attributes = {
+                **default_track_attributes,
+                **default_track_attributes_train
+            }
         track_attributes = \
             default_track_attributes if track_attributes is None else \
                 {**default_track_attributes, **track_attributes}
@@ -319,7 +330,7 @@ class StandardPreprocessing(components.ProcessingMethod):
     reference (CAR) spatial filter.
     """
 
-    def __init__(self, order=2, cutoff=49, btype='lowpass',
+    def __init__(self, order=4, cutoff=[0.05, 63], btype='bandpass',
                  filt_method='sosfiltfilt'):
         super().__init__(fit_transform_signal=['signal'],
                          fit_transform_dataset=['dataset'])
@@ -528,6 +539,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 norm_epoch_t = self.w_baseline_t
             norm_epoch_s = np.array(norm_epoch_t * fs / 1000, dtype=int)
             norm_epoch = np.expand_dims(signal[norm_epoch_s], axis=0)
+        else:
+            norm_epoch = None
 
         features = normalize_epochs(features, norm_epochs=norm_epoch,
                                         norm=self.norm)
@@ -585,10 +598,10 @@ class StandardFeatureExtraction(components.ProcessingMethod):
 
         # Additional track attributes
         track_attributes = dataset.track_attributes
-        track_attributes['run_idx'] = {
-            'track_mode': 'concatenate',
-            'parent': dataset.experiment_att_key
-        }
+        # track_attributes['run_idx'] = {
+        #     'track_mode': 'concatenate',
+        #     'parent': dataset.experiment_att_key
+        # }
 
         # Initialization
         features = None
@@ -619,8 +632,9 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 times=rec_sig.times,
                 signal=rec_sig.signal,
                 fs=rec_sig.fs,
-                onsets=rec_exp.onsets,
-                calibration_t=rec_exp.calibration_t
+                onsets=rec_exp.onsets
+                # ,
+                # calibration_t=rec_exp.calibration_t
             )
 
             features = np.concatenate((features, rec_feat), axis=0) \
@@ -628,7 +642,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
 
             # Special attributes that need tracking across runs to assure the
             # consistency of the dataset
-            rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
+            # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
 
             # Track experiment info
             for key, value in track_attributes.items():
@@ -763,7 +777,7 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
         """
         self.CSP.fit(X=X, y=y)
 
-    def transform_signal(self, times, signal, fs, onsets):
+    def project(self, times, signal, fs, onsets):
         """Function to extract MI features from raw signal. It returns a 3D
         feature array with shape [n_events x n_samples x n_channels]. This
         function does not track any other attributes. Use for online processing
@@ -782,26 +796,44 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
             Sample rate of the recording.
         onsets : list or numpy.ndarray [n_events x 1]
                 Timestamp of each event
-        calibration_t:
 
         Returns
         -------
         features : numpy.ndarray [n_events x n_samples x n_channels]
-            Feature array with the epochs of signal with CSP
+            Feature array with the epochs of signal projected in the CSP space
         """
-        features = super().transform_signal(self, times, signal, fs, onsets)
+        features = super().transform_signal(times, signal, fs, onsets)
 
-        features = self.CSP.project(self, X=features)
+        features = self.CSP.project(X=features)
+        return features
 
+    def extract_log_var_features(self, X):
+        """This method computes the standard motor imagery log-variance features
+        given the CSP .
+
+        Parameters
+        ----------
+        X : numpy.ndarray, [n_trials, samples, channels]
+            Epoched data of shape (n_trials, samples, channels)
+        Returns
+        -------
+        features : numpy.ndarray [n_events x n_channels]
+            Feature array with the epochs of signal projected in the CSP space
+        """
+        features = self.CSP.project(X=X)
+        # Obtain log-variance features given the CSP features
+        features = np.log(np.var(features, axis=-1))
         return features
 
     def transform_dataset(self, dataset, show_progress_bar=True):
-        features, track_info = super().transform_dataset(self, dataset=dataset,
+        features, track_info = super().transform_dataset(dataset=dataset,
                                   show_progress_bar=show_progress_bar)
         # Fit CSP filter
-        self.CSP.fit(self, X=features, y=track_info['mi_labels'])
-        # Project features
-        features = self.project_CSP(self, X=features)
+        self.fit(X=features, y=track_info['mi_labels'])
+        # Project features into CSP space and obtain log-variance features given
+        # the CSP features
+        features = self.extract_log_var_features(X=features)
+
         return features, track_info
 
 
@@ -1033,7 +1065,7 @@ class MIModelCSP(MIModel):
         if not self.is_fit:
             raise ValueError('Function fit_dataset must be called first!')
         # Check channel set
-        if self.channel_set != channel_set:
+        if self.channel_set.channels != channel_set.channels:
             warnings.warn('The channel set is not the same that was used to '
                           'fit the model. Be careful!')
         # Preprocessing
@@ -1042,13 +1074,181 @@ class MIModelCSP(MIModel):
         # Extract features
         x = self.get_inst('ext_method').transform_signal(times, signal, fs,
                                                          x_info['onsets'])
+        x = self.get_inst('ext_method').extract_log_var_features(x)
         # Classification
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Decoding
+        accuracy = None
+        clf_report = None
+        if x_info['mi_labels'] is not None:
+            accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
+            clf_report = classification_report(x_info['mi_labels'], y_pred,
+                                           output_dict=True)
+        decoding = {
+            'x': x,
+            'x_info': x_info,
+            'y_pred': y_pred,
+            'accuracy': accuracy,
+            'report': clf_report
+        }
+        return decoding
+
+class MIModelEEGSym(MIModel):
+    """Decoding model for MI-based BCI applications based on EEGSym [1], a deep
+    convolutional neural network developed for inter-subjects MI classification.
+
+    Dataset features:
+
+    - Sample rate of the signals > 128 Hz. The model can handle recordings
+        with different sample rates.
+    - Recommended channels: ['F7', 'C3', 'Po3', 'Cz', 'Pz', 'F8', 'C4', 'Po4'].
+
+    Processing pipeline:
+
+    - Preprocessing:
+
+        - IIR Filter (order=4, lowpass=49 Hz: unlike FIR filters, IIR filters
+            are quick and can be applied in small signal chunks. Thus,
+            they are the preferred method for frequency filter in online systems
+        - Common average reference (CAR): widely used spatial filter that
+            increases the signal-to-noise ratio.
+    - Feature extraction:
+
+        - Epochs (window=(0, 2000) ms, resampling to 128 HZ): the epochs of
+            signal are extracted after each onset. Baseline normalization
+            is also applied, taking the same epoch window.
+
+    - Feature classification
+
+        - EEGSym: convolutional neural network [1].
+
+    References
+    ----------
+    [1] Pérez-Velasco, S., Santamaría-Vázquez, E., Martínez-Cagigal, V.,
+    Marcos-Mateo, D., & Hornero, R. (2020). EEGSym: Overcoming Intersubject
+    Variability in Motor Imagery Based BCIs with Deep Learning. ?.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def configure(self, cnn_n_cha=8, ch_lateral=3, fine_tuning=False,
+                  shuffle_before_fit=True, validation_split=0.4,
+                  init_weights_path=None, gpu_acceleration=True):
+        self.settings = {
+            'cnn_n_cha': cnn_n_cha,
+            'ch_lateral': ch_lateral,
+            'fine_tuning': fine_tuning,
+            'shuffle_before_fit': shuffle_before_fit,
+            'validation_split': validation_split,
+            'init_weights_path': init_weights_path,
+            'gpu_acceleration': gpu_acceleration
+        }
+        # Update state
+        self.is_configured = True
+        self.is_built = False
+        self.is_fit = False
+
+    def build(self):
+        # Check errors
+        if not self.is_configured:
+            raise ValueError('Function configure must be called first!')
+        # Only import deep learning models if necessary
+        from medusa.deep_learning_models import EEGSym
+        # Preprocessing (bandpass IIR filter [0.5, 45] Hz + CAR)
+        self.add_method('prep_method',
+                        StandardPreprocessing(cutoff=49, btype='lowpass'))
+        # Feature extraction (epochs [0, 2000] ms + resampling to 128 Hz)
+        self.add_method('ext_method', StandardFeatureExtraction(w_epoch_t=(
+            0, 2000), target_fs=128, w_baseline_t=(0, 2000),))
+        # Feature classification
+        clf = EEGSym(
+            input_time=2000,
+            fs=128,
+            n_cha=self.settings['cnn_n_cha'],
+            filters_per_branch=24,
+            scales_time=(500, 250, 125),
+            dropout_rate=0.4,
+            activation='elu', n_classes=2,
+            learning_rate=0.0001,
+            gpu_acceleration=self.settings['gpu_acceleration'])
+        if self.settings['init_weights_path'] is not None:
+            clf.load_weights(self.settings['init_weights_path'])
+            self.channel_set = meeg.EEGChannelSet()
+            standard_lcha = ['F7', 'C3', 'Po3', 'Cz', 'Pz', 'F8', 'C4', 'Po4']
+            self.channel_set.set_standard_montage(standard_lcha)
+            self.is_fit = True
+        self.add_method('clf_method', clf)
+        # Update state
+        self.is_built = True
+        self.is_fit = False
+
+    def fit_dataset(self, dataset, **kwargs):
+        # Check errors
+        if not self.is_built:
+            raise ValueError('Function build must be called first!')
+        # Preprocessing
+        dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
+        # Extract CSP features
+        x, x_info = self.get_inst('ext_method').transform_dataset(dataset)
+        # Put channels in symmetric order
+        x = self.get_inst('clf_method').symmetric_channels(x,
+                                                dataset.channel_set.l_cha)
+
+        # Classification
+        self.get_inst('clf_method').fit(x, x_info['mi_labels'],
+                        fine_tuning=self.settings['fine_tuning'],
+                        shuffle_before_fit=self.settings['shuffle_before_fit'],
+                        validation_split=self.settings['validation_split'],
+                        **kwargs)
+        y_prob = self.get_inst('clf_method').predict_proba(x)
+        y_pred = y_prob.argmax(axis=-1)
+
+        # Accuracy
         accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
         clf_report = classification_report(x_info['mi_labels'], y_pred,
                                        output_dict=True)
+        assessment = {
+            'x': x,
+            'x_info': x_info,
+            'y_pred': y_pred,
+            'accuracy': accuracy,
+            'report': clf_report
+        }
+        # Save info
+        self.channel_set = dataset.channel_set
+        # Update state
+        self.is_fit = True
+        return assessment
+
+    def predict(self, times, signal, fs, channel_set, x_info, **kwargs):
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('Function fit_dataset must be called first!')
+        # Check channel set
+        if self.channel_set.channels != channel_set.channels:
+            warnings.warn('The channel set is not the same that was used to '
+                          'fit the model. Be careful!')
+        # Preprocessing
+        signal = self.get_inst('prep_method').fit_transform_signal(signal, fs)
+
+        # Extract features
+        x = self.get_inst('ext_method').transform_signal(times, signal, fs,
+                                                         x_info['onsets'])
+        # Put channels in symmetric order
+        x = self.get_inst('clf_method').symmetric_channels(x,
+                                                    self.channel_set.l_cha)
+        # Classification
+        y_prob = self.get_inst('clf_method').predict_proba(x)
+        y_pred = y_prob.argmax(axis=-1)
+
+        # Decoding
+        accuracy = None
+        clf_report = None
+        if x_info['mi_labels'] is not None:
+            accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
+            clf_report = classification_report(x_info['mi_labels'], y_pred,
+                                           output_dict=True)
         decoding = {
             'x': x,
             'x_info': x_info,

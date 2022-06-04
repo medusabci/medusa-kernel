@@ -664,14 +664,21 @@ class EEGSym(components.ProcessingMethod):
     """
     #TODO: Implement automatic ordering of channels
     #TODO: Implement trial iterator and data augmentation
-    def __init__(self, input_time=3000, fs=128, n_cha=8, filters_per_branch=8,
+    def __init__(self, input_time=3000, fs=128, n_cha=8, filters_per_branch=24,
            scales_time=(500, 250, 125), dropout_rate=0.4, activation='elu',
            n_classes=2, learning_rate=0.001, ch_lateral=3,
-           spatial_resnet_repetitions=1, residual=True, symmetric=True):
+           spatial_resnet_repetitions=1, residual=True, symmetric=True,
+                 gpu_acceleration=None):
         # Super call
         super().__init__(fit=[], predict_proba=['y_pred'])
 
         # Tensorflow config
+        if gpu_acceleration is None:
+            tensorflow_integration.check_tf_config(autoconfig=True)
+        else:
+            tensorflow_integration.config_tensorflow(gpu_acceleration)
+        if tensorflow_integration.check_gpu_acceleration():
+            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
         tf.keras.backend.set_image_data_format('channels_last')
 
         # Parameters
@@ -721,6 +728,7 @@ class EEGSym(components.ProcessingMethod):
         # ==================================================================== #
         input_layer = Input((self.input_samples, self.n_cha, 1))
         input = tf.expand_dims(input_layer, axis=1)
+        ncha = self.n_cha
         if self.symmetric:
             superposition = False
             if self.ch_lateral < self.n_cha // 2:
@@ -734,7 +742,7 @@ class EEGSym(components.ProcessingMethod):
 
             if superposition:
                 central_idx = list(
-                    np.array(range(self.n_cha - self.ch_lateral)) +
+                    np.array(range(ncha - self.ch_lateral)) +
                     self.ch_lateral)
                 ch_central = tf.gather(input, indices=central_idx, axis=-2)
 
@@ -759,7 +767,7 @@ class EEGSym(components.ProcessingMethod):
         b1_out = self.general_module([input],
                                 scales_samples=self.scales_samples,
                                 filters_per_branch=self.filters_per_branch,
-                                ncha=self.n_cha,
+                                ncha=ncha,
                                 activation=self.activation,
                                 dropout_rate=self.dropout_rate, average=2,
                                 spatial_resnet_repetitions=
@@ -769,7 +777,7 @@ class EEGSym(components.ProcessingMethod):
         b2_out = self.general_module(b1_out, scales_samples=[int(x / 4) for x in
                                                         self.scales_samples],
                                 filters_per_branch=self.filters_per_branch,
-                                ncha=self.n_cha,
+                                ncha=ncha,
                                 activation=self.activation,
                                 dropout_rate=self.dropout_rate, average=2,
                                 spatial_resnet_repetitions=
@@ -780,7 +788,7 @@ class EEGSym(components.ProcessingMethod):
                                filters_per_branch=int(
                                    self.filters_per_branch * len(
                                        self.scales_samples) / 2),
-                               ncha=self.n_cha,
+                               ncha=ncha,
                                activation=self.activation,
                                dropout_rate=self.dropout_rate, average=2,
                                spatial_resnet_repetitions=
@@ -791,7 +799,7 @@ class EEGSym(components.ProcessingMethod):
                                filters_per_branch=int(
                                    self.filters_per_branch * len(
                                        self.scales_samples) / 2),
-                               ncha=self.n_cha,
+                               ncha=ncha,
                                activation=self.activation,
                                dropout_rate=self.dropout_rate, average=2,
                                spatial_resnet_repetitions=
@@ -801,7 +809,7 @@ class EEGSym(components.ProcessingMethod):
                                filters_per_branch=int(
                                    self.filters_per_branch * len(
                                        self.scales_samples) / 4),
-                               ncha=self.n_cha,
+                               ncha=ncha,
                                activation=self.activation,
                                dropout_rate=self.dropout_rate, average=2,
                                spatial_resnet_repetitions=
@@ -969,8 +977,8 @@ class EEGSym(components.ProcessingMethod):
             scales_samples : list
                 List of samples size of the temporal operations kernels.
             filters_per_branch : int
-                Number of filters in each Inception branch. The number
-                should be multiplies of 8.
+                Number of filters in each Inception branch. The number should be
+                multiplies of 8.
             ncha :
                 Number of input channels.
             activation : str
@@ -978,17 +986,16 @@ class EEGSym(components.ProcessingMethod):
             dropout_rate : float
                 Dropout rate
             spatial_resnet_repetitions: int
-                Number of repetitions of the operations of spatial
-                analysis at each step of the spatiotemporal analysis. In
-                the original publication this value was set to 1 and not
-                tested its variations.
+                Number of repetitions of the operations of spatial analysis at
+                each step of the spatiotemporal analysis. In the original
+                publication this value was set to 1 and not tested its
+                variations.
             residual : Bool
-                If the residual operations are present in EEGSym
-                architecture.
+                If the residual operations are present in EEGSym architecture.
             init : Bool
-                If the module is the first one applied to the input,
-                to apply a channel merging operation if the architecture
-                does not include residual operations.
+                If the module is the first one applied to the input, to apply a
+                channel merging operation if the architecture does not include
+                residual operations.
 
             Returns
             -------
@@ -1001,8 +1008,7 @@ class EEGSym(components.ProcessingMethod):
 
         for i in range(len(scales_samples)):
             unit_conv_t.append(Conv3D(filters=filters_per_branch,
-                                      kernel_size=(
-                                          1, scales_samples[i], 1),
+                                      kernel_size=(1, scales_samples[i], 1),
                                       kernel_initializer='he_normal',
                                       padding='same'))
             unit_batchconv_t.append(BatchNormalization())
@@ -1025,6 +1031,7 @@ class EEGSym(components.ProcessingMethod):
 
                 unit_conv_s.append(Conv3D(kernel_size=(1, 1, ncha),
                                           filters=filters_per_branch,
+                                          # groups=filters_per_branch,
                                           use_bias=False,
                                           strides=(1, 1, 1),
                                           kernel_initializer='he_normal',
@@ -1072,8 +1079,7 @@ class EEGSym(components.ProcessingMethod):
                 block_out[j] = block_out_temp
 
             if average != 1:
-                block_out[j] = AveragePooling3D((1, average, 1))(
-                    block_out[j])
+                block_out[j] = AveragePooling3D((1, average, 1))(block_out[j])
 
         # Spatial analysis stage of the module
         if ncha != 1:
@@ -1084,8 +1090,7 @@ class EEGSym(components.ProcessingMethod):
                         if residual:
                             block_out_temp.append(block_out[j])
 
-                            block_out_temp[j] = unit_dconv[i](
-                                block_out_temp[j])
+                            block_out_temp[j] = unit_dconv[i](block_out_temp[j])
 
                             block_out_temp[j] = unit_batchdconv[i](
                                 block_out_temp[j])
@@ -1099,12 +1104,9 @@ class EEGSym(components.ProcessingMethod):
 
                         elif init:
                             block_out[j] = unit_dconv[i](block_out[j])
-                            block_out[j] = unit_batchdconv[i](
-                                block_out[j])
-                            block_out[j] = Activation(activation)(
-                                block_out[j])
-                            block_out[j] = Dropout(dropout_rate)(
-                                block_out[j])
+                            block_out[j] = unit_batchdconv[i](block_out[j])
+                            block_out[j] = Activation(activation)(block_out[j])
+                            block_out[j] = Dropout(dropout_rate)(block_out[j])
                     else:
                         if residual:
                             block_out_temp.append(block_out[j])
@@ -1211,6 +1213,26 @@ class EEGSym(components.ProcessingMethod):
         with tf.device(tensorflow_integration.get_tf_device_name()):
             return self.model.fit(X, y, **kwargs)
 
+    def symmetric_channels(self, X, channels):
+        """This function takes a set of channels and puts them in a symmetric
+        input needed to apply EEGSym.
+        """
+        left = list()
+        right = list()
+        middle = list()
+        for channel in channels:
+            if channel[-1].isnumeric():
+                if int(channel[-1]) % 2 == 0:
+                    right.append(channel)
+                else:
+                    left.append(channel)
+            else:
+                middle.append(channel)
+        ordered_channels = left + middle + right
+        index_channels = [channels.index(channel) for channel in
+                          ordered_channels]
+        return X[:, :, index_channels]
+
     def predict_proba(self, X):
         """Model prediction scores for the given features.
 
@@ -1218,7 +1240,7 @@ class EEGSym(components.ProcessingMethod):
         ----------
         X: np.ndarray
             Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
+            this matrix will be adapted to the input dimensions of EEG-Sym
             [n_observ x n_samples x n_channels x 1]
         """
         # Transform data if necessary
@@ -1239,6 +1261,7 @@ class EEGSym(components.ProcessingMethod):
             'activation': self.activation,
             'n_classes': self.n_classes,
             'learning_rate': self.learning_rate,
+            'ch_lateral': self.ch_lateral
         }
         weights = self.model.get_weights()
         # Pickleable object

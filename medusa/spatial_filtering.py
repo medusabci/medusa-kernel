@@ -319,8 +319,8 @@ class CSP(components.ProcessingMethod):
 
         Returns
         -------
-        numpy.ndarray [n_trials, n_filters]
-            Filtered signal
+        numpy.ndarray [n_trials, n_filters, samples]
+            Array with the epochs of signal projected in the CSP space
         """
         if self.filters is None:
             raise Exception("CSP must be fitted first")
