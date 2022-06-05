@@ -4,7 +4,7 @@ In this module you will find useful functions and classes to operate with data
 recorded using motor imagery paradigms, which are widely used by the BCI
 community. Enjoy!
 
-@author: Eduardo Santamaría-Vázquez
+@author: Sergio Pérez-Velasco
 """
 # Built-in imports
 import copy, warnings
