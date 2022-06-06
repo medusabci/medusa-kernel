@@ -118,7 +118,7 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
         baseline_idx = np.searchsorted(
             timestamps, onsets + w_baseline_t[0] / 1000, side='left')
         baselines = np.lib.stride_tricks.sliding_window_view(
-            signal, (l_baseline, n_cha))[baseline_idx].squeeze()
+            signal, (l_baseline, n_cha))[baseline_idx].squeeze(axis=1)
         epochs = normalize_epochs(epochs, norm_epochs=baselines, norm=norm)
     return epochs
 

@@ -1,6 +1,6 @@
 import scipy.signal as sp_signal
 import numpy as np
-from medusa import hilbert
+from medusa import transforms
 from numba import jit
 import warnings
 
@@ -240,7 +240,7 @@ def __phase_connectivity_gpu(data):
     num_chan = data.shape[1]
 
     # Connectivity computation
-    phase_data = tf.math.angle(hilbert.hilbert(data))
+    phase_data = tf.math.angle(transforms.hilbert(data))
 
     angles_1 = tf.transpose(
                     tf.reshape(
