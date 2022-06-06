@@ -2,7 +2,7 @@ import numpy as np
 import scipy.signal as spsig
 import medusa
 
-bands_rp = [[0, 4], [4, 8], [8, 13], [13, 19], [19, 30], [30, 70]]
+bands_rp = ([0, 4], [4, 8], [8, 13], [13, 19], [19, 30], [30, 70])
 
 
 def band_power(psd, fs, bands):
@@ -48,7 +48,7 @@ def band_power(psd, fs, bands):
     return powers
 
 
-def median_frequency(psd, fs, band=[1, 70]):
+def median_frequency(psd, fs, band=(1, 70)):
     """
     This method computes the median frequency of the signal in the given band.
 
@@ -94,7 +94,7 @@ def median_frequency(psd, fs, band=[1, 70]):
     return median_freqs
 
 
-def indiv_alpha_frequency(psd, fs, band=[4, 15]):
+def indiv_alpha_frequency(psd, fs, band=(4, 15)):
     """
     This method computes the individual alpha frequency of the signal in the
     given band.
@@ -141,7 +141,7 @@ def indiv_alpha_frequency(psd, fs, band=[4, 15]):
     return iaf
 
 
-def shannon_spectral_entropy(psd, fs, band=[1, 70]):
+def shannon_spectral_entropy(psd, fs, band=(1, 70)):
     """
     Computes the Shannon spectral entropy of the PSD in the given band.
 
