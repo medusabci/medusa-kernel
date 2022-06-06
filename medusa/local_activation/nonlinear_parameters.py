@@ -14,7 +14,8 @@ ms_lzc_w = [3, 5]
 
 
 def compute_ctm(signal, r):
-    """ This method implements the central tendency measure. This parameter is
+    """
+    This method implements the central tendency measure. This parameter is
     useful to quantify the variability of a signal. It is based on calculating
     the second-order differences diagram of the time series and then counting
     the points within a radius "r". CTM assigns higher values to less variable
@@ -310,7 +311,7 @@ def multiscale_lempelziv(signal, W):
 
     # First get binarised signal
     for w_idx, w in enumerate(W):
-        binarised_signal = binarisation(signal, w, w_max,multiscale= True)
+        binarised_signal = binarisation(signal, w, w_max, multiscale=True)
 
     # Parallelize the calculations if n_channel > 1
         if binarised_signal.shape[1] > 1:
