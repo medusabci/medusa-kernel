@@ -4,6 +4,7 @@ import medusa
 from scipy.spatial.distance import pdist
 from scipy.signal import decimate
 import math
+from medusa.components import ThreadWithReturnValue
 
 # PARAMETERS
 ctm_r = 0.1
@@ -27,7 +28,7 @@ def compute_ctm(signal, r):
 
     Parameters
     ----------
-    signal : numpy 2D matrix
+    signal : numpy 2D array
         MEEG Signal. [n_samples x n_channels].
     r : double
         Radius used to compute the CTM.
@@ -77,8 +78,7 @@ def compute_ctm(signal, r):
     return ctm
 
 
-def sample_entropy(signal, m, r,
-                   dist_type='chebyshev', result=None, scale=None):
+def sample_entropy(signal, m, r, dist_type='chebyshev'):
     """ This method implements the sample entropy (SampEn). SampEn is an
     irregularity measure that assigns higher values to more irregular time
     sequences. It has two tuning parameters: the sequence length (m) and the
@@ -90,23 +90,19 @@ def sample_entropy(signal, m, r,
 
     Parameters
     ----------
-    signal : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    signal : numpy 2D array
+        MEEG Signal. [n_samples, 1].
     m : double
         Sequence length
     r : double
         Tolerance
     dist_type : string
-        XXXXXXXX
-    result : XXXXXXXXX
-        XXXXXXXX
-    scale : XXXXXXXX
-        XXXXXXXX
+        Distance allowed by Scipy distance pdist function
 
     Returns
     -------
     sampen : numpy 2D array
-        SampEn values for each channel in "signal". [n_channels].
+        SampEn value.
 
     """
 
@@ -162,72 +158,69 @@ def sample_entropy(signal, m, r,
 
         value = -np.log(2/((N-m-1)*(N-m)))
 
-    if result is not None:
-        result[scale-1] = value
-
     return value
 
-
 def multiscale_entropy(signal, max_scale, m, r):
-    """ This method implements the sample entropy (SampEn). SampEn is an
-    irregularity measure that assigns higher values to more irregular time
-    sequences. It has two tuning parameters: the sequence length (m) and the
-    tolerance (r)
+    """ This method implements the Multiscale Entropy (MSE). MSE is a measurement of
+    complexity which measures the irregularity of a signal over multiple time scales.
+    This is accomplished through estimation of the Sample Entropy (SampEn) on coarse-grained
+    versions of the original signal. As a result of the these alculations, MSE curves are
+    obtained and can be used to compare the complexity of time-series.
+    The MSE curve whose entropy values are higher for the most of time scales is
+    considered more complex
 
-    REFERENCES: Richman, J. S., & Moorman, J. R. (2000). Physiological
-    time-series analysis using approximate entropy and sample entropy. American
-    Journal of Physiology-Heart and Circulatory Physiology.
+    REFERENCES: Costa, M., Goldberger, A. L., & Peng, C. K. (2005).
+    Multiscale entropy analysis of biological signals.
+    Physical review E, 71(2), 021906.
 
     Parameters
     ----------
-    signal : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    signal : numpy 2D array
+        MEEG Signal. [n_samples, n_channels].
     max_scale : int
-        XXXXXXXX
-    m : double
+        Maximum scale value
+    m : int
         Sequence length
-    r : double
+    r : float
         Tolerance
 
     Returns
     -------
     sampen : numpy 2D array
-        SampEn values for each channel in "signal". [n_channels].
+        SampEn values for each scale for each channel in "signal" .
+        [max_scale, n_channels].
 
     """
 
-    mse_result = np.empty(max_scale)
+    mse_result = np.empty((max_scale, signal.shape[1]))
     working_threads = list()
-
-    for i in range(1, max_scale + 1):
-        if i == 1:
-            t = threading.Thread(
-                target=sample_entropy,
-                args=(signal, m, r, 'chebyshev', mse_result, i))
-            # mse_result[i-1] = SampEn(signal,m,r)
+    scales = list()
+    for ch in range(signal.shape[1]):
+        for i in range(1, max_scale + 1):
+            if i == 1:
+                t = ThreadWithReturnValue(
+                    target=sample_entropy,
+                    args=(signal[:,ch], m, r, 'chebyshev'))
+            else:
+                t = ThreadWithReturnValue(
+                    target=sample_entropy,
+                    args=(coarse_grain(signal[:,ch], i),
+                          m, r, 'chebyshev'))
             working_threads.append(t)
+            scales.append(i)
             t.start()
-        else:
-            t = threading.Thread(
-                target=sample_entropy,
-                args=(coarse_grain(signal, i),
-                      m, r, 'chebyshev', mse_result, i))
-            # mse_result[i-1] = SampEn(signal,m,r)
-            working_threads.append(t)
-            t.start()
-    for t in reversed(working_threads):
-        t.join()
+        for s in reversed(scales):
+            mse_result[s-1,ch] = working_threads[s-1].join()
     return mse_result
-
 
 def coarse_grain(signal, scale, decimate_mode=True):
 
     if decimate_mode:
-        return decimate(signal, scale)
+        return np.transpose(decimate(signal.T, scale))
     else:
         N = len(signal)  # Signal length
-        tau = int(round(N / scale))  # Number of coarse grains in which the
-        # signal is splitted
+        # Number of coarse grains in which the signal is split
+        tau = int(round(N / scale))
         y = np.empty(tau)  # Returned signal
         for i in range(tau):
             y[i] = np.mean(signal[i*scale:(i*scale + scale)])
@@ -242,15 +235,14 @@ def lempelziv(signal):
 
     Parameters
     ---------
-    signal: numpy.ndarray
-        Signal with shape [n_samples x n_channels]
+    signal: numpy 2D array
+        Signal with shape [n_samples, n_channels]
 
     Returns
     -------
-    lz_channel_values: numpy.ndarray
-        If n_channels = 1, function returns the lz_algorithm value. Else,
-        results from algorithm of each channel are stored and returned at
-        lz_channel_values. Shape of [n_channels]
+    lz_channel_values: numpy 1D matrix
+        Lempel-Ziv values for each channel.
+        [n_channels].
     """
 
     if signal.size == len(signal):
@@ -260,45 +252,42 @@ def lempelziv(signal):
     if signal.shape[1] == 1:
         return lz_algorithm(signal)
     else:
-        lz_channel_values = np.empty(signal.shape[1])
+        lz_channel_values = np.empty((signal.shape[1]))
         working_threads = list()
         for ch in range(signal.shape[1]):
-            t = threading.Thread(target=lz_algorithm,
-                                 args=(signal[:, ch], lz_channel_values, ch))
+            t = ThreadWithReturnValue(target=lz_algorithm,
+                                 args=(signal[:, ch],))
             working_threads.append(t)
             t.start()
-        for thread in working_threads:
-            thread.join()
+        for index, thread in enumerate(working_threads):
+            lz_channel_values[index] = thread.join()
         return lz_channel_values
-
 
 def multiscale_lempelziv(signal, W):
     """
     Calculate the multiscale signal binarisation and the Multiscale Lempel-Ziv's
     complexity. This version allows the algorithm to be used for signals with
-    more than one channel at the same time. Based on the implementation of
-    Ibañez et al 2015 [1].
+    more than one channel at the same time.
+
+    REFERENCES: Ibáñez-Molina, A. J., Iglesias-Parro, S., Soriano, M. F.,
+    & Aznarte, J. I. (2015). Multiscale Lempel-Ziv complexity for EEG measures.
+    Clinical Neurophysiology, 126(3), 541–548.
+    https://doi.org/10.1016/j.clinph.2014.07.012
 
     Parameters
     ---------
-    signal: numpy.ndarray
+    signal: numpy 2D array
         Signal with shape [n_samples x n_channels]
-    W: list or numpy.ndarray
+    W: list or numpy 1D array
         Set of window length to consider at multiscale binarisation stage.
         Values must be odd.
 
     Returns
     -------
-    result: numpy.ndarray
+    result: numpy 2D array
         Matrix of results with shape [n_window_length, n_channels]
-
-    References
-    ----------
-    [1] Ibáñez-Molina, A. J., Iglesias-Parro, S., Soriano, M. F., & Aznarte, J.
-        I. (2015). Multiscale Lempel-Ziv complexity for EEG measures. Clinical
-        Neurophysiology, 126(3), 541–548.
-        https://doi.org/10.1016/j.clinph.2014.07.012
     """
+
     # Useful parameter
     w_max = W[-1] + (W[1]- W[0])
 
@@ -317,45 +306,39 @@ def multiscale_lempelziv(signal, W):
         if binarised_signal.shape[1] > 1:
             threads = []
             for ch in range(binarised_signal.shape[1]):
-                t = threading.Thread(target=lz_algorithm,
-                                     args=(binarised_signal[:, ch],
-                                           result, ch, w_idx))
+                t = ThreadWithReturnValue(target=lz_algorithm,
+                                     args=(binarised_signal[:, ch],))
                 threads.append(t)
                 t.start()
-            for t in threads:
-                t.join()
+            for ch_idx,t in enumerate(threads):
+                result[w_idx,ch_idx] = t.join()
         else:
-            result[w_idx,:] = lz_algorithm(binarised_signal,w_idx = w_idx)
+            result[w_idx,:] = lz_algorithm(binarised_signal)
     return result
 
 
-def lz_algorithm(signal, result=None, ch_idx=None, w_idx=None):
+def lz_algorithm(signal):
     """
     Lempel-Ziv's complexity algorithm. This version can be called by lempelziv
     and multiscale_lempelziv functions. Based on Kaspar et al 1987 [1].
 
+    REFERENCES: F. Kaspar, H. G. Schuster, "Easily-calculable measure for the
+       complexity of spatiotemporal patterns", Physical Review A, Volume 36,
+       Number 2 (1987).
+
     Parameters
     ---------
-    signal: numpy.ndarray
-        Siganl with shape of [n_samples]
-    result: numpy.ndarray or None
-        Empty array to store results when threading
-    ch_idx: int or None
-        Index to identify the channel the signal corresponds to
-    w_idx: int or None
-        Index to identify the window length  the signal corresponds to
+    signal: numpy 1D array
+        Signal with shape of [n_samples]
 
     Returns
     -------
     value: float
-        Result of algorithm calculations. If threadinng at main function, the
-        value is stored at result matrix
+        Result of algorithm calculations.
 
     References
     ----------
-    [1]F. Kaspar, H. G. Schuster, "Easily-calculable measure for the
-       complexity of spatiotemporal patterns", Physical Review A, Volume 36,
-       Number 2 (1987).
+
     """
     signal = signal.flatten().tolist()
     i, k, l = 0, 1, 1
@@ -384,19 +367,10 @@ def lz_algorithm(signal, result=None, ch_idx=None, w_idx=None):
                 k = 1
 
     value = c * (np.log2(n) / n)
-
-    # If threading, value is stored at result matrix
-    if result is not None:
-        if ch_idx is not None and w_idx is None:
-            result[ch_idx] = value
-        elif ch_idx is None and w_idx is not None:
-            result[w_idx,:] = value
-        elif ch_idx is not None and w_idx is not None:
-            result[w_idx, ch_idx] = value
     return value
 
 
-def binarisation(signal, w_length=None, w_max=None, multiscale=False):
+def binarisation(signal, w_length, w_max, multiscale=False):
     """
     This function returns a binarised version of original signal. It can be used
     in both multiscale and simple binarisations. If multiscale mode is chosen,
@@ -406,11 +380,11 @@ def binarisation(signal, w_length=None, w_max=None, multiscale=False):
 
     Parameters
     ----------
-    signal: numpy.ndarray
+    signal: numpy 2D array
         Signal with shape [n_samples x n_channels]
-    w_length: int or None
+    w_length: int
         Window length to perform multiscale binarisation
-    w_max: int or None
+    w_max: int
         Value of the maximum window length
     multiscale: bool
         If is True, performs the multiscale binarisation
@@ -424,8 +398,12 @@ def binarisation(signal, w_length=None, w_max=None, multiscale=False):
     """
 
     if multiscale:
+        if w_length is None:
+            raise ValueError('Width of window must be an integer value')
         if w_length % 2 == 0:
-            raise Exception('Width of windows must be an odd value.')
+            raise ValueError('Width of window must be an odd value.')
+        if w_max is None:
+            raise ValueError('Maximum window width must be an integer value')
 
         #  Get smoothed version from original signal
         smoothed = multiscale_median_threshold(signal, w_length)
@@ -447,14 +425,13 @@ def binarisation(signal, w_length=None, w_max=None, multiscale=False):
         idx_one = signal_shortened >= smoothed_shortened
         signal_binarised[idx_one] = 1
 
-        return signal_binarised
     else:
         signal_binarised = np.zeros((len(signal), signal.shape[1]))
         median = np.median(signal, axis=0)
         idx_one = signal >= median
         signal_binarised[np.squeeze(idx_one)] = 1
 
-        return signal_binarised
+    return signal_binarised
 
 
 def multiscale_median_threshold(signal, w_length):
@@ -462,27 +439,25 @@ def multiscale_median_threshold(signal, w_length):
     Signal smoothing function. For each sample, we define a window in which the
     sample is in centre position. The median value of the window is calculated
     and assigned to this sample to obtain a smoothed version of the original
-    signal. Based on the implementation of Ibañez et al 2015 [1].
+    signal.
+
+    REFERENCES: Ibáñez-Molina, A. J., Iglesias-Parro, S., Soriano, M. F.,
+    & Aznarte, J. I. (2015). Multiscale Lempel-Ziv complexity for EEG measures.
+    Clinical Neurophysiology, 126(3), 541–548.
+    https://doi.org/10.1016/j.clinph.2014.07.012
 
     Parameters
     ---------
-    signal: numpy.ndarray
-        Signal with shape of [n_samples x n_channels]
+    signal: numpy 2D array
+        Signal with shape of [n_samples, n_channels]
     w_length: int
         Length of window to calculate median values in smoothing process
 
     Returns
     -------
-    smoothed_signal: numpy.ndarray
+    smoothed_signal: numpy 2D array
         Smoothed version with shape of [n_samples + 1 - w_length, n_channels]
-        As a result of windowing, signal end samples are lost
-
-    References
-    ----------
-    [1] Ibáñez-Molina, A. J., Iglesias-Parro, S., Soriano, M. F., & Aznarte, J.
-        I. (2015). Multiscale Lempel-Ziv complexity for EEG measures. Clinical
-        Neurophysiology, 126(3), 541–548.
-        https://doi.org/10.1016/j.clinph.2014.07.012
+        As a result of windowing, the final samples of the signal are lost.
     """
     # Template of smoothed signal
     smoothed_signal = np.zeros((
@@ -509,7 +484,7 @@ def compute_nonlinear_metric(signal, epoch_len, param):
 
     Parameters
     ----------
-    signal : numpy 2D matrix
+    signal : numpy 2D array
         MEEG Signal. [n_samples x n_channels].
     epoch_len : int
         Epoch length in samples.
@@ -521,7 +496,7 @@ def compute_nonlinear_metric(signal, epoch_len, param):
     -------
     nonlin_param : numpy 2D array
         Per-channel values of the non-linear parameter selected in "param"
-        [n_epochs x n_channels].
+        [n_epochs, n_channels].
 
     """
     if not np.issubdtype(signal.dtype, np.number):
@@ -557,16 +532,25 @@ def compute_nonlinear_metric(signal, epoch_len, param):
             param_values[ii, :, :] = multiscale_lempelziv(
                 np.squeeze(signal_epoched[ii, :, :]), ms_lzc_w)
 
-
-if __name__ == "__main__":
-
-    import scipy.io
-    import time
+if __name__ == '__main__':
+    import scipy.signal as ss
     import matplotlib.pyplot as plt
-    mat = scipy.io.loadmat('P:/Usuarios/Victor_R/0001_Control.mat')
-    vector = np.array(mat["signal"])[:, :]
 
-    data = np.random.random((5000, 5))
-    data = vector.T
-    ctm = compute_ctm(data, 0.1)
-    print('CTM value: ' + str(ctm))
+    # Test Signal
+    t = np.linspace(0, 100, 5000)
+    signal = ss.chirp(t, f0=6, f1=16, t1=100, method='linear')
+    signal = signal.reshape((signal.shape[0],1))
+    n_cha = 4
+    for ch in range(n_cha):
+        if n_cha == 1:
+            pass
+        else:
+            noise = np.random.random((signal.shape[0],1))
+            signal = np.hstack((signal, noise))
+
+    # Multiscale Lempel Ziv
+    W = [1,3,5,7,9,11] # Window lengths
+    mslz = multiscale_lempelziv(signal,W)
+
+    # Multiscale Entropy
+    mse = multiscale_entropy(signal,10, m = 2, r = 0.3)
