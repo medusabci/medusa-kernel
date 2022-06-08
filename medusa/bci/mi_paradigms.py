@@ -171,9 +171,9 @@ class MIDataset(components.Dataset):
         """
         # Check errors
         if experiment_mode is not None:
-            if experiment_mode not in ('train', 'test', 'guided_test'):
+            if experiment_mode not in ('train', 'test', 'guided test'):
                 raise ValueError('Parameter experiment_mode must be '
-                                 '{train|test|None}')
+                                 '{train|test|guided test|None}')
 
         # Default track attributes
         default_track_attributes = {
@@ -1134,11 +1134,13 @@ class MIModelEEGSym(MIModel):
 
     def configure(self, cnn_n_cha=8, ch_lateral=3, fine_tuning=False,
                   shuffle_before_fit=True, validation_split=0.4,
-                  init_weights_path=None, gpu_acceleration=True):
+                  init_weights_path=None, gpu_acceleration=True,
+                  augmentation=True):
         self.settings = {
             'cnn_n_cha': cnn_n_cha,
             'ch_lateral': ch_lateral,
             'fine_tuning': fine_tuning,
+            'augmentation': augmentation,
             'shuffle_before_fit': shuffle_before_fit,
             'validation_split': validation_split,
             'init_weights_path': init_weights_path,
@@ -1167,11 +1169,12 @@ class MIModelEEGSym(MIModel):
             fs=128,
             n_cha=self.settings['cnn_n_cha'],
             filters_per_branch=24,
-            scales_time=(500, 250, 125),
+            scales_time=(125, 250, 500),
             dropout_rate=0.4,
             activation='elu', n_classes=2,
             learning_rate=0.0001,
             gpu_acceleration=self.settings['gpu_acceleration'])
+        self.is_fit = False
         if self.settings['init_weights_path'] is not None:
             clf.load_weights(self.settings['init_weights_path'])
             self.channel_set = meeg.EEGChannelSet()
@@ -1181,7 +1184,7 @@ class MIModelEEGSym(MIModel):
         self.add_method('clf_method', clf)
         # Update state
         self.is_built = True
-        self.is_fit = False
+        # self.is_fit = False
 
     def fit_dataset(self, dataset, **kwargs):
         # Check errors
@@ -1200,6 +1203,7 @@ class MIModelEEGSym(MIModel):
                         fine_tuning=self.settings['fine_tuning'],
                         shuffle_before_fit=self.settings['shuffle_before_fit'],
                         validation_split=self.settings['validation_split'],
+                        augmentation=self.settings['augmentation'],
                         **kwargs)
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = y_prob.argmax(axis=-1)
