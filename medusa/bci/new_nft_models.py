@@ -137,11 +137,15 @@ class FilterBankPreprocessing(components.ProcessingMethod):
         signal_ = self.laplacian_filter.apply_lp(signal_)
         signal__ = signal_.copy()
         if parallel_computing:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.filter_bank_iir_filters)) as executor:
-                # Start the load operations and mark each future with its filter
-                futures = [executor.submit(filter.transform, signal__) for filter in
-                           self.filter_bank_iir_filters]
-                signals = np.asarray([future.result() for future in futures])
+            filt_threads = []
+            for filter in self.filter_bank_iir_filters:
+                t = components.ThreadWithReturnValue(target=filter.transform,
+                    args=(signal__,))
+                filt_threads.append(t)
+                t.start()
+
+            for filt_idx, thread in enumerate(filt_threads):
+                signals[filt_idx, :, :] = thread.join()
         else:
             for filt_idx, filter in enumerate(self.filter_bank_iir_filters):
                 signals[filt_idx, :, :] = filter.transform(signal__)
