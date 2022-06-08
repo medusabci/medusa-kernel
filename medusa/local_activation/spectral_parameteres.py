@@ -264,7 +264,7 @@ if __name__ == "__main__":
     import scipy.io
     import time
     import matplotlib.pyplot as plt
-    mat = scipy.io.loadmat('P:/Usuarios/Victor_R/0001_Control.mat')
+    mat = scipy.io.loadmat('Path/File.mat')
     vector = np.array(mat["signal"])[:, :]
     signal = vector.T
 
