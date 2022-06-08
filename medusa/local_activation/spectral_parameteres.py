@@ -43,8 +43,9 @@ def band_power(psd, fs, bands):
     for b in range(len(bands)):
         band = bands[b]
         psd_samp = np.logical_and(freqs >= band[0], freqs < band[1])
-        powers[b, :, :] = np.sum(psd[:, psd_samp, :], axis=1) * (
-                    fs / (2 * freqs.shape[0]))
+        powers[b, :, :] = np.sum(psd[:, psd_samp, :], axis=1)
+
+    powers = powers / np.sum(powers, axis=0, keepdims=True)
     return powers
 
 
@@ -72,7 +73,7 @@ def median_frequency(psd, fs, band=(1, 70)):
         raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
                         'n_channels]')
 
-    if len(np.array(band).shape) != 2:
+    if np.array(band).shape[0] != 2:
         raise Exception('Parameter band must be a 2-D array of the desired '
                         'band. Ej. Delta: [0, 4]')
 
@@ -119,7 +120,7 @@ def indiv_alpha_frequency(psd, fs, band=(4, 15)):
         raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
                         'n_channels]')
 
-    if len(np.array(band).shape) != 2:
+    if np.array(band).shape[0] != 2:
         raise Exception('Parameter band must be a 2-D array of the desired '
                         'band. Ej. Delta: [0, 4]')
 
@@ -166,7 +167,7 @@ def shannon_spectral_entropy(psd, fs, band=(1, 70)):
         raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
                         'n_channels]')
 
-    if len(np.array(band).shape) != 2:
+    if np.array(band).shape[0] != 2:
         raise Exception('Parameter band must be a 2-D array of the desired '
                         'band. Ej. Delta: [0, 4]')
 
@@ -185,7 +186,7 @@ def shannon_spectral_entropy(psd, fs, band=(1, 70)):
     return np.array(se)
 
 
-def compute_spectral_metric(signal, fs, epoch_len, param, bands=bands_rp):
+def compute_spectral_metric(signal, fs, param, epoch_len=None, bands=bands_rp):
     """ This method allows to compute the different spectral parameters
     implemented in MEDUSA in an easy way. It is just necessary to provide the
     signal, its sampling frequency, the epoch length, and the desired parameter.
@@ -206,13 +207,17 @@ def compute_spectral_metric(signal, fs, epoch_len, param, bands=bands_rp):
 
     Returns
     -------
-    spect_param : numpy 2D array
+    param_values : numpy 2D array
         Per-channel values of the spectral parameter selected in "param"
-        [n_epochs x n_channels].
+        [n_epochs x n_channels]. If "param" is "RP", "spect_param" will be
+        [n_bands x n_epochs x n_channels]
 
     """
     if not np.issubdtype(signal.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
+
+    if epoch_len is None:
+        epoch_len = signal.shape[0]
 
     # Epoching
     signal_epoched = medusa.get_epochs(signal, epoch_len)
@@ -249,10 +254,24 @@ def compute_spectral_metric(signal, fs, epoch_len, param, bands=bands_rp):
         param_values = indiv_alpha_frequency(psd, fs)
     elif param == 'SE':
         param_values = shannon_spectral_entropy(psd, fs)
+    else:
+        raise ValueError("Unknown spectral parameter")
 
-    return param
+    return param_values
 
 
 if __name__ == "__main__":
-    aa = np.random.random((20000, 15))
-    bb = compute_spectral_metric(aa, 1000, 5000, 'RP')
+    import scipy.io
+    import time
+    import matplotlib.pyplot as plt
+    mat = scipy.io.loadmat('P:/Usuarios/Victor_R/0001_Control.mat')
+    vector = np.array(mat["signal"])[:, :]
+    signal = vector.T
+
+    param = 'RP'
+
+    output = compute_spectral_metric(signal, fs=1000, param=param, epoch_len=5000)
+    aa = output[:, 5, :]
+    bb = np.sum(aa, axis=0)
+    cc = 0
+

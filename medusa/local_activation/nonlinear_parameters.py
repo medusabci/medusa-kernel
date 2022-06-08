@@ -531,6 +531,11 @@ def compute_nonlinear_metric(signal, epoch_len, param):
         elif param == 'MultiscaleLZC':
             param_values[ii, :, :] = multiscale_lempelziv(
                 np.squeeze(signal_epoched[ii, :, :]), ms_lzc_w)
+        else:
+            raise ValueError("Unknown spectral parameter")
+
+    return param_values
+
 
 if __name__ == '__main__':
     import scipy.signal as ss
