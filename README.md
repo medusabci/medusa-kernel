@@ -1,8 +1,27 @@
-# Medusa-core
+# MEDUSA Kernel
 
-This package is your advanced tool for biosignal processing. It implements state-of-the-art methods that are use currently in research/engineering. Additionaly, is the base toolbox for MEDUSA, a platform to easily run and implement biofeedback experiments.
+## Information
 
-Medusa-core provides:
-- State-of-the-art signal processing methods: especialized deep learning models, entropy metrics, connectivity, graph theory, etc
-- High-level functionalities: brain-computer interfaces, beautiful plots
-- Base functions for MEDUSA platform
+Check the following links to know more about the MEDUSA environment for neurotechnology and brain-computer interface (BCI) experiments:
+
+- Website: https://www.medusabci.com/
+- Documentation: https://www.medusabci.com/solutions/medusa-kernel/doc/
+
+Current version: 0.2.0
+
+Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
+
+## Overview
+MEDUSA Kernel is a Python library, available in the Python Package Index (PyPI) repository, with a complete suite of functions for signal processing. The included functions can be categorized according to their different levels of abstraction. The first level is composed of low-level functions to process signals and calculate basic parameters, including the following:
+
+- Temporal filters: online and offline infinite impulse response filters (IIR) and offline finite impulse response filters (FIR).
+- Spatial filters: common average reference (CAR), laplacian filter, multi-class common spatial patterns (CSP) and canonical correlation analysis (CCA).
+- Local activation: including spectral metrics, such as band power, median frequency, Shannon entropy , and complexity metrics, such as central tendency measure, sample entropy, multiscale entropy, Lempel-Ziv's complexity and Multiscale Lempel-Ziv's complexity.
+- Connectivity: amplitude metrics, such as amplitude correlation envelope (AEC) and instantaneous amplitude correlation (IAC), and phase metrics, such as phase locking value (PLV), phase lag index (PLI) and weighted PLI (wPLI).
+
+In a higher level of abstraction there are functions that apply a processing pipeline to the input data to analyze certain features. MEDUSA does not assume the nature of the input data in low-level functions, but most of the high-level analysis that are currently implemented are designed to work with electroencephalography (EEG) and magnetoencephalography (MEG) recordings. These functions include:
+
+- Signal processing for BCIs based on event related potentials (ERP): complete classification pipelines including regularized linear discriminant analysis (rLDA) \cite{}, EEGNet \cite{} and EEG-Inception \cite{} that can be applied in offline and online modes; ERP analysis with advanced charts.  
+- Signal processing for BCIs based on motor imagery (MI): complete classification pipelines including CSP combined with rLDA \cite{}, EEGNet \cite{}, EEG-Inception \cite{} and EEGSym \cite{} that can be applied in offline and online modes; MI analysis with advanced charts.  
+- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA \cite{}; cVEP analysis with advanced charts. 
+- Signal processing for neurofeedback (NF): battery of high-level models based on spectral and connectivity metrics ready to be applied in online and offline applications.

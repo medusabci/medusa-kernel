@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.1.1',
+    version='0.2.0',
     description='Advanced biosignal processing toolbox',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://gib.tel.uva.es/',
