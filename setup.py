@@ -1,10 +1,14 @@
 from setuptools import setup, find_packages
+from pathlib import Path
+
+# read the contents of your README file
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text()
 
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.2.0',
-    description='Advanced biosignal processing toolbox',
+    version='0.2.1',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://gib.tel.uva.es/',
     author='Eduardo Santamaría-Vázquez, '
@@ -36,4 +40,7 @@ setup(
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3 :: Only',
     ],
+    description='Advanced biosignal processing toolbox',
+    long_description=long_description,
+    long_description_content_type='text/markdown'
 )
