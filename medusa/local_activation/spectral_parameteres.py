@@ -210,6 +210,9 @@ def power_spectral_density(signal,fs,epoch_len=None):
         PSD of MEEG Signal. [n_epochs, n_samples, n_channels]
         """
 
+    if len(signal.shape) < 2:
+        signal = signal[ ..., np.newaxis]
+
     if epoch_len is not None:
         if not isinstance(epoch_len,int):
             raise ValueError("Epoch length must be a integer"
@@ -222,13 +225,18 @@ def power_spectral_density(signal,fs,epoch_len=None):
 
     signal_epoched = medusa.get_epochs(signal, epoch_len)
 
-    if len(signal_epoched.shape) < 2:
-        signal_epoched = signal_epoched[np.newaxis, ..., np.newaxis]
-    elif len(signal_epoched.shape) < 3:
-        if signal.shape[1] == 1:
-            signal_epoched = signal_epoched[..., np.newaxis]
-        else:
-            signal_epoched = signal_epoched[np.newaxis, ...]
+    # TODO BORRAR ESTO?
+    # if len(signal_epoched.shape) < 2:
+    #     signal_epoched = signal_epoched[np.newaxis, ..., np.newaxis]
+    if len(signal_epoched.shape) < 3:
+        signal_epoched = signal_epoched[np.newaxis, ...]
+        #TODO BORRAR ESTO?
+
+        # if signal.shape[1] == 1:
+        #     signal_epoched = signal_epoched[np.newaxis, ...]
+        #     signal_epoched = signal_epoched[..., np.newaxis]
+        # else:
+        #     signal_epoched = signal_epoched[np.newaxis, ...]
 
     # Estimating the PSD
     # Get the number of samples for the PSD length
@@ -321,12 +329,13 @@ if __name__ == "__main__":
     import scipy.io
     import time
     import matplotlib.pyplot as plt
-    mat = scipy.io.loadmat('Path/File.mat')
-    vector = np.array(mat["signal"])[:, :]
-    signal = vector.T
+    # mat = scipy.io.loadmat('Path/File.mat')
+    # vector = np.array(mat["signal"])[:, :]
+    # signal = vector.T
+    signal = np.random.random(500000)
     param = 'RP'
 
-    output = compute_spectral_metric(signal, fs=1000, param=param, epoch_len=5000)
+    output = compute_spectral_metric(signal, fs=1000, param=param, epoch_len=None)
     aa = output[:, 5, :]
     bb = np.sum(aa, axis=0)
     cc = 0
