@@ -207,7 +207,7 @@ def power_spectral_density(signal,fs,epoch_len=None):
         Array of sample frequencies.
 
     psd: numpy 2D array
-        PSD of MEEG Signal. [n_samples, n_channels]
+        PSD of MEEG Signal. [n_epochs, n_samples, n_channels]
         """
 
     if epoch_len is not None:
