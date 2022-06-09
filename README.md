@@ -7,8 +7,6 @@ Check the following links to know more about the MEDUSA environment for neurotec
 - Website: https://www.medusabci.com/
 - Documentation: https://www.medusabci.com/solutions/medusa-kernel/doc/
 
-Current version: 0.2.0
-
 Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
 
 ## Overview
