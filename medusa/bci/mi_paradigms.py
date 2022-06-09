@@ -331,14 +331,14 @@ class StandardPreprocessing(components.ProcessingMethod):
     """
 
     def __init__(self, order=4, cutoff=[0.05, 63], btype='bandpass',
-                 filt_method='sosfiltfilt'):
+                 temp_filt_method='sosfiltfilt'):
         super().__init__(fit_transform_signal=['signal'],
                          fit_transform_dataset=['dataset'])
         # Parameters
         self.order = order
         self.cutoff = cutoff
         self.btype = btype
-        self.filt_method = filt_method
+        self.temp_filt_method = temp_filt_method
 
         # Variables that
         self.iir_filter = None
@@ -358,7 +358,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         self.iir_filter = IIRFilter(order=self.order,
                                     cutoff=self.cutoff,
                                     btype=self.btype,
-                                    filt_method=self.filt_method)
+                                    filt_method=self.temp_filt_method)
         self.iir_filter.fit(fs, n_cha=n_cha)
 
     def transform_signal(self, signal):
@@ -387,7 +387,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         self.iir_filter = IIRFilter(order=self.order,
                                     cutoff=self.cutoff,
                                     btype=self.btype,
-                                    filt_method=self.filt_method)
+                                    filt_method=self.temp_filt_method)
         signal = self.iir_filter.fit_transform(signal, fs)
         signal = car(signal)
         return signal
@@ -922,7 +922,7 @@ class MIModel(components.Algorithm):
 
     def predict(self, times, signal, fs, l_cha, x_info, **kwargs):
         """Function that receives EEG signal and experiment info from an
-        ERP-based speller to decode the user's intentions. Used in online
+        MI-based trial to decode the user's intentions. Used in online
         experiments. By default, executes pipeline 'predict'. Override method
         for other behaviour.
 
@@ -938,9 +938,8 @@ class MIModel(components.Algorithm):
             List of channel labels
         x_info: dict
             Dict with the needed experiment info to decode the commands. It
-            has to contain keys: paradigm_conf, onsets, batch_idx, group_idx,
-            unit_idx, level_idx, matrix_idx, sequence_idx, trial_idx, run_idx.
-            See ERPSpellerData to know how are defined these variables.
+            has to contain keys: mode, onsets, w_trial_t.
+            See MIData to know how are defined these variables.
         kwargs: key-value arguments
             Optional parameters depending on the specific implementation of
             the model

@@ -225,7 +225,7 @@ class CSP(components.ProcessingMethod):
             into (must be less or equal to the number of channels in your
             signal).
             If int it will return that number of filters.
-            If None it will return the all calculated filters."""
+            If None it will return all calculated filters."""
 
         self.filters = None  # Mixing matrix (spatial filters)
         self.eigenvalues = None  # Eigenvalues
@@ -324,9 +324,6 @@ class CSP(components.ProcessingMethod):
             raise Exception("CSP must be fitted first")
         return np.matmul(self.filters, X.transpose((0, 2, 1)))
 
-    def to_dict(self):
-        return self.__dict__
-
     def adj_pham(self, x, eps=1e-6, n_iter_max=15):
         """Approximate joint diagonalization based on pham's algorithm.
             This is a direct implementation of the PHAM's AJD algorithm [1].
@@ -409,12 +406,16 @@ class CSP(components.ProcessingMethod):
         d = np.reshape(a, (n_times, -1, n_times)).transpose(1, 0, 2)
         return v, d
 
+    def to_dict(self):
+        return self.__dict__
+
     @staticmethod
     def from_dict(dict_data):
         csp = CSP()
-        csp.w = dict_data['w']
+        csp.filters = dict_data['filters']
         csp.eigenvalues = dict_data['eigenvalues']
-        csp.a = dict_data['a']
+        csp.patterns = dict_data['patterns']
+        csp.n_filters = dict_data['n_filters']
         return csp
 
 
