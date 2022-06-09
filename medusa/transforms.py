@@ -58,21 +58,20 @@ def hilbert(x, flag=0):
     else:
         return hilbert_sp(x, axis=0)
 
-def power_spectral_density(signal,fs,epoch_len=None):
-    """
-    This method allows to compute the power spectral density by means of
+
+def power_spectral_density(signal, fs, epoch_len=None):
+    """This method allows to compute the power spectral density by means of
     Welch's periodogram method.
 
     Parameters
     ----------
     signal : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+        Signal. [n_samples x n_channels].
     fs : int
         Sampling frequency of the signal
     epoch_len : int or None
         Length of the epochs in which divide the signal. If None,
-        the power spectral density will be calculated from the
-        entire signal.
+        the power spectral density of the entire signal will be calculated.
 
     Returns
     -------
@@ -80,8 +79,8 @@ def power_spectral_density(signal,fs,epoch_len=None):
         Array of sample frequencies.
 
     psd: numpy 2D array
-        PSD of MEEG Signal. [n_epochs, n_samples, n_channels]
-        """
+        PSD of M/EEG Signal. [n_epochs, n_samples, n_channels]
+    """
 
     if len(signal.shape) < 2:
         signal = signal[ ..., np.newaxis]
