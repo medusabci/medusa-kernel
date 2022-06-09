@@ -57,3 +57,55 @@ def hilbert(x, flag=0):
         return tf.transpose(tf.signal.ifft(tf.transpose(xc)))
     else:
         return hilbert_sp(x, axis=0)
+
+def power_spectral_density(signal,fs,epoch_len=None):
+    """
+    This method allows to compute the power spectral density by means of
+    Welch's periodogram method.
+
+    Parameters
+    ----------
+    signal : numpy 2D matrix
+        MEEG Signal. [n_samples x n_channels].
+    fs : int
+        Sampling frequency of the signal
+    epoch_len : int or None
+        Length of the epochs in which divide the signal. If None,
+        the power spectral density will be calculated from the
+        entire signal.
+
+    Returns
+    -------
+    f : numpy 1D array
+        Array of sample frequencies.
+
+    psd: numpy 2D array
+        PSD of MEEG Signal. [n_epochs, n_samples, n_channels]
+        """
+
+    if len(signal.shape) < 2:
+        signal = signal[ ..., np.newaxis]
+
+    if epoch_len is not None:
+        if not isinstance(epoch_len,int):
+            raise ValueError("Epoch length must be a integer"
+                             "value.")
+        if epoch_len > signal.shape[0]:
+            raise ValueError("Epoch length must be shorter than"
+                             "signal duration")
+    else:
+        epoch_len = signal.shape[0]
+
+    signal_epoched = medusa.get_epochs(signal, epoch_len)
+
+    if len(signal_epoched.shape) < 3:
+        signal_epoched = signal_epoched[np.newaxis, ...]
+
+    # Estimating the PSD
+    # Get the number of samples for the PSD length
+    n_samp = signal_epoched.shape[1]
+    # Compute the PSD
+    f, psd = spsig.welch(signal_epoched, fs=fs, window='boxcar',
+                         nperseg=n_samp, noverlap=0, axis=-2)
+
+    return f,psd
