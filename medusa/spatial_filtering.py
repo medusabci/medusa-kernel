@@ -240,8 +240,6 @@ class CSP(components.ProcessingMethod):
             joint diagonalization. In this case, the spatial filter selection
             is achieved according to [1].
 
-            Adapted from http://github.com/alexandrebarachant/pyRiemann
-
             Parameters
             ----------
             X : numpy.ndarray, [n_trials, samples, channels]

@@ -4,9 +4,6 @@ from medusa import tensorflow_integration
 from scipy.signal import hilbert as hilbert_sp
 
 
-
-
-
 def hilbert(x, flag=0):
     """This method implements the Hilbert transform.
 

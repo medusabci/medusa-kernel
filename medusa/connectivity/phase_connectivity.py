@@ -286,7 +286,8 @@ def phase_connectivity(data):
     """ This method implements three phase-based connectivity parameters: PLV,
     PLI, and wPLI.
 
-    REFERENCES: PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
+    REFERENCES:
+    PLV: Mormann, F., Lehnertz, K., David, P., & Elger, C. E.
     (2000). Mean phase coherence as a measure for phase synchronization and its
     application to the EEG of epilepsy patients. Physica D: Nonlinear Phenomena,
     144(3-4), 358-369.
