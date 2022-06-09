@@ -185,6 +185,60 @@ def shannon_spectral_entropy(psd, fs, band=(1, 70)):
 
     return np.array(se)
 
+def power_spectral_density(signal,fs,epoch_len=None):
+    """
+    This method allows to compute the power spectral density by means of
+    Welch's periodogram method.
+
+    Parameters
+    ----------
+    signal : numpy 2D matrix
+        MEEG Signal. [n_samples x n_channels].
+    fs : int
+        Sampling frequency of the signal
+    epoch_len : int or None
+        Length of the epochs in which divide the signal. If None,
+        the power spectral density will be calculated from the
+        entire signal.
+
+    Returns
+    -------
+    f : numpy 1D array
+        Array of sample frequencies.
+
+    psd: numpy 2D array
+        PSD of MEEG Signal. [n_samples, n_channels]
+        """
+
+    if epoch_len is not None:
+        if not isinstance(epoch_len,int):
+            raise ValueError("Epoch length must be a integer"
+                             "value.")
+        if epoch_len > signal.shape[0]:
+            raise ValueError("Epoch length must be shorter than"
+                             "signal duration")
+    else:
+        epoch_len = signal.shape[0]
+
+    signal_epoched = medusa.get_epochs(signal, epoch_len)
+
+    if len(signal_epoched.shape) < 2:
+        signal_epoched = signal_epoched[np.newaxis, ..., np.newaxis]
+    elif len(signal_epoched.shape) < 3:
+        if signal.shape[1] == 1:
+            signal_epoched = signal_epoched[..., np.newaxis]
+        else:
+            signal_epoched = signal_epoched[np.newaxis, ...]
+
+    # Estimating the PSD
+    # Get the number of samples for the PSD length
+    n_samp = signal_epoched.shape[1]
+    # Compute the PSD
+    f, psd = spsig.welch(signal_epoched, fs=fs, window='boxcar',
+                         nperseg=n_samp, noverlap=0, axis=-2)
+
+    return f,psd
+
 
 def compute_spectral_metric(signal, fs, param, epoch_len=None, bands=bands_rp):
     """ This method allows to compute the different spectral parameters
@@ -216,25 +270,28 @@ def compute_spectral_metric(signal, fs, param, epoch_len=None, bands=bands_rp):
     if not np.issubdtype(signal.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
 
-    if epoch_len is None:
-        epoch_len = signal.shape[0]
+    # if epoch_len is None:
+    #     epoch_len = signal.shape[0]
 
-    # Epoching
-    signal_epoched = medusa.get_epochs(signal, epoch_len)
-    if len(signal_epoched.shape) < 2:
-        signal_epoched = signal_epoched[np.newaxis, ..., np.newaxis]
-    elif len(signal_epoched.shape) < 3:
-        if signal.shape[1] == 1:
-            signal_epoched = signal_epoched[..., np.newaxis]
-        else:
-            signal_epoched = signal_epoched[np.newaxis, ...]
 
-    # Estimating the PSD
-    # Get the number of samples for the PSD length
-    n_samp = signal_epoched.shape[1]
-    # Compute the PSD
-    f, psd = spsig.welch(signal_epoched, fs=fs, window='boxcar',
-                         nperseg=n_samp, noverlap=0, axis=-2)
+    f, psd = power_spectral_density(signal,fs,epoch_len)
+
+    # # Epoching
+    # signal_epoched = medusa.get_epochs(signal, epoch_len)
+    # if len(signal_epoched.shape) < 2:
+    #     signal_epoched = signal_epoched[np.newaxis, ..., np.newaxis]
+    # elif len(signal_epoched.shape) < 3:
+    #     if signal.shape[1] == 1:
+    #         signal_epoched = signal_epoched[..., np.newaxis]
+    #     else:
+    #         signal_epoched = signal_epoched[np.newaxis, ...]
+    #
+    # # Estimating the PSD
+    # # Get the number of samples for the PSD length
+    # n_samp = signal_epoched.shape[1]
+    # # Compute the PSD
+    # f, psd = spsig.welch(signal_epoched, fs=fs, window='boxcar',
+    #                      nperseg=n_samp, noverlap=0, axis=-2)
 
     # # Initialize output variable
     # if param == 'RP':
@@ -267,7 +324,6 @@ if __name__ == "__main__":
     mat = scipy.io.loadmat('Path/File.mat')
     vector = np.array(mat["signal"])[:, :]
     signal = vector.T
-
     param = 'RP'
 
     output = compute_spectral_metric(signal, fs=1000, param=param, epoch_len=5000)
