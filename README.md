@@ -21,5 +21,5 @@ In a higher level of abstraction there are functions that apply a processing pip
 
 - Signal processing for BCIs based on event related potentials (ERP): complete classification pipelines including regularized linear discriminant analysis (rLDA), EEGNet and EEG-Inception that can be applied in offline and online modes; ERP analysis with advanced charts.  
 - Signal processing for BCIs based on motor imagery (MI): complete classification pipelines including CSP combined with rLDA, EEGNet, EEG-Inception and EEGSym that can be applied in offline and online modes; MI analysis with advanced charts.  
-- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA \cite{}; cVEP analysis with advanced charts. 
+- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA; cVEP analysis with advanced charts. 
 - Signal processing for neurofeedback (NF): battery of high-level models based on spectral and connectivity metrics ready to be applied in online and offline applications.
