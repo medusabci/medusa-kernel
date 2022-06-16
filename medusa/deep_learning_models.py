@@ -454,9 +454,9 @@ class EEGNet(components.ProcessingMethod):
         """
 
         if self.dropout_type == 'SpatialDropout2D':
-            self.dropout_type = SpatialDropout2D
+            dropout_type = SpatialDropout2D
         elif self.dropout_type == 'Dropout':
-            self.dropout_type = Dropout
+            dropout_type = Dropout
         else:
             raise ValueError('dropoutType must be one of SpatialDropout2D '
                              'or Dropout, passed as a string.')
@@ -474,14 +474,14 @@ class EEGNet(components.ProcessingMethod):
         block1 = BatchNormalization()(block1)
         block1 = Activation('elu')(block1)
         block1 = AveragePooling2D((1, 4))(block1)
-        block1 = self.dropout_type(self.dropout_rate)(block1)
+        block1 = dropout_type(self.dropout_rate)(block1)
 
         block2 = SeparableConv2D(self.F2, (1, 16),
                                  use_bias=False, padding='same')(block1)
         block2 = BatchNormalization()(block2)
         block2 = Activation('elu')(block2)
         block2 = AveragePooling2D((1, 8))(block2)
-        block2 = self.dropout_type(self.dropout_rate)(block2)
+        block2 = dropout_type(self.dropout_rate)(block2)
 
         flatten = Flatten(name='flatten')(block2)
 
@@ -1184,8 +1184,12 @@ class EEGSym(components.ProcessingMethod):
             augmentations["hemisphere_perturbation"] = 0
             augmentations["no_augmentation"] = 0
 
+            # selectionables = ["patch_perturbation", "random_shift",
+            #                   "hemisphere_perturbation", "no_augmentation"]
+            # We eliminate hemisphere_perturbation due to it being very
+            # dependant on the channels introduced
             selectionables = ["patch_perturbation", "random_shift",
-                              "hemisphere_perturbation", "no_augmentation"]
+                              "no_augmentation"]
             probabilities = None
 
             if augmentation:
@@ -1385,12 +1389,9 @@ class EEGSym(components.ProcessingMethod):
         val_idx = None
         train_idx = None
         for i, label in enumerate(np.unique(y)):
-
             idx = np.where((y == label))[0]
-            # idx1 = np.where((y == 1))[0]
-
+            np.random.shuffle(idx)
             val_idx_label = int(np.round(len(idx) * val_split))
-            # val_idx1 = int(np.round(len(idx1) * val_split))
 
             val_idx = np.concatenate((val_idx, idx[:val_idx_label]), axis=0) \
                 if val_idx is not None else np.array(idx[:val_idx_label])
