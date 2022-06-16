@@ -13,7 +13,9 @@ setup(
     url='https://medusabci.com/medusa-kernel',
     author='Eduardo Santamaría-Vázquez, '
            'Víctor Martínez-Cagigal, '
-           'Víctor Rodríguez-González',
+           'Víctor Rodríguez-González, '
+           'Diego Marcos-Martínez, '
+           'Sergio Pérez-Velasco',
     author_email='eduardo.santamaria@gib.tel.uva.es',
     license='MIT',
     install_requires=[
