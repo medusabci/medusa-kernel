@@ -8,12 +8,14 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.2.1',
+    version='0.2.2',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
-    url='https://gib.tel.uva.es/',
+    url='https://medusabci.com/medusa-kernel',
     author='Eduardo Santamaría-Vázquez, '
            'Víctor Martínez-Cagigal, '
-           'Víctor Rodríguez-González',
+           'Víctor Rodríguez-González, '
+           'Diego Marcos-Martínez, '
+           'Sergio Pérez-Velasco',
     author_email='eduardo.santamaria@gib.tel.uva.es',
     license='MIT',
     install_requires=[

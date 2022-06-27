@@ -19,7 +19,7 @@ MEDUSA Kernel is a Python library, available in the Python Package Index (PyPI) 
 
 In a higher level of abstraction there are functions that apply a processing pipeline to the input data to analyze certain features. MEDUSA does not assume the nature of the input data in low-level functions, but most of the high-level analysis that are currently implemented are designed to work with electroencephalography (EEG) and magnetoencephalography (MEG) recordings. These functions include:
 
-- Signal processing for BCIs based on event related potentials (ERP): complete classification pipelines including regularized linear discriminant analysis (rLDA) \cite{}, EEGNet \cite{} and EEG-Inception \cite{} that can be applied in offline and online modes; ERP analysis with advanced charts.  
-- Signal processing for BCIs based on motor imagery (MI): complete classification pipelines including CSP combined with rLDA \cite{}, EEGNet \cite{}, EEG-Inception \cite{} and EEGSym \cite{} that can be applied in offline and online modes; MI analysis with advanced charts.  
-- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA \cite{}; cVEP analysis with advanced charts. 
+- Signal processing for BCIs based on event related potentials (ERP): complete classification pipelines including regularized linear discriminant analysis (rLDA), EEGNet and EEG-Inception that can be applied in offline and online modes; ERP analysis with advanced charts.  
+- Signal processing for BCIs based on motor imagery (MI): complete classification pipelines including CSP combined with rLDA, EEGNet, EEG-Inception and EEGSym that can be applied in offline and online modes; MI analysis with advanced charts.  
+- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA; cVEP analysis with advanced charts. 
 - Signal processing for neurofeedback (NF): battery of high-level models based on spectral and connectivity metrics ready to be applied in online and offline applications.
