@@ -80,7 +80,7 @@ class MIData(components.ExperimentData):
         mode = mode.lower()
         if mode == 'train':
             if mi_labels is None:
-                raise ValueError('Attributes mi_labels, control_state_labels '
+                raise ValueError('Attributes mi_labels, '
                                  'should be provided in train mode')
 
         # Standard attributes
@@ -143,7 +143,7 @@ class MIDataset(components.Dataset):
             recordings (e.g., 'mi_left_right', 'rest_mi'). It is
             mandatory when a recording of the dataset contains more than 1
             experiment data
-        experiment_mode : str {'train'|'test'|None}
+        experiment_mode : str {'train'|'test'|'guided test'|None}
             Mode of the experiment. If this dataset will be used to fit a model,
             set to train to avoid errors
         track_attributes: dict of dicts or None
@@ -203,7 +203,7 @@ class MIDataset(components.Dataset):
             }
         }
 
-        if experiment_mode == 'train':
+        if experiment_mode in ['train', 'guided_test']:
             default_track_attributes_train = {
                 'mi_labels': {
                     'track_mode': 'concatenate',
@@ -291,13 +291,13 @@ class MIDataset(components.Dataset):
                          'type': MIData}
         )
         # Check mode
-        if self.experiment_mode is not None:
-            checker.add_consistency_rule(
-                rule='check-attribute-value',
-                rule_params={'attribute': 'mode',
-                             'value': self.experiment_mode},
-                parent=self.experiment_att_key
-            )
+        # if self.experiment_mode is not None:
+        #     checker.add_consistency_rule(
+        #         rule='check-attribute-value',
+        #         rule_params={'attribute': 'mode',
+        #                      'value': self.experiment_mode},
+        #         parent=self.experiment_att_key
+        #     )
 
         # Check track_attributes
         if self.track_attributes is not None:
@@ -330,7 +330,7 @@ class StandardPreprocessing(components.ProcessingMethod):
     reference (CAR) spatial filter.
     """
 
-    def __init__(self, order=4, cutoff=[0.05, 63], btype='bandpass',
+    def __init__(self, order=5, cutoff=[0.05, 63], btype='bandpass',
                  temp_filt_method='sosfiltfilt'):
         super().__init__(fit_transform_signal=['signal'],
                          fit_transform_dataset=['dataset'])
@@ -1135,8 +1135,8 @@ class MIModelEEGSym(MIModel):
 
     def configure(self, cnn_n_cha=8, ch_lateral=3, fine_tuning=False,
                   shuffle_before_fit=True, validation_split=0.4,
-                  init_weights_path=None, gpu_acceleration=True,
-                  augmentation=True):
+                  init_weights_path=None, gpu_acceleration=False,
+                  augmentation=False):
         self.settings = {
             'cnn_n_cha': cnn_n_cha,
             'ch_lateral': ch_lateral,
@@ -1169,6 +1169,7 @@ class MIModelEEGSym(MIModel):
             input_time=2000,
             fs=128,
             n_cha=self.settings['cnn_n_cha'],
+            ch_lateral=self.settings['ch_lateral'],
             filters_per_branch=24,
             scales_time=(125, 250, 500),
             dropout_rate=0.4,
