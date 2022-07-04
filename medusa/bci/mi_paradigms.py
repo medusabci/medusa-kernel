@@ -543,7 +543,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             norm_epoch = None
 
         features = normalize_epochs(features, norm_epochs=norm_epoch,
-                                        norm=self.norm)
+                                    norm=self.norm)
         # Resample each epoch to the target frequency
         if self.target_fs is not None:
             if self.target_fs > fs:
@@ -745,9 +745,10 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
                 De-mixing matrix (activation patterns are stored in columns).
         """
         super().__init__(w_epoch_t=w_epoch_t, target_fs=target_fs,
-                 baseline_mode=baseline_mode,
-                 w_baseline_t=w_baseline_t, norm=norm,
-                 concatenate_channels=concatenate_channels, safe_copy=safe_copy)
+                         baseline_mode=baseline_mode,
+                         w_baseline_t=w_baseline_t, norm=norm,
+                         concatenate_channels=concatenate_channels,
+                         safe_copy=safe_copy)
         self.CSP = CSP(n_filters=n_filters)
 
     def fit(self, X, y):
@@ -826,8 +827,8 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
         return features
 
     def transform_dataset(self, dataset, show_progress_bar=True):
-        features, track_info = super().transform_dataset(dataset=dataset,
-                                  show_progress_bar=show_progress_bar)
+        features, track_info = super().transform_dataset(
+            dataset=dataset, show_progress_bar=show_progress_bar)
         # Fit CSP filter
         self.fit(X=features, y=track_info['mi_labels'])
         # Project features into CSP space and obtain log-variance features given
@@ -1045,7 +1046,7 @@ class MIModelCSP(MIModel):
         # Accuracy
         accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
         clf_report = classification_report(x_info['mi_labels'], y_pred,
-                                       output_dict=True)
+                                           output_dict=True)
         assessment = {
             'x': x,
             'x_info': x_info,
@@ -1083,7 +1084,7 @@ class MIModelCSP(MIModel):
         if x_info['mi_labels'] is not None:
             accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
             clf_report = classification_report(x_info['mi_labels'], y_pred,
-                                           output_dict=True)
+                                               output_dict=True)
         decoding = {
             'x': x,
             'x_info': x_info,
@@ -1092,6 +1093,7 @@ class MIModelCSP(MIModel):
             'report': clf_report
         }
         return decoding
+
 
 class MIModelEEGSym(MIModel):
     """Decoding model for MI-based BCI applications based on EEGSym [1], a deep
@@ -1195,22 +1197,22 @@ class MIModelEEGSym(MIModel):
         x, x_info = self.get_inst('ext_method').transform_dataset(dataset)
         # Put channels in symmetric order
         x = self.get_inst('clf_method').symmetric_channels(x,
-                                                dataset.channel_set.l_cha)
+                                                           dataset.channel_set.l_cha)
 
         # Classification
         self.get_inst('clf_method').fit(x, x_info['mi_labels'],
-                        fine_tuning=self.settings['fine_tuning'],
-                        shuffle_before_fit=self.settings['shuffle_before_fit'],
-                        validation_split=self.settings['validation_split'],
-                        augmentation=self.settings['augmentation'],
-                        **kwargs)
+                                        fine_tuning=self.settings['fine_tuning'],
+                                        shuffle_before_fit=self.settings['shuffle_before_fit'],
+                                        validation_split=self.settings['validation_split'],
+                                        augmentation=self.settings['augmentation'],
+                                        **kwargs)
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = y_prob.argmax(axis=-1)
 
         # Accuracy
         accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
         clf_report = classification_report(x_info['mi_labels'], y_pred,
-                                       output_dict=True)
+                                           output_dict=True)
         assessment = {
             'x': x,
             'x_info': x_info,
@@ -1240,7 +1242,7 @@ class MIModelEEGSym(MIModel):
                                                          x_info['onsets'])
         # Put channels in symmetric order
         x = self.get_inst('clf_method').symmetric_channels(x,
-                                                    self.channel_set.l_cha)
+                                                           self.channel_set.l_cha)
         # Classification
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = y_prob.argmax(axis=-1)
@@ -1251,7 +1253,7 @@ class MIModelEEGSym(MIModel):
         if x_info['mi_labels'] is not None:
             accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
             clf_report = classification_report(x_info['mi_labels'], y_pred,
-                                           output_dict=True)
+                                               output_dict=True)
         decoding = {
             'x': x,
             'x_info': x_info,
