@@ -8,7 +8,7 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.2.2',
+    version='0.2.3',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/medusa-kernel',
     author='Eduardo Santamaría-Vázquez, '
@@ -28,7 +28,8 @@ setup(
         'bson',
         'h5py',
         'dill',
-        'tqdm'
+        'tqdm',
+        'tensorflow'
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
