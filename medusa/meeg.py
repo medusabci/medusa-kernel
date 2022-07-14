@@ -22,12 +22,15 @@ from medusa import components
 
 # Synonyms
 eeg_channel_synonyms = {
-    'I1': 'O9',
-    'I2': 'O10',
-    'T3': 'T7',
-    'T4': 'T8'
-}
-
+                'I1': 'O9',
+                'I2': 'O10',
+                'O9': 'I1',
+                'O10': 'I2',
+                'T3': 'T7',
+                'T4': 'T8',
+                'T7': 'T3',
+                'T8': 'T4'
+            }
 # EEG standards
 eeg_1020 = {'C3': {'X2D': -0.3249, 'Y2D': 0.0, 'X3D': -0.5878, 'Y3D': 0.0,
                    'Z3D': 0.809},
@@ -961,8 +964,11 @@ class EEGChannelSet(components.SerializableComponent):
             standard_data = standard
         # Check error
         if label not in standard_data:
-            raise UnknownStandardChannel(
-                'Unkown standard channel with label %s' % label)
+            if label in eeg_channel_synonyms:
+                label = eeg_channel_synonyms[label]
+            else:
+                raise UnknownStandardChannel(
+                    'Unkown standard channel with label %s' % label)
         cha_data = {'label': label}
         if self.dim == '2D':
             if self.coord_system == 'cartesian':
