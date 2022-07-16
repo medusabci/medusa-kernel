@@ -22,12 +22,17 @@ from medusa import components
 
 # Synonyms
 eeg_channel_synonyms = {
-    'I1': 'O9',
-    'I2': 'O10',
-    'T3': 'T7',
-    'T4': 'T8',
-    'T5': 'P7',
-    'T6': 'P8'
+                'I1': 'O9',
+                'I2': 'O10',
+                'O9': 'I1',
+                'O10': 'I2',
+                'T3': 'T7',
+                'T4': 'T8',
+                'T7': 'T3',
+                'T8': 'T4',
+                'T5': 'P7',
+                'T6': 'P8'
+
 }
 
 # EEG standards
