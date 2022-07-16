@@ -1,6 +1,8 @@
 import tensorflow as tf
 import numpy as np
-from medusa import tensorflow_integration
+from . import epoching
+from . import tensorflow_integration
+from scipy.signal import welch as welch_sp
 from scipy.signal import hilbert as hilbert_sp
 
 
@@ -83,7 +85,7 @@ def power_spectral_density(signal, fs, epoch_len=None):
     """
 
     if len(signal.shape) < 2:
-        signal = signal[ ..., np.newaxis]
+        signal = signal[..., np.newaxis]
 
     if epoch_len is not None:
         if not isinstance(epoch_len,int):
@@ -95,7 +97,7 @@ def power_spectral_density(signal, fs, epoch_len=None):
     else:
         epoch_len = signal.shape[0]
 
-    signal_epoched = medusa.get_epochs(signal, epoch_len)
+    signal_epoched = epoching.get_epochs(signal, epoch_len)
 
     if len(signal_epoched.shape) < 3:
         signal_epoched = signal_epoched[np.newaxis, ...]
@@ -104,7 +106,47 @@ def power_spectral_density(signal, fs, epoch_len=None):
     # Get the number of samples for the PSD length
     n_samp = signal_epoched.shape[1]
     # Compute the PSD
-    f, psd = spsig.welch(signal_epoched, fs=fs, window='boxcar',
-                         nperseg=n_samp, noverlap=0, axis=-2)
+    f, psd = welch_sp(signal_epoched, fs=fs, window='boxcar',
+                      nperseg=n_samp, noverlap=0, axis=-2)
+    return f, psd
 
-    return f,psd
+
+def normalize_psd(psd, norm='rel'):
+    """
+    Normalizes the PSD by the total power.
+
+    Parameters
+    ----------
+    psd: numpy array or list
+        Power Spectral Density (PSD) of the signal with shape [samples],
+        [samples x channels] or [epochs x samples x channels]. It assumes PSD
+        is the one-sided spectrum.
+    norm: string
+        Normalization to be performed. Choose z for z-score or rel for
+        relative power.
+
+    """
+    # Check errors
+    if len(psd.shape) > 3:
+        raise Exception('Parameter psd must have shape [samples],'
+                        ' [samples x channels] or '
+                        '[epochs x samples x channels]')
+
+    # Reshape
+    if len(psd.shape) == 1:
+        psd = psd.reshape(psd.shape[0], 1)
+
+    if len(psd.shape) == 2:
+        psd = psd.reshape(1, psd.shape[0], psd.shape[1])
+
+    if norm == 'rel':
+        p = np.sum(psd, axis=1, keepdims=True)
+        psd_norm = psd / p
+    elif norm == 'z':
+        m = np.mean(psd, keepdims=True, axis=1)
+        s = np.std(psd, keepdims=True, axis=1)
+        psd_norm = (psd - m) / s
+    else:
+        raise Exception('Unknown normalization. Choose z or rel')
+
+    return psd_norm
