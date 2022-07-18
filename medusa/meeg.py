@@ -1128,7 +1128,7 @@ class EEGChannelSet(components.SerializableComponent):
             standard_data = eeg_1005.copy()
         # Get list of labels to get
         l_cha = standard_data.keys() if l_cha is None \
-            else [l.upper() for l in l_cha]
+            else [l.upper().strip() for l in l_cha]
         # Reference
         if l_reference is not None:
             reference = self.get_standard_channel_data_from_label(
