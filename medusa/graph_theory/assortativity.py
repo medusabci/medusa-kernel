@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from medusa.graph_theory_TBD import degree
+from medusa.graph_theory import degree
 
 def __assort_gpu(W):
     """

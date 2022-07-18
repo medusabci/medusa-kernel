@@ -1,7 +1,4 @@
 import numpy as np
-import scipy.signal as spsig
-import medusa
-from medusa.transforms import power_spectral_density
 
 bands_rp = ([0, 4], [4, 8], [8, 13], [13, 19], [19, 30], [30, 70])
 
@@ -13,7 +10,12 @@ def band_power(psd, fs, bands):
     Parameters
     ----------
     psd : numpy array
-        PSD of MEEG Signal. [n_samples x n_channels]
+        PSD of MEEG signal with shape [n_epochs, n_samples, n_channels]. Some
+        of these dimensions may not exist in advance. In these case, create new
+        axis using np.newaxis. E.g., non-epoched single-channel signal with
+        shape [n_samples] can be passed to this function with psd[numpy.newaxis,
+        ..., numpy.newaxis]. Afterwards, you may use numpy.squeeze to eliminate
+        those axes.
     fs : int
         Sampling frequency of the signal
     bands : numpy 2D array
@@ -23,16 +25,18 @@ def band_power(psd, fs, bands):
     Returns
     -------
     powers : numpy 2D array
-        RP value for each band and channel in "signal". [n_bands x n_epochs x
-         n_channels].
+        RP value for each band, epoch and channel. [n_bands, n_epochs,
+        n_channels]
     """
+    # To numpy arrays
+    psd = np.array(psd)
+    bands = np.array(bands)
 
     # Check errors
     if len(psd.shape) != 3:
         raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
                         'n_channels]')
-
-    if len(np.array(bands).shape) != 2:
+    if len(bands.shape) != 2:
         raise Exception('Parameter bands must be a 2-D array of the desired '
                         'bands. Ej. Delta and theta bands: [[0, 4], [4, 8]]')
 
@@ -51,32 +55,40 @@ def band_power(psd, fs, bands):
 
 
 def median_frequency(psd, fs, band=(1, 70)):
-    """
-    This method computes the median frequency of the signal in the given band.
+    """This method computes the median frequency (MF) of the signal in the given
+    band.
 
     Parameters
     ----------
     psd : numpy array
-        PSD of MEEG Signal. [n_samples x n_channels]
+        PSD of MEEG signal with shape [n_epochs, n_samples, n_channels]. Some
+        of these dimensions may not exist in advance. In these case, create new
+        axis using np.newaxis. E.g., non-epoched single-channel signal with
+        shape [n_samples] can be passed to this function with psd[numpy.newaxis,
+        ..., numpy.newaxis]. Afterwards, you may use numpy.squeeze to eliminate
+        those axes.
     fs : int
         Sampling frequency of the signal
     band : numpy array
         Frequency band where the MF will be computed. [b1_start, b1_end].
-        Default [1, 70]
+        Default [1, 70].
 
     Returns
     -------
     median_freqs : numpy 2D array
-        MF value for each band and channel in "signal". [n_epoch x n_channels].
+        MF value for each epoch and channel with shape [n_epochs x n_channels].
     """
+    # To numpy arrays
+    psd = np.array(psd)
+    band = np.array(band)
+
     # Check errors
     if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
-
-    if np.array(band).shape[0] != 2:
-        raise Exception('Parameter band must be a 2-D array of the desired '
-                        'band. Ej. Delta: [0, 4]')
+        raise ValueError('Parameter psd does not have correct dimensions. '
+                         'Check the documentation for more information.')
+    if len(band.shape) != 1 and band.shape[0] != 2:
+        raise Exception('Parameter band must be an array with the desired '
+                        'band. E.g., Delta: [0, 4]')
 
     # Calculate freqs array
     freqs = np.linspace(0, fs / 2, psd.shape[1])
@@ -96,61 +108,48 @@ def median_frequency(psd, fs, band=(1, 70)):
     return median_freqs
 
 
-def indiv_alpha_frequency(psd, fs, band=(4, 15)):
-    """
-    This method computes the individual alpha frequency of the signal in the
-    given band.
+def individual_alpha_frequency(psd, fs, band=(4, 15)):
+    """ This method computes the individual alpha frequency (IAF) of the signal
+    in the given band. This is the another name for median frequency, usually
+    used in MEEG studies.
 
     Parameters
     ----------
     psd : numpy array
-        PSD of MEEG Signal. [n_samples x n_channels]
+        PSD of MEEG signal with shape [n_epochs, n_samples, n_channels]. Some
+        of these dimensions may not exist in advance. In these case, create new
+        axis using np.newaxis. E.g., non-epoched single-channel signal with
+        shape [n_samples] can be passed to this function with psd[numpy.newaxis,
+        ..., numpy.newaxis]. Afterwards, you may use numpy.squeeze to eliminate
+        those axes.
     fs : int
         Sampling frequency of the signal
     band : numpy array
         Frequency band where the IAF will be computed. [b1_start, b1_end].
-        Default [9, 15]
+        Default [4, 15]
 
     Returns
     -------
     iaf : numpy 2D array
-        IAF value for each band and channel in "signal". [1 x n_channels].
+        IAF value for each epoch and channel with shape [n_epochs x n_channels].
     """
-    # Check errors
-    if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
-
-    if np.array(band).shape[0] != 2:
-        raise Exception('Parameter band must be a 2-D array of the desired '
-                        'band. Ej. Delta: [0, 4]')
-
-    # Calculate freqs array
-    freqs = np.linspace(0, fs / 2, psd.shape[1])
-
-    # Compute median frequency
-    idx = np.logical_and(freqs >= band[0], freqs < band[1])
-    freqs_in_band = freqs[idx]
-    # Calculate total power
-    total_power = np.sum(psd[:, idx, :], axis=1, keepdims=True)
-    # Calculate cumulative power
-    cum_power = np.cumsum(psd[:, idx, :], axis=1)
-    # Get median frequency
-    iaf_idx = np.argmax(
-        np.cumsum(cum_power <= (total_power / 2), axis=1), axis=1)
-    iaf = freqs_in_band[iaf_idx]
-
-    return iaf
+    return median_frequency(psd, fs, band=band)
 
 
 def shannon_spectral_entropy(psd, fs, band=(1, 70)):
     """
-    Computes the Shannon spectral entropy of the PSD in the given band.
+    Computes the Shannon spectral entropy of the power spectral density (PSD)
+    in the given band.
 
    Parameters
     ----------
     psd : numpy array
-        PSD of MEEG Signal. [n_samples x n_channels]
+        PSD of MEEG signal with shape [n_epochs, n_samples, n_channels]. Some
+        of these dimensions may not exist in advance. In these case, create new
+        axis using np.newaxis. E.g., non-epoched single-channel signal with
+        shape [n_samples] can be passed to this function with psd[numpy.newaxis,
+        ..., numpy.newaxis]. Afterwards, you may use numpy.squeeze to eliminate
+        those axes.
     fs : int
         Sampling frequency of the signal
     band : numpy array
@@ -159,18 +158,20 @@ def shannon_spectral_entropy(psd, fs, band=(1, 70)):
 
     Returns
     -------
-    se_freqs : numpy 2D array
-        SE value for each band and channel in "signal". [1 x n_channels].
+    sample_entropy : numpy 2D array
+        SE value for each epoch and channel with shape [n_epochs x n_channels].
     """
+    # To numpy arrays
+    psd = np.array(psd)
+    band = np.array(band)
 
     # Check errors
     if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
-
-    if np.array(band).shape[0] != 2:
-        raise Exception('Parameter band must be a 2-D array of the desired '
-                        'band. Ej. Delta: [0, 4]')
+        raise ValueError('Parameter psd does not have correct dimensions. '
+                         'Check the documentation for more information.')
+    if len(band.shape) != 1 and band.shape[0] != 2:
+        raise Exception('Parameter band must be an array with the desired '
+                        'band. E.g., Delta: [0, 4]')
 
     # Calculate freqs array
     freqs = np.linspace(0, fs/2, psd.shape[1])
@@ -182,70 +183,5 @@ def shannon_spectral_entropy(psd, fs, band=(1, 70)):
     # Calculate the probability density function
     pdf = np.abs(psd[:, idx, :]) / total_power
     # Calculate shannon entropy
-    se = np.squeeze(-np.sum(pdf * np.log(pdf), axis=1) / np.log(pdf.shape[1]))
-
-    return np.array(se)
-
-def compute_spectral_metric(signal, fs, param, epoch_len=None, bands=bands_rp):
-    """ This method allows to compute the different spectral parameters
-    implemented in MEDUSA in an easy way. It is just necessary to provide the
-    signal, its sampling frequency, the epoch length, and the desired parameter.
-
-    Parameters
-    ----------
-    signal : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
-    fs : int
-        Sampling frequency of "signal"
-    epoch_len : int
-        Epoch length in samples.
-    param : string
-        Parameter to be calculated. Possible values: 'RP', 'MF', 'IAF', 'SE'
-    bands : numpy 2D array
-        Frequency bands where the RP will be computed. [[b1_start, b1_end], ...
-        [bn_start, bn_end]]. By default, the canonical bands will be used
-
-    Returns
-    -------
-    param_values : numpy 2D array
-        Per-channel values of the spectral parameter selected in "param"
-        [n_epochs x n_channels]. If "param" is "RP", "spect_param" will be
-        [n_bands x n_epochs x n_channels]
-
-    """
-    if not np.issubdtype(signal.dtype, np.number):
-        raise ValueError('data matrix contains non-numeric values')
-
-
-    f, psd = power_spectral_density(signal,fs,epoch_len)
-
-    # Calculate the parameters
-    if param == 'RP':
-        param_values = band_power(psd, fs, bands)
-    elif param == 'MF':
-        param_values = median_frequency(psd, fs)
-    elif param == 'IAF':
-        param_values = indiv_alpha_frequency(psd, fs)
-    elif param == 'SE':
-        param_values = shannon_spectral_entropy(psd, fs)
-    else:
-        raise ValueError("Unknown spectral parameter")
-
-    return param_values
-
-
-if __name__ == "__main__":
-    import scipy.io
-    import time
-    import matplotlib.pyplot as plt
-    # mat = scipy.io.loadmat('Path/File.mat')
-    # vector = np.array(mat["signal"])[:, :]
-    # signal = vector.T
-    signal = np.random.random(500000)
-    param = 'RP'
-
-    output = compute_spectral_metric(signal, fs=1000, param=param, epoch_len=None)
-    aa = output[:, 5, :]
-    bb = np.sum(aa, axis=0)
-    cc = 0
-
+    se = -np.sum(pdf * np.log(pdf), axis=1) / np.log(pdf.shape[1])
+    return se

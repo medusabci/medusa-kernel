@@ -5,7 +5,7 @@
 Check the following links to know more about the MEDUSA environment for neurotechnology and brain-computer interface (BCI) experiments:
 
 - Website: https://www.medusabci.com/
-- Documentation: https://www.medusabci.com/solutions/medusa-kernel/doc/
+- Documentation: https://docs.www.medusabci.com/medusa-kernel/
 
 Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
 
