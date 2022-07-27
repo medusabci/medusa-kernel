@@ -1041,6 +1041,7 @@ class MIModelCSP(MIModel):
 
         # Classification
         self.get_inst('clf_method').fit(x, x_info['mi_labels'])
+        y_proba = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Accuracy
@@ -1050,6 +1051,7 @@ class MIModelCSP(MIModel):
         assessment = {
             'x': x,
             'x_info': x_info,
+            'y_proba': y_proba,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
@@ -1076,6 +1078,7 @@ class MIModelCSP(MIModel):
                                                          x_info['onsets'])
         x = self.get_inst('ext_method').extract_log_var_features(x)
         # Classification
+        y_proba = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Decoding
@@ -1088,6 +1091,7 @@ class MIModelCSP(MIModel):
         decoding = {
             'x': x,
             'x_info': x_info,
+            'y_proba': y_proba,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
@@ -1218,6 +1222,7 @@ class MIModelEEGSym(MIModel):
             'x': x,
             'x_info': x_info,
             'y_pred': y_pred,
+            'y_prob': y_prob,
             'accuracy': accuracy,
             'report': clf_report
         }
@@ -1259,6 +1264,7 @@ class MIModelEEGSym(MIModel):
             'x': x,
             'x_info': x_info,
             'y_pred': y_pred,
+            'y_prob': y_prob,
             'accuracy': accuracy,
             'report': clf_report
         }
