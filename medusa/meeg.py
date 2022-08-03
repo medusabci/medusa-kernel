@@ -1444,7 +1444,7 @@ class MEGChannelSet(components.SerializableComponent):
         return inst
 
 
-class EEG(components.Biosignal):
+class EEG(components.BiosignalData):
     """Electroencephalography (EEG) biosignal
     """
 
@@ -1526,7 +1526,7 @@ class EEG(components.Biosignal):
         return cls(**dict_data)
 
 
-class MEG(components.Biosignal):
+class MEG(components.BiosignalData):
     # TODO check everything
 
     """Magnetoencephalography (MEG) biosignal

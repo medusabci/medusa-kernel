@@ -386,13 +386,14 @@ class PickleableComponent(ABC):
 
 class Recording(SerializableComponent):
     """
-    Skeleton class to save the data from one recording. It implements all
-    necessary methods to save and load from several formats. It is composed by 2
-    different  parts, the biosignals recordings (e.g., EEG, MEG), and the
-    experiment data, which saves all the information about the experiment or
-    events. All biosignals and events must be synchronized with the same
-    temporal origin. In order to assure a multiplatform interoperability, this
-    class must be serializable using python primitive types.
+    Class intended to save the data from one recording. It implements all
+    necessary methods to save and load from several formats. It accepts
+    different kinds of data: experiment data, which saves all the information
+    about the experiment (e.g., events); biosignal data (e.g., EEG, MEG),
+    bioimaging data (e.g., fMRI, MRI); and custom data (e.g., photos, videos,
+    audio). Temporal data must be must be synchronized with the reference.
+    To assure multiplatform interoperability, this class must be serializable
+    using python primitive types.
     """
     def __init__(self, subject_id, recording_id=None, description=None,
                  source=None, date=None, **kwargs):
@@ -423,50 +424,15 @@ class Recording(SerializableComponent):
         self.source = source
         self.date = date
 
-        # Useful variables
+        # Data variables
+        self.experiment_data = dict()
         self.biosignals = dict()
-        self.experiments = dict()
+        self.bioimaging = dict()
+        self.custom_data = dict()
 
         # Set the specified arguments
         for key, value in kwargs.items():
             setattr(self, key, value)
-
-    def add_biosignal(self, biosignal, key=None):
-        """Adds a biosignal recording. Each biosignal has predefined classes
-        that must be instantiated before (e.g., EEG, MEG)
-
-        Parameters
-        ----------
-        biosignal : biosignal class
-            Instance of the biosignal class. This class must be serializable.
-            Current available: EEG, MEG.
-        key: str
-            Custom name for this biosignal. If not provided, the biosignal will
-            be saved in an attribute according to its type in lowercase
-            (e.g., eeg, meg, etc). This parameter is  useful if several
-            biosignals of the same type are added to this recording
-        """
-        # Check errors
-        if not issubclass(type(biosignal), Biosignal):
-            raise TypeError('Parameter biosignal must subclass '
-                            'medusa.io.Biosignal')
-        # Check type
-        biosignal_module_name = type(biosignal).__module__
-        biosignal_class_name = type(biosignal).__name__
-        att = biosignal_class_name.lower() if key is None else key
-        if isinstance(biosignal, CustomBiosignal):
-            warnings.warn('Unspecific biosignal %s. Some high-level functions '
-                          'may not work' % type(biosignal))
-        # Check key
-        if hasattr(self, att):
-            raise ValueError('This recording already contains an attribute '
-                             'with key %s' % att)
-        # Add biosignal
-        setattr(self, att, biosignal)
-        self.biosignals[att] = {
-            'module_name': biosignal_module_name,
-            'class_name': biosignal_class_name
-        }
 
     def add_experiment_data(self, experiment_data, key=None):
         """Adds the experiment data of this recording. Each experiment should
@@ -503,19 +469,64 @@ class Recording(SerializableComponent):
                              '%s' % att)
         # Add experiment
         setattr(self, att, experiment_data)
-        self.experiments[att] = {
+        self.experiment_data[att] = {
             'module_name': experiment_module_name,
             'class_name': experiment_class_name
         }
 
+    def add_biosignal_data(self, biosignal, key=None):
+        """Adds a biosignal recording. Each biosignal has predefined classes
+        that must be instantiated before (e.g., EEG, MEG)
+
+        Parameters
+        ----------
+        biosignal : biosignal class
+            Instance of the biosignal class. This class must be serializable.
+            Current available: EEG, MEG.
+        key: str
+            Custom name for this biosignal. If not provided, the biosignal will
+            be saved in an attribute according to its type in lowercase
+            (e.g., eeg, meg, etc). This parameter is  useful if several
+            biosignals of the same type are added to this recording
+        """
+        # Check errors
+        if not issubclass(type(biosignal), BiosignalData):
+            raise TypeError('Parameter biosignal must subclass '
+                            'medusa.io.BiosignalData')
+        # Check type
+        biosignal_module_name = type(biosignal).__module__
+        biosignal_class_name = type(biosignal).__name__
+        att = biosignal_class_name.lower() if key is None else key
+        if isinstance(biosignal, CustomBiosignalData):
+            warnings.warn('Unspecific biosignal %s. Some high-level functions '
+                          'may not work' % type(biosignal))
+        # Check key
+        if hasattr(self, att):
+            raise ValueError('This recording already contains an attribute '
+                             'with key %s' % att)
+        # Add biosignal
+        setattr(self, att, biosignal)
+        self.biosignals[att] = {
+            'module_name': biosignal_module_name,
+            'class_name': biosignal_class_name
+        }
+
+    def add_bioimaging_data(self, bioimaging, key=None):
+        # TODO: Create BioimagingData class
+        raise NotImplemented
+
+    def add_custom_data(self, data, key=None):
+        # TODO: Create CustomData class
+        raise NotImplemented
+
     def cast_biosignal(self, key, biosignal_class):
-        """This function casts a biosignal of this recording to the class passed
-        in biosignal_class
+        """This function casts a biosignal to the class passed in
+        biosignal_class
         """
         biosignal_module_name = biosignal_class.__module__
         biosignal_class_name = biosignal_class.__name__
         # Check errors
-        if not issubclass(biosignal_class, Biosignal):
+        if not issubclass(biosignal_class, BiosignalData):
             raise TypeError('Class %s must subclass medusa.io.Biosignal' %
                             biosignal_class_name)
         biosignal = getattr(self, key)
@@ -539,7 +550,7 @@ class Recording(SerializableComponent):
         experiment_data = getattr(self, key)
         experiment_data_dict = experiment_data.to_serializable_obj()
         setattr(self, key, experiment_class.from_serializable_obj(experiment_data_dict))
-        self.experiments[key] = {
+        self.experiment_data[key] = {
             'module_name': exp_module_name,
             'class_name': exp_class_name
         }
@@ -580,7 +591,7 @@ class Recording(SerializableComponent):
             Class name of the experiment (e.g., "ERPSpellerData")
         """
         experiments = dict()
-        for key, value in self.experiments.items():
+        for key, value in self.experiment_data.items():
             if value['class_name'] == exp_class_name:
                 experiments[key] = getattr(self, key)
         return experiments
@@ -595,7 +606,7 @@ class Recording(SerializableComponent):
             biosignal = getattr(self, key)
             rec_dict[key] = biosignal.to_serializable_obj()
         # Process experiments
-        for key in self.experiments:
+        for key in self.experiment_data:
             experiments = getattr(self, key)
             rec_dict[key] = experiments.to_serializable_obj()
         return rec_dict
@@ -642,8 +653,8 @@ class Recording(SerializableComponent):
         return cls(**rec_dict)
 
 
-class Biosignal(SerializableComponent):
-    """Skeleton class for biosignals data
+class BiosignalData(SerializableComponent):
+    """Skeleton class for biosignals
     """
 
     @abstractmethod
@@ -661,11 +672,10 @@ class Biosignal(SerializableComponent):
         pass
 
 
-class CustomBiosignal(Biosignal):
-    """Custom experiment data class. This class does not check the arguments and
-    provides less functionality that the proper experiment class. It should
-    only be used for custom experiments that do not fit in other experiment
-    data classes
+class CustomBiosignalData(BiosignalData):
+    """Custom biosignal data class. This class does not check the arguments and
+    provides less functionality that more specific classes. It should
+    only be used for custom signals that do not fit in other data classes
     """
 
     def __init__(self, **kwargs):
@@ -716,7 +726,7 @@ class ExperimentData(SerializableComponent):
 
 class CustomExperimentData(ExperimentData):
     """Custom experiment data class. This class does not check the arguments and
-    provides less functionality that the proper experiment class. It should
+    provides less functionality that a proper experiment class. It should
     only be used for custom experiments that do not fit in other experiment
     data classes
     """
@@ -756,7 +766,7 @@ class ConsistencyChecker(SerializableComponent):
     def add_consistency_rule(self, rule, rule_params, parent=None):
         """Adds a consistency check for the specified attribute It provides 2
         levels of consistency using parameter key, enough to check attributes
-        inside biosignal and experiments classes
+        inside biosignal or experiments classes
 
         Parameters
         ----------
