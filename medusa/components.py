@@ -389,7 +389,7 @@ class Recording(SerializableComponent):
     Class intended to save the data from one recording. It implements all
     necessary methods to save and load from several formats. It accepts
     different kinds of data: experiment data, which saves all the information
-    about the experiment (e.g., events); biosignal data (e.g., EEG, MEG),
+    about the experiment (e.g., events); biosignal data (e.g., EEG, MEG, NIRS),
     bioimaging data (e.g., fMRI, MRI); and custom data (e.g., photos, videos,
     audio). Temporal data must be must be synchronized with the reference.
     To assure multiplatform interoperability, this class must be serializable
