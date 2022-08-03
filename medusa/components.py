@@ -474,7 +474,7 @@ class Recording(SerializableComponent):
             'class_name': experiment_class_name
         }
 
-    def add_biosignal_data(self, biosignal, key=None):
+    def add_biosignal(self, biosignal, key=None):
         """Adds a biosignal recording. Each biosignal has predefined classes
         that must be instantiated before (e.g., EEG, MEG)
 
@@ -511,7 +511,7 @@ class Recording(SerializableComponent):
             'class_name': biosignal_class_name
         }
 
-    def add_bioimaging_data(self, bioimaging, key=None):
+    def add_bioimaging(self, bioimaging, key=None):
         # TODO: Create BioimagingData class
         raise NotImplemented
 
