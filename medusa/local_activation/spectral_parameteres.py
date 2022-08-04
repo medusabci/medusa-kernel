@@ -2,7 +2,6 @@ import numpy as np
 
 MEEG_RP_BANDS = ((1, 4), (4, 8), (8, 13), (13, 19), (19, 30), (30, 70))
 
-
 def absolute_band_power(psd, fs, target_band):
     """This method computes the absolute band power of the signal in the given
     band using the power spectral density (PSD).
