@@ -1,5 +1,9 @@
 # MEDUSA Kernel
 
+MEDUSA© is a software ecosystem for the development of BCIs and neuroscience experiments. It has two independent components with dfferent goals: MEDUSA© Kernel and MEDUSA© Platform. 
+
+MEDUSA© Kernel is a Python package that contains readyto- use methods to analyze brain signals, including advanced signal processing, machine learning, deep learning, and miscellaneous high-level analyses. It also includes logical functions and classes to handle different biosignals, such as electroencephalography (EEG) and magnetoencephalography (MEG), save experimental data or implement standalone processing pipelines.
+
 ## Information
 
 Check the following links to know more about the MEDUSA environment for neurotechnology and brain-computer interface (BCI) experiments:
