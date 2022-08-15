@@ -2,7 +2,6 @@ import numpy as np
 
 MEEG_RP_BANDS = ((1, 4), (4, 8), (8, 13), (13, 19), (19, 30), (30, 70))
 
-
 def absolute_band_power(psd, fs, target_band):
     """This method computes the absolute band power of the signal in the given
     band using the power spectral density (PSD).
@@ -41,7 +40,8 @@ def absolute_band_power(psd, fs, target_band):
     # Compute power
     psd_target_samp = \
         np.logical_and(freqs >= target_band[0], freqs <= target_band[1])
-    band_power = np.sum(psd[:, psd_target_samp, :], axis=1)
+    band_power = np.sum(psd[:, psd_target_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
 
     return band_power
 
@@ -87,8 +87,10 @@ def relative_band_power(psd, fs, target_band, baseline_band=None):
     psd_baseline_samp = \
         np.logical_and(freqs >= baseline_band[0], freqs <= baseline_band[1]) \
         if baseline_band is not None else np.ones_like(freqs).astype(int)
-    band_power = np.sum(psd[:, psd_target_samp, :], axis=1)
-    baseline_power = np.sum(psd[:, psd_baseline_samp, :], axis=1)
+    band_power = np.sum(psd[:, psd_target_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
+    baseline_power = np.sum(psd[:, psd_baseline_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
 
     return band_power / baseline_power
 
@@ -141,7 +143,8 @@ def relative_band_power_meeg(psd, fs, target_bands=MEEG_RP_BANDS):
     for b in range(len(target_bands)):
         band = target_bands[b]
         psd_samp = np.logical_and(freqs >= band[0], freqs < band[1])
-        powers[b, :, :] = np.sum(psd[:, psd_samp, :], axis=1)
+        powers[b, :, :] = np.sum(psd[:, psd_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
 
     powers = powers / np.sum(powers, axis=0, keepdims=True)
     return powers
