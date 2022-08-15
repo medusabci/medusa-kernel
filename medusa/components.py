@@ -425,7 +425,7 @@ class Recording(SerializableComponent):
         self.date = date
 
         # Data variables
-        self.experiment_data = dict()
+        self.experiments = dict()
         self.biosignals = dict()
         self.bioimaging = dict()
         self.custom_data = dict()
@@ -469,7 +469,7 @@ class Recording(SerializableComponent):
                              '%s' % att)
         # Add experiment
         setattr(self, att, experiment_data)
-        self.experiment_data[att] = {
+        self.experiments[att] = {
             'module_name': experiment_module_name,
             'class_name': experiment_class_name
         }
@@ -550,7 +550,7 @@ class Recording(SerializableComponent):
         experiment_data = getattr(self, key)
         experiment_data_dict = experiment_data.to_serializable_obj()
         setattr(self, key, experiment_class.from_serializable_obj(experiment_data_dict))
-        self.experiment_data[key] = {
+        self.experiments[key] = {
             'module_name': exp_module_name,
             'class_name': exp_class_name
         }
@@ -591,7 +591,7 @@ class Recording(SerializableComponent):
             Class name of the experiment (e.g., "ERPSpellerData")
         """
         experiments = dict()
-        for key, value in self.experiment_data.items():
+        for key, value in self.experiments.items():
             if value['class_name'] == exp_class_name:
                 experiments[key] = getattr(self, key)
         return experiments
@@ -606,7 +606,7 @@ class Recording(SerializableComponent):
             biosignal = getattr(self, key)
             rec_dict[key] = biosignal.to_serializable_obj()
         # Process experiments
-        for key in self.experiment_data:
+        for key in self.experiments:
             experiments = getattr(self, key)
             rec_dict[key] = experiments.to_serializable_obj()
         return rec_dict
