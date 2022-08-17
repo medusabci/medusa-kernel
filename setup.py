@@ -9,7 +9,7 @@ setup(
     name='medusa-kernel',
     packages=find_packages(),
     include_package_data=True,
-    version='0.2.6',
+    version='0.2.7',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
