@@ -37,7 +37,7 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development',
         'Topic :: Scientific/Engineering',
-        'License :: OSI Approved :: CC Attribution-NonCommercial-NoDerivs 2.0',
+        'License :: OSI Approved :: Attribution-NonCommercial-NoDerivs 2.0',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
