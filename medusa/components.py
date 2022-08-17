@@ -43,6 +43,60 @@ class SerializableComponent(ABC):
         serializable (list or dict of primitive types)"""
         raise NotImplemented
 
+    @staticmethod
+    def __none_to_null(obj):
+        """This function iterates over the attributes of the an object and
+        converts all None objects to 'null' to avoid problems with
+        scipy.io.savemat"""
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if hasattr(v, '__dict__'):
+                    v = SerializableComponent.__none_to_null(v.__dict__)
+                elif isinstance(v, dict) or isinstance(v, list):
+                    v = SerializableComponent.__none_to_null(v)
+                if v is None:
+                    obj[k] = 'null'
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                if hasattr(v, '__dict__'):
+                    v = SerializableComponent.__none_to_null(v.__dict__)
+                elif isinstance(v, dict) or isinstance(v, list):
+                    v = SerializableComponent.__none_to_null(v)
+                if v is None:
+                    obj[i] = 'null'
+        return obj
+
+    @staticmethod
+    def __null_to_none(obj):
+        """This function iterates over the attributes of the an object and
+        converts all 'null' objects to None to restore the Python original
+        representation"""
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if hasattr(v, '__dict__'):
+                    v = SerializableComponent.__null_to_none(v.__dict__)
+                elif isinstance(v, dict) or isinstance(v, list):
+                    v = SerializableComponent.__null_to_none(v)
+                try:
+                    if v == 'null':
+                        obj[k] = None
+                except ValueError as e:
+                    # Some class do not admit comparison with strings (ndarrays)
+                    pass
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                if hasattr(v, '__dict__'):
+                    v = SerializableComponent.__null_to_none(v.__dict__)
+                elif isinstance(v, dict) or isinstance(v, list):
+                    v = SerializableComponent.__null_to_none(v)
+                try:
+                    if v == 'null':
+                        obj[i] = None
+                except ValueError as e:
+                    # Some class do not admit comparison with strings (ndarrays)
+                    pass
+        return obj
+
     def save(self, path, data_format=None):
         """Saves the component to the specified format.
 
@@ -99,14 +153,25 @@ class SerializableComponent(ABC):
         with open(path, 'w', encoding=encoding) as f:
             json.dump(self.to_serializable_obj(), f, indent=indent)
 
-    def save_to_mat(self, path):
-        """Save the class in a MATLAB .mat file using scipy. Attributes set to
-        None will be changed to False, since mat data do not support None type
+    def save_to_mat(self, path, avoid_none_objects=True):
+        """Save the class in a MATLAB .mat file using scipy
+
+        Parameters
+        ----------
+        path: str
+            Path to file
+        avoid_none_objects: bool
+            If True, it ensures that all None objects are removed from the
+            object to save to avoid scipy.io.savemat error with this type.
+            Nonetheless, it is computationally expensive, so it is better to
+            leave to False and ensure manually.
         """
         ser_obj = self.to_serializable_obj()
-        for key, value in ser_obj.items():
-            if value is None:
-                ser_obj[key] = 'None'
+        if avoid_none_objects:
+            warnings.warn('Option avoid_none_objects may slow this process. '
+                          'Consider removing None objects manually before '
+                          'calling this function to save time')
+            ser_obj = self.__none_to_null(ser_obj)
         scipy.io.savemat(path, mdict=ser_obj)
 
     def save_to_pickle(self, path, protocol=0):
@@ -162,10 +227,29 @@ class SerializableComponent(ABC):
         return cls.from_serializable_obj(ser_obj_dict)
 
     @classmethod
-    def load_from_mat(cls, path, squeeze_me=True, simplify_cells=True):
+    def load_from_mat(cls, path, squeeze_me=True, simplify_cells=True,
+                      restore_none_objects=True):
+        """Load a mat file using scipy and restore its original class
+
+        Parameters
+        ----------
+        path: str
+            Path to file
+        restore_none_objects: bool
+            If True, it ensures that all 'null' strings are restored as None
+            objects in case that these objects were removed upon saving.
+            Nonetheless, it is computationally expensive, so it is better to
+            leave to False and ensure manually.
+        """
         ser_obj_dict = scipy.io.loadmat(path, squeeze_me=squeeze_me,
                                         simplify_cells=simplify_cells)
-        return cls.from_serializable_obj(ser_obj_dict)
+        if restore_none_objects:
+            warnings.warn('Option restore_none_objects may slow this process. '
+                          'Consider removing "null" strings manually and '
+                          'substitute them for None objects before calling '
+                          'this function to save time')
+            ser_obj_dict = cls.__none_to_null(ser_obj_dict)
+        return cls.from_serializable_obj(cls.__null_to_none(ser_obj_dict))
 
     @classmethod
     def load_from_pickle(cls, path):
