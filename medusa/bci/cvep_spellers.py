@@ -456,15 +456,17 @@ class CVEPModelCircularShifting(components.Algorithm):
         selected_seq = 0  # todo: several sequences in the same matrix
         spell_result = []
         for item in pred_items:
-            spell_result.append(item[-1][selected_seq]['label'])
+            spell_result.append(
+                item[-1][selected_seq]['sorted_cmds'][0]['label'])
 
         # Extract the selected items depending on the number of cycles
-        spell_result_per_cycle = {}
+        spell_result_per_cycle = []
         for item in pred_items:
+            trial_result_per_cycle = {}
             for nc, pred in enumerate(item):
-                if nc not in spell_result_per_cycle:
-                    spell_result_per_cycle[nc] = []
-                spell_result_per_cycle[nc].append(pred[selected_seq]['label'])
+                trial_result_per_cycle[nc] = pred[selected_seq][
+                    'sorted_cmds'][0]['label']
+            spell_result_per_cycle.append(trial_result_per_cycle)
 
         # Create the decoding dictionary
         cmd_decoding = {
