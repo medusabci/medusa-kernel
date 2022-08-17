@@ -9,7 +9,7 @@ MEDUSA© Kernel is a Python package that contains readyto- use methods to analyz
 Check the following links to know more about the MEDUSA environment for neurotechnology and brain-computer interface (BCI) experiments:
 
 - Website: [https://www.medusabci.com/](https://www.medusabci.com/)
-- Documentation: [https://docs.medusabci.com/kernel/1.0.0/](https://docs.medusabci.com/kernel/1.0.0/getstarted.php)
+- Documentation: [https://docs.medusabci.com/kernel/](https://docs.medusabci.com/kernel/)
 
 Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
 
