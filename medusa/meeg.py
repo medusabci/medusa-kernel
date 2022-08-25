@@ -14,6 +14,8 @@ References:
 import math
 
 # External imports
+import warnings
+
 import scipy.io
 import numpy as np
 
@@ -884,6 +886,56 @@ eeg_1005 = {
               'Z3D': 0.1564}}
 
 
+class MEEGChannel(components.SerializableComponent):
+    """This class implements a M/EEG channel.
+    """
+
+    # TODO: This class is till not being used for compatibility reasons, but it
+    #  should be introduced in the next major update of medusa kernel to remove
+    #  channel dictionaries and simplify the management of MEEG signals
+
+    def __init__(self, label, coordinates=None, reference=None):
+        """Constructor for class MEEGChannel.
+
+        Parameters
+        ----------
+        label: str
+            Label of the channel.
+        coordinates: dict, optional
+            Dict with the coordinates of the electrode. It is strongly
+            recommended to set this optional parameter in order to use advanced
+            features of MEDUSA (e.g., topographic plots).
+        reference: MEEGChannel, optional
+            Use only for bipolar montages to define the reference electrode.
+        """
+        # Check errors
+        if reference is not None:
+            if not isinstance(reference, MEEGChannel):
+                raise ValueError(
+                    'Parameter reference must be of type MEEGChannel or None')
+        if coordinates is None:
+            warnings.warn('Channel coordinates are used by some advanced '
+                          'features of MEDUSA (e.g., topographic plots). '
+                          'Please consider setting the coordinates or use '
+                          'function MEEGChannel.from_standard_set to load '
+                          'standard coordinates.')
+        # Set attributes
+        self.label = label
+        self.coordinates = coordinates
+        self.reference = reference
+
+    def to_serializable_obj(self):
+        pass
+
+    @classmethod
+    def from_standard_set(cls, label, standard='10-5'):
+        pass
+
+    @classmethod
+    def from_serializable_obj(cls, data):
+        pass
+
+
 class EEGChannelSet(components.SerializableComponent):
     """Class to represent an EEG montage with ordered channels in specific
     coordinates. It also provides functionality to load channels from EEG
@@ -950,7 +1002,7 @@ class EEGChannelSet(components.SerializableComponent):
         # Check error
         if label not in standard_data:
             raise UnknownStandardChannel(
-                'Unkown standard channel with label %s' % label)
+                'Unknown standard channel with label %s' % label)
         cha_data = {'label': label}
         if self.dim == '2D':
             if self.coord_system == 'cartesian':
@@ -1033,8 +1085,7 @@ class EEGChannelSet(components.SerializableComponent):
         See Also
         --------
         get_standard_channel_data_from_label: returns channel data given the
-            channel label and the standard. It can also be used to get the
-            reference data
+            channel label and the standard. It can be used to get the reference
         """
         # TODO: check input
         channel['reference'] = reference
@@ -1220,8 +1271,8 @@ class EEGChannelSet(components.SerializableComponent):
 
         if ground is not None:
             if not all(k in ground for k in keys):
-                raise ValueError('Malformed ground. Dict keys must be %s' %
-                                 (str(keys)))
+                raise ValueError(
+                    'Malformed ground. Dict keys must be %s' % (str(keys)))
 
     def get_cha_idx_from_labels(self, labels):
         """Returns the position of the channels given the labels
@@ -1290,7 +1341,8 @@ class EEGChannelSet(components.SerializableComponent):
             Dictionary that includes, for each channel (as a key), the rest
             of channels sorted by its closeness to that channel.
         """
-        # TODO: Añadir la opción de hacer un sort de una coordenada específica, o en otra función
+        # TODO: Añadir la opción de hacer un sort de una coordenada específica,
+        #  o en otra función
         if not self.channels:
             raise Exception(
                 'Cannot compute the nearest channels if channel set '
@@ -1317,12 +1369,12 @@ class EEGChannelSet(components.SerializableComponent):
         return sorted_dist_ch
 
     def compute_dist_matrix(self):
-        """ This function computes the distances between all channels in the
+        """This function computes the distances between all channels in the
         channel set and stores them into a matrix.
 
         Returns
         -------------
-        dist_matrix:    ndarray of dimensions [ncha x ncha]
+        dist_matrix: ndarray of dimensions [ncha x ncha]
             Distances between all the channels.
         """
         if not self.channels:
@@ -1351,7 +1403,8 @@ class EEGChannelSet(components.SerializableComponent):
                     r_cha, theta_cha = cha['r'], cha['theta']
                     # Find the location of the rest of the channels
                     for j, temp_cha in enumerate(self.channels):
-                        r_temp_cha, theta_temp_cha = temp_cha['r'], temp_cha['theta']
+                        r_temp_cha, theta_temp_cha = \
+                            temp_cha['r'], temp_cha['theta']
                         d = np.abs(np.sqrt(r_cha ** 2 + r_temp_cha ** 2 -
                                            2 * r_cha * r_temp_cha *
                                            np.cos(theta_temp_cha -
@@ -1373,48 +1426,27 @@ class EEGChannelSet(components.SerializableComponent):
             elif self.coord_system == 'spherical':
                 for i, cha in enumerate(self.channels):
                     # Find location of channel
-                    r_cha, theta_cha, phi_cha = cha['r'], cha['theta'], cha['phi']
+                    r_cha, theta_cha, phi_cha = \
+                        cha['r'], cha['theta'], cha['phi']
                     # Find the location of the rest of the channels
                     for j, temp_cha in enumerate(self.channels):
-                        r_temp_cha, theta_temp_cha, phi_temp_cha = temp_cha['r'], temp_cha['theta'], \
-                                                                   temp_cha['phi']
-                        d = np.abs(np.sqrt(r_cha ** 2 + r_temp_cha ** 2 -
-                                           2 * r_cha * r_temp_cha * (
-                                                   np.sin(theta_cha) * np.sin(theta_temp_cha) *
-                                                   np.cos(phi_cha - phi_temp_cha) +
-                                                   np.cos(theta_temp_cha) * np.cos(theta_cha))
-                                           )
-                                   )
+                        r_temp_cha, theta_temp_cha, phi_temp_cha = \
+                            temp_cha['r'], temp_cha['theta'], temp_cha['phi']
+                        d = np.abs(
+                            np.sqrt(
+                                r_cha ** 2 +
+                                r_temp_cha ** 2 -
+                                2 * r_cha * r_temp_cha *
+                                (
+                                        np.sin(theta_cha) *
+                                        np.sin(theta_temp_cha) *
+                                        np.cos(phi_cha - phi_temp_cha) +
+                                        np.cos(theta_temp_cha) *
+                                        np.cos(theta_cha))
+                            )
+                        )
                         dist_matrix[i, j] = d
         return dist_matrix
-
-
-    def to_dict(self):
-        """Converts the class in a serializable dict
-
-        Returns
-        -------
-        eeg_channel_set : dict
-            Serializable dict with the class attributes
-        """
-        return self.__dict__
-
-    @staticmethod
-    def from_dict(dict_data):
-        """Instantiates the class from a serializable dict
-
-        Returns
-        -------
-        eeg_channel_set : EEGChannelSet
-            EEGChannelSet instance
-        """
-        channel_set = EEGChannelSet(dim=dict_data['dim'],
-                                    coord_system=dict_data['coord_system'])
-
-        channel_set.set_custom_montage(channels=dict_data['channels'],
-                                       ground=dict_data['ground'])
-
-        return channel_set
 
     def to_serializable_obj(self):
         return self.__dict__
@@ -1520,7 +1552,7 @@ class EEG(components.BiosignalData):
     @classmethod
     def from_serializable_obj(cls, dict_data):
         # Load channel set dict
-        dict_data['channel_set'] = EEGChannelSet.from_dict(
+        dict_data['channel_set'] = EEGChannelSet.from_serializable_obj(
             dict_data['channel_set']
         )
         return cls(**dict_data)

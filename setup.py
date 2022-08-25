@@ -9,16 +9,16 @@ setup(
     name='medusa-kernel',
     packages=find_packages(),
     include_package_data=True,
-    version='0.2.4',
+    version='0.2.7',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
-    url='https://medusabci.com/medusa-kernel',
+    url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
            'Víctor Martínez-Cagigal, '
            'Víctor Rodríguez-González, '
            'Diego Marcos-Martínez, '
            'Sergio Pérez-Velasco',
-    author_email='eduardo.santamaria@gib.tel.uva.es',
-    license='MIT',
+    author_email='support@medusabci.com',
+    license='CC Attribution-NonCommercial-NoDerivs 2.0',
     install_requires=[
         'numpy',
         'scipy',
@@ -37,7 +37,6 @@ setup(
         'Intended Audience :: Developers',
         'Topic :: Software Development',
         'Topic :: Scientific/Engineering',
-        'License :: OSI Approved :: MIT License',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
