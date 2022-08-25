@@ -21,19 +21,19 @@ from medusa.meeg import EEGChannelSet
 
 
 class TridimentionalBrain():
-    def __init__(self, bg_color='black', text_color='white', cameras=None,
-                 translucent=None, subplots=None, models=None, names=None):
+    def __init__(self, bg_color='black', text_color='white', translucent=None,
+                 subplots=None, models=None, names=None):
 
         self.subplots = subplots
         self.bg_color = bg_color
         self.text_color = text_color
-        self.cameras = cameras
         self.translucent = translucent
         self.models = models
         self.names = names
 
         # Initialize attributes
         self.canvas = None
+        self.cameras = None
         self.views = []
         self.grid = None
         self.standards = []
@@ -82,7 +82,9 @@ class TridimentionalBrain():
     def __set_alpha(self):
         try:
             if self.translucent is None:
-                self.translucent = np.zeros(self.n_subplots, dtype=bool)
+                self.translucent = np.ones(self.n_subplots, dtype=bool)
+            elif isinstance(self.translucent,bool):
+                self.translucent = [self.translucent]
             else:
                 assert len(self.translucent) == self.n_subplots
         except Exception as ex:
@@ -99,7 +101,6 @@ class TridimentionalBrain():
             print(ex)
 
     def __set_cameras(self):
-        # TODO Eliminar esta función y poner fija ese tipo de camara
         try:
             self.cameras = []
             for i in range(self.n_subplots):
@@ -112,38 +113,32 @@ class TridimentionalBrain():
             self.canvas = scene.SceneCanvas(keys='interactive',
                                             bgcolor=self.bg_color,
                                             size=(850, 850), show=True)
-            if self.cameras is not None:
-                assert len(self.cameras) == self.n_subplots
-            else:
-                self.__set_cameras()
-            if self.subplots is None:
-                view = self.canvas.central_widget.add_view()
-                view.camera = self.cameras[0]
-                self.views.append(view)
-            else:
-                if self.names is not None:
-                    assert len(self.names) == self.n_subplots
-                self.grid = self.canvas.central_widget.add_grid(margin=10)
-                self.grid.spacing = 0
-                _view_idx = 0
-                for row in range(self.subplots[0]):
-                    for col in range(self.subplots[1]):
-                        if self.n_subplots is None:
-                            view = self.grid.add_view(row=row, col=col)
+
+            self.__set_cameras()
+
+            if self.names is not None:
+                assert len(self.names) == self.n_subplots
+            self.grid = self.canvas.central_widget.add_grid(margin=10)
+            self.grid.spacing = 0
+            _view_idx = 0
+            for row in range(self.subplots[0]):
+                for col in range(self.subplots[1]):
+                    if self.n_subplots is None:
+                        view = self.grid.add_view(row=row, col=col)
+                    else:
+                        if self.names is not None:
+                            assert isinstance(self.names[_view_idx], str)
+                            title = scene.Label(self.names[_view_idx],
+                                                color=self.text_color)
+                            title.height_max = 60
+                            self.grid.add_widget(title, row=row, col=col,
+                                                 col_span=1)
+                            view = self.grid.add_view(row=row + 1, col=col)
                         else:
-                            if self.names is not None:
-                                assert isinstance(self.names[_view_idx], str)
-                                title = scene.Label(self.names[_view_idx],
-                                                    color=self.text_color)
-                                title.height_max = 60
-                                self.grid.add_widget(title, row=row, col=col,
-                                                     col_span=1)
-                                view = self.grid.add_view(row=row + 1, col=col)
-                            else:
-                                view = self.grid.add_view(row=row, col=col)
-                        view.camera = self.cameras[_view_idx]
-                        self.views.append(view)
-                        _view_idx += 1
+                            view = self.grid.add_view(row=row, col=col)
+                    view.camera = self.cameras[_view_idx]
+                    self.views.append(view)
+                    _view_idx += 1
         except Exception as ex:
             print(ex)
 
@@ -299,11 +294,8 @@ class TridimentionalBrain():
             self.lines_cmap = get_colormap(cmap)
             color = self.__set_conn_color(sub_plot, threshold)
 
-            # Draw line connections
-            if self.subplots is None:
-                _view_idx = 0
-            else:
-                _view_idx = self.__calculate_subplot_idx(sub_plot)
+
+            _view_idx = self.__calculate_subplot_idx(sub_plot)
             self.lines[sub_plot[0]][sub_plot[1]] = scene.Line(antialias=True,
                                                               parent=self.views[
                                                                   _view_idx].scene,
@@ -373,15 +365,17 @@ class TridimentionalBrain():
         except Exception as ex:
             print(ex)
 
-    def __extract_conn_values(self, adj_mat):
+    @staticmethod
+    def __extract_conn_values(adj_mat):
         try:
             values = np.triu(adj_mat, 1)
             values = values[np.where(values != 0)]
+            return values
         except Exception as ex:
             print(ex)
-        return values
 
-    def __set_connections_coords(self, locs, connections_values):
+    @staticmethod
+    def __set_connections_coords(locs, connections_values):
         try:
             connections_coords = np.empty((len(connections_values), 2, 3))
             value_idx = 0
@@ -394,10 +388,11 @@ class TridimentionalBrain():
                     connections_coords[value_idx, 1, 1] = locs[j, 1]
                     connections_coords[value_idx, 1, 2] = locs[j, 2]
                     value_idx += 1
+            return connections_coords
         except Exception as ex:
             print(ex)
 
-        return connections_coords
+
 
 
 if __name__ == '__main__':
@@ -407,7 +402,7 @@ if __name__ == '__main__':
     app.create()
     # Set canvas
     triplot = TridimentionalBrain( bg_color='white',
-                                  text_color='black', models=['B1_2'],translucent=[True])
+                                  text_color='black', models=['B1_2'],translucent=True,subplots=None)
 
     # Define channel set and its coord
     channel_set = EEGChannelSet(dim='3D', coord_system='cartesian')
