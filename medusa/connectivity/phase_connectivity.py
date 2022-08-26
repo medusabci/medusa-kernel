@@ -326,5 +326,6 @@ def phase_connectivity(data):
     else:
         # plv, pli, wpli, = __phase_connectivity_numba(data)
         plv, pli, wpli, = __phase_connectivity_cpu(data)
-
+    # Remove nan values in wpli main diagonal
+    np.fill_diagonal(wpli,1)
     return plv, pli, wpli,
