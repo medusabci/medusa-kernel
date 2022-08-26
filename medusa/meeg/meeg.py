@@ -340,7 +340,9 @@ class EEGChannelSet(components.SerializableComponent):
 
     def __check_channels(self, channels, ground=None):
         # Get mandatory and coordinates keys for each dim and coord_system
-        mand_keys = ['label']
+        cha_keys = ['label', 'reference']
+        ref_keys = ['label']
+        gnd_keys = ['label']
         if self.dim == '2D':
             if self.coord_system == 'cartesian':
                 coord_keys = ['x', 'y']
@@ -351,17 +353,17 @@ class EEGChannelSet(components.SerializableComponent):
                 coord_keys = ['x', 'y', 'z']
             else:
                 coord_keys = ['r', 'theta', 'phi']
+        if not self.allow_unlocated_channels:
+            cha_keys += coord_keys
+            ref_keys += ref_keys
+            gnd_keys += gnd_keys
         # Check keys
         references = list()
         for cha in channels:
-            cha_keys = coord_keys + mand_keys + ['reference']\
-                if self.allow_unlocated_channels else mand_keys
             if not all(k in cha for k in cha_keys):
                 raise ValueError('Malformed channel %s. Dict keys must be %s' %
                                  (str(cha), str(cha_keys)))
             # Check reference
-            ref_keys = coord_keys + mand_keys \
-                if self.allow_unlocated_channels else mand_keys
             reference = cha['reference']
             references.append(reference)
             if reference is not None:
@@ -396,8 +398,6 @@ class EEGChannelSet(components.SerializableComponent):
                                          'Reference keys must be %s' %
                                          (str(cha), str(ref_keys)))
         # Check ground
-        gnd_keys = coord_keys + mand_keys \
-            if self.allow_unlocated_channels else mand_keys
         if ground is not None:
             if not all(k in ground for k in gnd_keys):
                 raise ValueError(
