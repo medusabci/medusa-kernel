@@ -3,6 +3,7 @@ import numpy as np
 from medusa import transforms
 from numba import jit
 import warnings
+import tensorflow as tf
 
 
 @jit(nopython=True, cache=True, parallel=True)
@@ -327,5 +328,5 @@ def phase_connectivity(data):
         # plv, pli, wpli, = __phase_connectivity_numba(data)
         plv, pli, wpli, = __phase_connectivity_cpu(data)
     # Remove nan values in wpli main diagonal
-    np.fill_diagonal(wpli,1)
+    wpli = tf.linalg.set_diag(wpli,np.ones(wpli.shape[0]))
     return plv, pli, wpli,
