@@ -1,12 +1,16 @@
+import warnings
+
 import numpy as np
 import scipy.interpolate as sp
 import matplotlib.pyplot as plt
 from medusa.spatial_filtering import LaplacianFilter
+from medusa.meeg import UnlocatedChannel
 
 
-def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.29,
-                    k=3, make_contour=True, plot_channels=True, plot_skin_in_color=False,
-                    plot_clabels=False, plot_contour_ch=False, chcontour_radius=None,
+def plot_topography(channel_set, values=None, head_radius=0.7266,
+                    plot_extra=0.29, k=3, make_contour=True, plot_channels=True,
+                    plot_skin_in_color=False, plot_clabels=False,
+                    plot_contour_ch=False, chcontour_radius=None,
                     interp_points=500, cmap='YlGnBu_r', show=True, clim=None):
 
     """The function 'plot_topography' depicts a topographical map of the scalp
@@ -43,9 +47,9 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
         Boolean that controls if a contour around each channel should be plotted
         (default: False)
     chcontour_radius: float or None
-        Radius of the channel contour if plot_contour_ch is set True. If None value,
-        an automatic value is computed, considering the minimum distance between
-        channels (default: None)
+        Radius of the channel contour if plot_contour_ch is set True. If None
+        value, an automatic value is computed, considering the minimum distance
+        between channels (default: None)
     interp_points: int (Optional)
         No. interpolation points. The lower N, the lower resolution and faster
         computation (default: 500)
@@ -72,7 +76,8 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
     if values is not None:
         values = np.array(values)
         if values.size != len(channels):
-            raise Exception('Parameters ch_list and values must have the same size')
+            raise Exception('Parameters ch_list and values must have the same '
+                            'size')
         if len(values.shape) == 1:
             # Reshape to the correct dimensions [1 x len(ch_list)]
             values = values.reshape(1, -1)
@@ -87,8 +92,16 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
     axes = fig.add_subplot(111)
 
     # Restructure the channels list to treat it more easily
-    radius = np.array([c['r'] for c in channels])
-    theta = np.array([c['theta'] for c in channels])
+    radius = list()
+    theta = list()
+    for c in channels:
+        try:
+            radius.append(c['r'])
+            theta.append(c['theta'])
+        except KeyError as e:
+            raise UnlocatedChannel(c)
+    radius = np.array(radius)
+    theta = np.array(theta)
     # labels = [c['label'] for c in channels]
 
     # Compute the cartesian coordinates of each channel
@@ -142,12 +155,14 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
     nt = 0.15  # Half-nose width (in percentage of pi/2)
     nr = 0.22  # Nose length (in radius units)
     nose_rho = [head_rho, head_rho + head_rho * nr, head_rho]
-    nose_theta = [(np.pi / 2) + (nt * np.pi / 2), np.pi / 2, (np.pi / 2) - (nt * np.pi / 2)]
+    nose_theta = [(np.pi / 2) + (nt * np.pi / 2), np.pi / 2,
+                  (np.pi / 2) - (nt * np.pi / 2)]
     nose_x = nose_rho * np.cos(nose_theta)
     nose_y = nose_rho * np.sin(nose_theta)
     axes.plot(nose_x, nose_y, 'k', linewidth=4)
     if plot_skin_in_color:
-        axes.fill(nose_x, nose_y, 'k', facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+        axes.fill(nose_x, nose_y, 'k',
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
 
     # Plotting the ears as ellipses
     ellipse_a = 0.08  # Horizontal eccentricity
@@ -175,11 +190,21 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
     head_y = head_rho * np.sin(head_theta)
     axes.plot(head_x, head_y, 'k', linewidth=4)
     if plot_skin_in_color:
-        axes.fill(head_x, head_y, facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+        axes.fill(head_x, head_y, facecolor='#E8BEAC',
+                  edgecolor='k', linewidth=4)
 
     if plot_skin_in_color:
-        axes.fill(ear_x_right + head_rho + offset, ear_y_right, facecolor='#E8BEAC', edgecolor='k', linewidth=4)
-        axes.fill(ear_x_left - head_rho - offset, ear_y_left, facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+        axes.fill(ear_x_right + head_rho + offset, ear_y_right,
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+        axes.fill(ear_x_left - head_rho - offset, ear_y_left,
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+
+    if chcontour_radius is None:
+        dist_matrix = channel_set.compute_dist_matrix()
+        dist_matrix.sort()
+        min_dist = dist_matrix[:, 1].min()
+    else:
+        min_dist = chcontour_radius
 
     # Plot a contour around electrodes
     if plot_contour_ch:
@@ -190,8 +215,9 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
         else:
             min_dist = chcontour_radius
         for ch_idx in range(len(channels)):
-            axes.add_patch(plt.Circle((ch_x[ch_idx], ch_y[ch_idx]), radius=min_dist, facecolor='#ffffff',
-                                      edgecolor=None, alpha=0.4, zorder=10))
+            axes.add_patch(plt.Circle(
+                (ch_x[ch_idx], ch_y[ch_idx]), radius=min_dist,
+                facecolor='#ffffff', edgecolor=None, alpha=0.4, zorder=10))
 
     # Plotting the electrodes
     if plot_channels:
@@ -199,8 +225,9 @@ def plot_topography(channel_set, values=None, head_radius=0.7266, plot_extra=0.2
 
     if plot_clabels:
         for t in range(len(channels)):
-            axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * min_dist, channels[t]['label'], fontsize=9,color = 'w',
-                      zorder = 11)
+            axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * min_dist,
+                      channels[t]['label'], fontsize=9, color='w',
+                      zorder=11)
 
     # Last considerations
     plot_lim = max(head_radius + 0.2, np.max(radius) + 0.2)

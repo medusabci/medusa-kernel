@@ -9,7 +9,7 @@ setup(
     name='medusa-kernel',
     packages=find_packages(),
     include_package_data=True,
-    version='0.2.7',
+    version='0.3.0',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
@@ -45,5 +45,6 @@ setup(
     ],
     description='Advanced biosignal processing toolbox',
     long_description=long_description,
-    long_description_content_type='text/markdown'
+    long_description_content_type='text/markdown',
+    package_data={'medusa': ['meeg/*.tsv']}
 )

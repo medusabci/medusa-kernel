@@ -368,7 +368,7 @@ if __name__ == '__main__':
 
     # Define channel set and its coord
     channel_set = EEGChannelSet(dim='3D', coord_system='cartesian')
-    channel_set.set_standard_montage(standard='10-20')
+    channel_set.set_standard_montage(montage='10-20')
     channel_coord = np.zeros((len(channel_set.channels), 3))
     for ch_idx, channel in enumerate(channel_set.channels):
         channel_coord[ch_idx, 0] = channel['x']
