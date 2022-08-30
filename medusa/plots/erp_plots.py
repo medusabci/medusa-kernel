@@ -1,3 +1,11 @@
+"""Created on Friday October 01 10:09:11 2021
+
+In this module you will find useful functions and classes to plot event-related
+potentials (ERPs). This module is not finished, it has numerous improvement
+points but can be useful for a quick plot. Enjoy!
+
+@author: Eduardo Santamaría-Vázquez
+"""
 from medusa import frequency_filtering, spatial_filtering
 from medusa import epoching
 from medusa import components
@@ -6,16 +14,15 @@ import numpy as np
 import copy
 
 
-def plot_erp(erp_speller_runs, channel, window=(0, 1000), plot=True):
+def plot_erp_from_erp_speller_runs(erp_speller_runs, channel,
+                                   window=(0, 1000), plot=True):
     data = copy.copy(erp_speller_runs)
     # Error handling. Data can be a list of ERPData instances or an ERPData instance
     if not isinstance(data, list):
         data = [data]
     # Load data
-    trials_erp_mean = list()
-    trials_erp_dev = list()
-    trials_noerp_mean = list()
-    trials_noerp_dev = list()
+    trials_erp_epochs = list()
+    trials_noerp_epochs = list()
     for d in data:
         if not isinstance(d, components.Recording):
             raise ValueError("")
@@ -36,33 +43,75 @@ def plot_erp(erp_speller_runs, channel, window=(0, 1000), plot=True):
         # Epochs
         erp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 1
         noerp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 0
-        erp_epochs_cha = epochs[erp_epochs_idx, :, channel]
-        noerp_epochs_cha = epochs[noerp_epochs_idx, :, channel]
-
-        # Compute mean and dev measure
-        erp_mean = np.mean(erp_epochs_cha, 0)
-        erp_dev = compute_dev_epochs(erp_epochs_cha)
-        noerp_mean = np.mean(noerp_epochs_cha, 0)
-        noerp_dev = compute_dev_epochs(noerp_epochs_cha)
+        erp_epochs = epochs[erp_epochs_idx, :, :]
+        noerp_epochs = epochs[noerp_epochs_idx, :, :]
 
         # Save
-        trials_erp_mean.append(erp_mean)
-        trials_erp_dev.append(erp_dev)
-        trials_noerp_mean.append(noerp_mean)
-        trials_noerp_dev.append(noerp_dev)
+        trials_erp_epochs.append(erp_epochs)
+        trials_noerp_epochs.append(noerp_epochs)
 
-    trials_erp_mean = np.mean(np.array(trials_erp_mean), 0)
-    trials_erp_dev = np.mean(np.array(trials_erp_dev), 0)
-    trials_noerp_mean = np.mean(np.array(trials_noerp_mean), 0)
-    trials_noerp_dev = np.mean(np.array(trials_noerp_dev), 0)
+    # To numpy array
+    trials_erp_epochs = np.array(trials_erp_epochs)
+    trials_noerp_epochs = np.array(trials_noerp_epochs)
+
+    # Call plot ERP
+    return plot_erp(erp_epochs=trials_erp_epochs,
+                    noerp_epochs=trials_noerp_epochs,
+                    channel=channel,
+                    window=window,
+                    plot=plot)
+
+
+def plot_erp(erp_epochs, noerp_epochs, channel, window=(0, 1000), plot=True):
+    """Function designed to quickly plot an ERP with 95% confidence interval.
+    It does offer limited functions that will be improved in the future.
+
+    TODO: a lot of things, very basic functionality
+
+
+    Parameters
+    ----------
+    erp_epochs: numpy.ndarray
+        Epochs that contain ERPs (go epochs)
+    noerp_epochs: numpy.ndarray
+        Epochs that do not contain ERPs (nogo epochs)
+    channel: int
+        Channel index to plot
+    window: list
+        List with the lower and upper window time in milliseconds
+    plot: bool
+        Set to True to plot the ERP
+
+    Returns
+    -------
+    erp_mean: numpy.ndarray
+        ERP activity (mean of the go epochs)
+    erp_dev: numpy.ndarray
+        95% confidence interval
+    noerp_mean: numpy.ndarray
+        No ERP activity (mean of the nogo epochs)
+    noerp_dev: numpy.ndarray
+        95% confidence interval
+    """
+    # Select channel
+    erp_epochs = erp_epochs[:, :, channel]
+    noerp_epochs = noerp_epochs[:, :, channel]
+
+    # Calculate mean and dev measures
+    trials_erp_mean = np.mean(erp_epochs, 0)
+    trials_erp_dev = compute_dev_epochs(erp_epochs)
+    trials_noerp_mean = np.mean(noerp_epochs, 0)
+    trials_noerp_dev = compute_dev_epochs(noerp_epochs)
 
     if plot:
         # Plot the data
         t = np.linspace(window[0], window[1], trials_erp_mean.shape[0])
         plt.plot(t, trials_erp_mean)
-        plt.fill_between(t, trials_erp_mean + trials_erp_dev, trials_erp_mean - trials_erp_dev, alpha=0.3)
+        plt.fill_between(t, trials_erp_mean + trials_erp_dev,
+                         trials_erp_mean - trials_erp_dev, alpha=0.3)
         plt.plot(t, trials_noerp_mean)
-        plt.fill_between(t, trials_noerp_mean + trials_noerp_dev, trials_noerp_mean - trials_noerp_dev, alpha=0.3)
+        plt.fill_between(t, trials_noerp_mean + trials_noerp_dev,
+                         trials_noerp_mean - trials_noerp_dev, alpha=0.3)
         plt.show()
 
     # Return data
@@ -71,6 +120,7 @@ def plot_erp(erp_speller_runs, channel, window=(0, 1000), plot=True):
     plot_data["trials_erp_dev"] = trials_erp_dev
     plot_data["trials_noerp_mean"] = trials_noerp_mean
     plot_data["trials_noerp_dev"] = trials_noerp_dev
+
     return plot_data
 
 
