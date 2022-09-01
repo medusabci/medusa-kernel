@@ -114,6 +114,7 @@ class EEGChannelSet(components.SerializableComponent):
         self.channels = None
         self.n_cha = None
         self.l_cha = None
+        self.montage = None
         self.ground = None
         self.allow_unlocated_channels = False
 
@@ -279,12 +280,14 @@ class EEGChannelSet(components.SerializableComponent):
         # Get montage
         if isinstance(montage, str):
             # Load standard montage
+            self.montage = montage
             montage = meeg.get_standard_montage(standard=montage,
                                                 dim=self.dim,
                                                 coord_system=self.coord_system)
         else:
             # Set custom montage
             montage = montage.copy()
+            self.montage = montage
         # Reference
         if l_reference is not None:
             if l_reference in montage:
