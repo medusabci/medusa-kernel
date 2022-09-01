@@ -199,21 +199,31 @@ def plot_topography(channel_set, values=None, head_radius=0.7266,
         axes.fill(ear_x_left - head_rho - offset, ear_y_left,
                   facecolor='#E8BEAC', edgecolor='k', linewidth=4)
 
+    # Compute optimize min distance between channels
     if chcontour_radius is None:
         dist_matrix = channel_set.compute_dist_matrix()
         dist_matrix.sort()
         min_dist = dist_matrix[:, 1].min()
+
+        #  Adjust radius
+        if isinstance(channel_set.montage,str):
+            if channel_set.montage == '10-05':
+                M = 345
+            elif channel_set.montage == '10-10':
+                M = 71
+            elif channel_set.montage == '10-20':
+                M = 21
+        elif isinstance(channel_set.montage,dict):
+            M = len(channel_set.montage)
+        percentage=len(channel_set.channels)*(0.25 / (M - 2)) + \
+                   0.25 * ((M - 4) / (M - 2))
+        min_dist = min_dist * percentage
+
     else:
         min_dist = chcontour_radius
 
     # Plot a contour around electrodes
     if plot_contour_ch:
-        if chcontour_radius is None:
-            dist_matrix = channel_set.compute_dist_matrix()
-            dist_matrix.sort()
-            min_dist = dist_matrix[:, 1].min()
-        else:
-            min_dist = chcontour_radius
         for ch_idx in range(len(channels)):
             axes.add_patch(plt.Circle(
                 (ch_x[ch_idx], ch_y[ch_idx]), radius=min_dist,
@@ -290,3 +300,12 @@ def compute_nearest_values(coor_add, coor_neigh, val_neigh, k):
         # Final value as the mean value of the k-nearest neighbors
         add_val[i] = np.mean(val_neigh[0, sel_idx])
     return add_val
+
+
+if __name__ == "__main__":
+    from medusa.meeg.meeg import EEGChannelSet
+
+    channel_set = EEGChannelSet()
+    channel_set.set_standard_montage(l_cha=['F3','FZ','F4','C3','CZ','C4','P3','PZ','P4'],standard='10-20')
+    dummy_values = np.random.randn(9)
+    plot_topography(channel_set,dummy_values,plot_clabels=True, plot_contour_ch=True)
