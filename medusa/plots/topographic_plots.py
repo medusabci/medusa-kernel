@@ -1,16 +1,28 @@
+"""
+
+In this module, you will find some functions to represent connectivity graphs
+and topographic plots over a 2D head model. Enjoy!
+
+@authors: Víctor Martínez-Cagigal and Diego Marcos-Martínez
+"""
+
+# External imports
+import warnings
 import scipy.interpolate as sp
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib import cm, colors
-from medusa.spatial_filtering import LaplacianFilter
-from medusa.meeg import UnlocatedChannel
 import numpy as np
 
+# Medusa imports
+from medusa.meeg import UnlocatedChannel
+
+
 def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
-                    plot_channels=True, plot_skin_in_color=True,
-                    plot_clabels=True,
-                    plot_contour_ch=False, chcontour_radius=None,
-                    interp_points=500, cmap='seismic', show=True, clim=None):
+                      plot_channels=True, plot_skin_in_color=True,
+                      plot_clabels=True,plot_contour_ch=False,
+                      chcontour_radius=None,interp_points=500,
+                      cmap='seismic', show=True, clim=None):
 
     """ This function depicts a connectivity map over the
         desired channel locations.
@@ -70,7 +82,6 @@ def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
     # Map connectivity values to colors
     if clim is None:
         clim = [conn_values.min(),conn_values.max()]
-        # plt.clim(clim[0], clim[1])
     norm = colors.Normalize(vmin=clim[0],vmax=clim[1],clip=True)
     mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     conn_colors = mapper.to_rgba(conn_values)
@@ -464,15 +475,24 @@ def get_cartesian_coordinates(channel_set):
     return ch_x, ch_y
 
 if __name__ == "__main__":
+    """ Example of use: """
     from medusa.meeg.meeg import EEGChannelSet
 
+    # Set channel set
     channel_set = EEGChannelSet()
     channel_set.set_standard_montage(
-        l_cha=['F3','F7','FZ', 'F4','F8', 'FCZ','C3', 'CZ', 'C4','CPZ', 'P3', 'PZ', 'P4','PO7','POZ','PO8'],
+        l_cha=['F3','F7','FZ', 'F4','F8', 'FCZ','C3', 'CZ', 'C4','CPZ', 'P3',
+               'PZ', 'P4','PO7','POZ','PO8'],
         standard='10-10')
-    # dummy_values = np.arange(len(channel_set.channels))
-    # plot_topography(channel_set, dummy_values, plot_clabels=True,
-    #                 plot_contour_ch=True, plot_extra=0.5,
-    #                 plot_skin_in_color=True)
-    dummy = np.random.randn(16,16)
-    plot_connectivity(channel_set,dummy,plot_contour_ch=True)
+
+    # Plot topographic plot
+    plt.figure()
+    dummy_values_topo = np.arange(len(channel_set.channels))
+    plot_topography(channel_set, dummy_values_topo, plot_clabels=True,
+                    plot_contour_ch=True, plot_extra=0.1,
+                    plot_skin_in_color=True,cmap='plasma')
+
+    # Plot connectivity plot
+    plt.figure()
+    dummy_values_conn = np.random.randn(16,16)
+    plot_connectivity(channel_set,dummy_values_conn)
