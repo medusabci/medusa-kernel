@@ -420,8 +420,15 @@ class CVEPModelCircularShifting(components.Algorithm):
             correct_raster_latencies=correct_raster_latencies
         ))
 
+        # Early stopping
+        self.add_method('es_method', CircularShiftingEarlyStopping())
+
     def check_predict_feasibility(self, dataset):
         return self.get_inst('clf_method')._is_predict_feasible(dataset)
+
+    def check_predict_feasibility_signal(self, times, onsets, fs):
+        return self.get_inst('clf_method')._is_predict_feasible_signal(
+            times, onsets, fs)
 
     def fit_dataset(self, dataset, **kwargs):
         # Preprocessing
@@ -506,6 +513,12 @@ class CVEPModelCircularShifting(components.Algorithm):
         }
 
         return cmd_decoding
+
+    def must_stop(self, corr_vector, std=3.0):
+        return self.get_inst('es_method').check_early_stop(
+            corr_vector=corr_vector,
+            std=std
+        )
 
 
 # ------------------------------- ALGORITHMS -------------------------------- #
@@ -1034,6 +1047,16 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 return False
         return True
 
+    def _is_predict_feasible_signal(self, times, onsets, fs):
+        l_ms = self.fitted['len_epoch_ms']
+        feasible = ep.check_epochs_feasibility(timestamps=times,
+                                               onsets=onsets,
+                                               fs=fs,
+                                               t_window=[0, l_ms])
+        if feasible != 'ok':
+            return False
+        return True
+
     def _interpolate_epoch(self, epoch, channel_set, bad_channels_idx,
                            no_neighbors=3):
         interp_epoch = epoch.copy()
@@ -1237,6 +1260,41 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         if show_progress_bar:
             pbar.close()
         return pred_items_by_no_cycles
+
+
+class CircularShiftingEarlyStopping(components.ProcessingMethod):
+    def __init__(self, **kwargs):
+        """ Class constructor """
+        super().__init__()
+
+    def check_early_stop(self, corr_vector, std=3.0):
+        """ Early stopping method based on normal distributions.
+
+        Parameters
+        --------------
+        corr_vector: list() or 1D ndarray
+            Vector that represents the sorted correlations for each of the
+            possible commands, where corr_vector[0] must point to the most
+            probable selected command.
+        std: int
+            Multiplier that determines if the selected command is an outlier
+            of the normal distribution made up from the rest of correlations.
+            Typical values are: 1 (outside 68% of data), 2 (outside 95% of
+            data), and 3 (default, outside 99.7% of data).
+
+        Returns
+        --------------
+        must_stop: bool
+            True if it is possible to stop now, false otherwise.
+        probs: 1D ndarray
+            Current estimated probabilities of being selected (sorted).
+        """
+        corr_vector = np.array(corr_vector)
+        threshold = np.mean(corr_vector[1:]) + std * np.std(corr_vector[1:])
+        must_stop = corr_vector[0] > threshold
+        probs = threshold - corr_vector
+        probs = 1 - (probs / np.max(probs))
+        return must_stop, probs
 
 
 # ------------------------------- UTILS -------------------------------------- #
