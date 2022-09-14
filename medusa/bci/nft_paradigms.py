@@ -41,7 +41,7 @@ class FilterBankPreprocessing(components.ProcessingMethod):
         if montage is None:
             montage = meeg.EEGChannelSet()
             montage.set_standard_montage(l_cha=['FZ', 'CZ', 'PZ', 'OZ'],
-                                         standard='10-20')
+                                         montage='10-20')
 
         if len(target_channels) == 0:
             target_channels = ['CZ']
