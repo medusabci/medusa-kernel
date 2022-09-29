@@ -461,7 +461,8 @@ class CCA(components.ProcessingMethod):
     def project(self, data, filter_idx=(0), projection='wy'):
         """
         Projects the input data matrix using the given spatial filter. Note that
-        the spatial filter will have dimensions
+        the spatial filter will have dimensions [no. channels x no. channels].
+
         Parameters
         ----------
         data : {(samples, channels) ndarray}
