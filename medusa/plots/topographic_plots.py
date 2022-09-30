@@ -368,9 +368,9 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                 M = 71
             elif channel_set.montage == '10-20':
                 M = 21
-            elif isinstance(channel_set.montage, dict) or channel_set.montage\
-                    is None:
-                M = channel_set.n_cha
+        elif isinstance(channel_set.montage, dict) or channel_set.montage\
+                is None:
+            M = channel_set.n_cha
         percentage = len(channel_set.channels) * (0.25 / (M - 2)) + \
                      0.25 * ((M - 4) / (M - 2))
         min_dist = min_dist * percentage
@@ -402,7 +402,7 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     axes.set_aspect('equal', 'box')
     plt.axis('off')
     # fig = plt.gcf()
-    fig.patch.set_alpha(background)  # Set transparent background
+    fig.patch.set_alpha(background)  # Set default transparent background
     fig.tight_layout()
     if show is True:
         plt.show(dpi=400)
