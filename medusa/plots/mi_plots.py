@@ -291,7 +291,7 @@ def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
                      temp_filt_method='sosfiltfilt', w_epoch_t=(-1000, 6000),
                      target_fs=128, baseline_mode='trial',
                      w_baseline_t=(-1000, 0), norm='z', welch_seg_len_pct=50,
-                     welch_overlap_pct=75, show=True):
+                     welch_overlap_pct=75, background=False, show=True):
     # Common processing
     rec = Recording.load(files[0])
     channel_set = rec.eeg.channel_set
@@ -343,6 +343,7 @@ def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
     values = trials_r2.reshape(1, len(lcha))
     fig, _ = topographic_plots.plot_topography(dataset.channel_set,
                                                values, cmap='RdBu',
+                                               background=background,
                                                show=show)
 
     return fig
