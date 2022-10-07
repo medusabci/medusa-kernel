@@ -341,7 +341,7 @@ def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
 
     # Topoplot
     values = trials_r2.reshape(1, len(lcha))
-    fig, _ = topographic_plots.plot_topography(dataset.channel_set,
+    fig, _, _ = topographic_plots.plot_topography(dataset.channel_set,
                                                values, cmap='RdBu',
                                                background=background,
                                                show=show)
