@@ -124,7 +124,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
                     plot_skin_in_color=False, plot_clabels=False,
                     plot_contour_ch=False, chcontour_radius=None,
                     interp_points=500, cmap='YlGnBu_r', show=True, clim=None,
-                    axes=None, fig=None, show_colorbar=True, linewidth=4.0):
+                    axes=None, fig=None, show_colorbar=True, linewidth=4.0,
+                    background=False):
 
     """ This function depicts a topographic map of the scalp
     over the desired channel locations.
@@ -167,6 +168,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
         computation (default: 500)
     cmap : str
         Matplotlib colormap
+    background: bool (Optional)
+        Set background
     show : bool
         Show matplotlib figure
     axes : matplotlib.pyplot.axes
@@ -203,7 +206,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
                           plot_contour_ch=plot_contour_ch,
                           chcontour_radius=chcontour_radius,
                           interp_points=interp_points,
-                          show=False, axes=axes, fig=fig, linewidth=linewidth)
+                          show=False, axes=axes, fig=fig, linewidth=linewidth,
+                          background=background)
 
     # Create points out of the head to get a natural interpolation
     r_ext_points = 1.5  # Radius of the virtual electrodes
@@ -256,7 +260,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
 def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
               plot_skin_in_color=False, plot_clabels=False,
               plot_contour_ch=False, chcontour_radius=None,
-              interp_points=500, show=True, axes=None, fig=None, linewidth=4.0):
+              interp_points=500, show=True, axes=None, fig=None,
+              linewidth=4.0, background=False):
     """This function depicts a two-dimensional head diagram.
 
     Parameters
@@ -285,6 +290,8 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     interp_points: int (Optional)
         No. interpolation points. The lower N, the lower resolution and faster
         computation (default: 500)
+    background: bool (Optional)
+        Set background
     show : bool
         Show matplotlib figure
     axes : matplotlib.pyplot.axes
@@ -371,8 +378,9 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                 M = 71
             elif channel_set.montage == '10-20':
                 M = 21
-        elif isinstance(channel_set.montage, dict):
-            M = len(channel_set.montage)
+        elif isinstance(channel_set.montage, dict) or channel_set.montage\
+                is None:
+            M = channel_set.n_cha
         percentage = len(channel_set.channels) * (0.25 / (M - 2)) + \
                      0.25 * ((M - 4) / (M - 2))
         min_dist = min_dist * percentage
@@ -407,7 +415,7 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     axes.axis('off')
     if fig is not None:
         # fig = plt.gcf()
-        fig.patch.set_alpha(0.0)  # Set transparent background
+        fig.patch.set_alpha(background)  # Set transparent background
         fig.tight_layout()
     if show is True:
         plt.show(dpi=400)
