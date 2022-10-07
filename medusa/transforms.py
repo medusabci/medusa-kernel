@@ -140,8 +140,7 @@ def normalize_psd(psd, norm='rel'):
         psd = psd.reshape(1, psd.shape[0], psd.shape[1])
 
     if norm == 'rel':
-        p = np.sum(psd, axis=1, keepdims=True)* \
-                 (fs / (2 * freqs.shape[0]))
+        p = np.sum(psd, axis=1, keepdims=True)
         psd_norm = psd / p
     elif norm == 'z':
         m = np.mean(psd, keepdims=True, axis=1)
