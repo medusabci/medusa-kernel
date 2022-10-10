@@ -41,7 +41,7 @@ class MIDataOld(components.ExperimentData):
 
         Parameters
         ----------
-        mode : str {"train"|"test"|"guided_test"}
+        mode : str {"train"|"test"|"guided test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
             Timestamp of each stimulation
@@ -127,7 +127,7 @@ class MIData(components.ExperimentData):
 
         Parameters
         ----------
-        mode : str {"train"|"test"|"guided_test"}
+        mode : str {"train"|"test"|"guided test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
             Timestamp of the cue with respect to the EEG signal (just when the
@@ -296,7 +296,7 @@ class MIDataset(components.Dataset):
             }
         }
 
-        if experiment_mode in ['train', 'guided_test']:
+        if experiment_mode in ['train', 'guided test']:
             default_track_attributes_train = {
                 'mi_labels': {
                     'track_mode': 'concatenate',
@@ -307,7 +307,7 @@ class MIDataset(components.Dataset):
                 **default_track_attributes,
                 **default_track_attributes_train
             }
-        elif experiment_mode in ['test', 'guided_test']:
+        elif experiment_mode in ['test', 'guided test']:
             default_track_attributes_train = {
                 'mi_result': {
                     'track_mode': 'concatenate',
