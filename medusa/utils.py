@@ -8,5 +8,7 @@ def check_dimensions(data):
     if len(data.shape) == 1:
         return data[np.newaxis,:,np.newaxis]
     # If dimensions are samples and channels
-    if len(data.shape) == 2:
+    elif len(data.shape) == 2:
         return data[np.newaxis,:,np.newaxis]
+    else:
+        return data
