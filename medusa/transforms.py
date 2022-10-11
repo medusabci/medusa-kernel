@@ -4,6 +4,7 @@ from . import epoching
 from . import tensorflow_integration
 from scipy.signal import welch as welch_sp
 from scipy.signal import hilbert as hilbert_sp
+from medusa.utils import check_dimensions
 
 
 def hilbert(x, flag=0):
@@ -12,17 +13,18 @@ def hilbert(x, flag=0):
     Parameters
     ----------
     x :  numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+        MEEG Signal.
     flag : bool
         If True, if forces using Tensorflow. It is not recommended as it is MUCH
          slower.
 
     Returns
     -------
-    hilb : numpy 2D matrix
-        Analytic signal of x.
+    hilb : numpy 3D matrix
+        Analytic signal of x [n_epochs, n_samples, n_channels].
     """
     x = np.asarray(x)
+    x = check_dimensions(x)
     if np.iscomplexobj(x):
         raise ValueError("x must be real.")
     n = x.shape[0]
@@ -58,7 +60,7 @@ def hilbert(x, flag=0):
         xc = x * tf.complex(hs, tf.zeros_like(hs))
         return tf.transpose(tf.signal.ifft(tf.transpose(xc)))
     else:
-        return hilbert_sp(x, axis=0)
+        return hilbert_sp(x, axis=1)
 
 
 def power_spectral_density(signal, fs, epoch_len=None):
