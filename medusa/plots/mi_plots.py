@@ -23,12 +23,48 @@ import matplotlib.pyplot as plt
 import scipy.signal as scisig
 
 
-def plot_erd_ers_time(files, ch_to_plot, order=5,
-                      cutoff=[5, 35], btype='bandpass',
-                      temp_filt_method='sosfiltfilt',
-                      w_epoch_t=(-1000, 6000), target_fs=128,
-                      baseline_mode='trial', w_baseline_t=(-1000, 0),
-                      norm='z', mov_mean_ms=1000, show=True):
+def _extract_erd_ers_features(files, ch_to_plot, order=1000, cutoff=[5, 35],
+                              btype='bandpass', temp_filt_method='filtfilt',
+                              w_epoch_t=(-1000, 6000), target_fs=None,
+                              baseline_mode='trial', w_baseline_t=(-1000, 0),
+                              norm='z'):
+    saved_args = locals()
+    del saved_args['files']
+    del saved_args['ch_to_plot']
+
+    # Load files
+    rec = Recording.load(files[0])
+    fs = rec.eeg.fs
+    channel_set = rec.eeg.channel_set
+    dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
+                        experiment_att_key='midataold',
+                        biosignal_att_key='eeg', experiment_mode='train')
+    for file in files:
+        dataset.add_recordings(Recording.load(file))
+
+    # Pre-processing
+    fir = ff.FIRFilter(order=order, cutoff=cutoff, btype=btype,
+                       filt_method=temp_filt_method)
+    fir.fit(fs=fs)
+    for rec in dataset.recordings:
+        eeg = getattr(rec, dataset.biosignal_att_key)
+        eeg.signal = fir.transform(signal=eeg.signal)
+        eeg.signal = sf.car(signal=eeg.signal)
+        setattr(rec, dataset.biosignal_att_key, eeg)
+
+    # Feature extraction
+    feature_extractor = StandardFeatureExtraction(w_epoch_t=w_epoch_t,
+                                                  target_fs=target_fs,
+                                                  baseline_mode=baseline_mode,
+                                                  w_baseline_t=w_baseline_t,
+                                                  norm=norm)
+    features, track_info = feature_extractor.transform_dataset(dataset=dataset)
+    lcha = dataset.channel_set.l_cha
+    return features, track_info, fs, lcha, channel_set, saved_args
+
+
+def plot_erd_ers_time(files, ch_to_plot, features=None, track_info=None,
+                      fs=None, lcha=None, channel_set=None,  mov_mean_ms=1000, **kwargs):
     """Plotting function of ERD/ERS from motor imagery runs of MEDUSA.
     Parameters
     ----------
@@ -37,33 +73,26 @@ def plot_erd_ers_time(files, ch_to_plot, order=5,
     ch_to_plot: list
         List with the labels of the channels to plot
     """
-    # Common processing
-    rec = Recording.load(files[0])
-    channel_set = rec.eeg.channel_set
-    dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
-                        biosignal_att_key='eeg', experiment_mode='train')
-    for file in files:
-        dataset.add_recordings(Recording.load(file))
-    fs = rec.eeg.fs
-    preprocessing = StandardPreprocessing(order=order, cutoff=cutoff,
-                                          btype=btype,
-                                          temp_filt_method=temp_filt_method)
-    preprocessing.fit(fs=fs)
-    dataset = preprocessing.fit_transform_dataset(dataset=dataset)
-    feature_extractor = StandardFeatureExtraction(w_epoch_t=w_epoch_t,
-                                                  target_fs=target_fs,
-                                                  baseline_mode=baseline_mode,
-                                                  w_baseline_t=w_baseline_t,
-                                                  norm=norm)
+    for key, value in kwargs.items():
+        globals()[key] = value
 
-    features, track_info = feature_extractor.transform_dataset(dataset=dataset)
+    # Extract only if required
+    if features is None:
+        features, track_info, fs, lcha, channel_set, saved_args = \
+            _extract_erd_ers_features(
+            files, ch_to_plot, **kwargs
+        )
+        for key, value in saved_args.items():
+            globals()[key] = value
 
-    lcha = dataset.channel_set.l_cha
     labels = track_info["mi_labels"]
+    # todo: hardcoded
+    labels_info = track_info["mi_labels_info"][0]
+    new_fs = fs if target_fs is None else target_fs
 
     # # Baseline parameters
     t_baseline = [w_baseline_t[0] - w_epoch_t[0], w_baseline_t[1] - w_epoch_t[0]]
-    idx_baseline = np.round(np.array(t_baseline) * target_fs / 1000).astype(int)
+    idx_baseline = np.round(np.array(t_baseline) * new_fs / 1000).astype(int)
 
     # Separate the classes
     trials_c1 = features[labels == 0, :, :]
@@ -85,10 +114,10 @@ def plot_erd_ers_time(files, ch_to_plot, order=5,
     #TODO: Cambiar por https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.uniform_filter1d.html
 
     ERDERS_c1_smooth = uniform_filter1d(ERDERS_c1,
-                                         int(np.floor(mov_mean_ms * fs / 1000)),
+                                         int(np.floor(mov_mean_ms * new_fs / 1000)),
                                         axis=0, mode='mirror')
     ERDERS_c2_smooth = uniform_filter1d(ERDERS_c2,
-                                        int(np.floor(mov_mean_ms * fs / 1000)),
+                                        int(np.floor(mov_mean_ms * new_fs / 1000)),
                                         axis=0, mode='mirror')
 
     # Signed r2 for the power
@@ -97,7 +126,7 @@ def plot_erd_ers_time(files, ch_to_plot, order=5,
     trials_r2 = statistics.signed_r2(p_c1_marg, p_c2_marg, signed=False, axis=0)
     if mov_mean_ms != 0:
         trials_r2 = uniform_filter1d(trials_r2,
-                                     int(np.floor(mov_mean_ms * fs / 1000)),
+                                     int(np.floor(mov_mean_ms * new_fs / 1000)),
                                      axis=0, mode='mirror')
 
     # Plotting
@@ -135,7 +164,7 @@ def plot_erd_ers_time(files, ch_to_plot, order=5,
         ax1.set_xlim(w_epoch_t)
         ax1.title.set_text(ch_to_plot[n])
         ax1.set_ylabel(r'ERD/ERS (%)')
-        ax1.legend(['Left', 'Right'])
+        ax1.legend([labels_info[str(0)], labels_info[str(1)]])
 
         # Signed-r2
         ax2.pcolormesh(times, range(2), np.tile(trials_r2[:, i], reps=[2, 1]),
@@ -145,19 +174,13 @@ def plot_erd_ers_time(files, ch_to_plot, order=5,
         ax2.set_xlabel('Time (ms)')
         figs.append(fig)
 
-        if show is True:
-            plt.show()
-
     return figs
 
 
-def plot_erd_ers_freq(files, ch_to_plot, order=5,
-                      cutoff=[5, 35], btype='bandpass',
-                      temp_filt_method='sosfiltfilt',
-                      w_epoch_t=(-1000, 6000), target_fs=128,
-                      baseline_mode='trial', w_baseline_t=(-1000, 0),
-                      norm='z', mov_mean_hz=0, welch_seg_len_pct=50,
-                      welch_overlap_pct=75, show=True):
+def plot_erd_ers_freq(files, ch_to_plot, features=None, track_info=None,
+                      fs=None, lcha=None, channel_set=None, welch_seg_len_pct=50,
+                      welch_overlap_pct=75, mov_mean_hz=0,
+                      **kwargs):
     # TODO: More options!...
     # TODO: Left and right classes labels are hardcoded!
     """ This function depicts the ERD/ERS events of MI BCIs over the frequency
@@ -169,39 +192,31 @@ def plot_erd_ers_freq(files, ch_to_plot, order=5,
     ch_to_plot: list
         List with the labels of the channels to plot
     """
+    for key, value in kwargs.items():
+        globals()[key] = value
 
-    # Common processing
-    rec = Recording.load(files[0])
-    channel_set = rec.eeg.channel_set
-    dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
-                        biosignal_att_key='eeg', experiment_mode='train')
-    for file in files:
-        dataset.add_recordings(Recording.load(file))
-    fs = rec.eeg.fs
-    preprocessing = StandardPreprocessing(order=order, cutoff=cutoff,
-                                          btype=btype,
-                                          temp_filt_method=temp_filt_method)
-    preprocessing.fit(fs=fs)
-    dataset = preprocessing.fit_transform_dataset(dataset=dataset)
-    feature_extractor = StandardFeatureExtraction(w_epoch_t=w_epoch_t,
-                                                  target_fs=target_fs,
-                                                  baseline_mode=baseline_mode,
-                                                  w_baseline_t=w_baseline_t,
-                                                  norm=norm)
+    # Extract only if required
+    if features is None:
+        features, track_info, fs, lcha, channel_set, saved_args = \
+            _extract_erd_ers_features(
+            files, ch_to_plot, **kwargs
+        )
+        for key, value in saved_args.items():
+            globals()[key] = value
 
-    features, track_info = feature_extractor.transform_dataset(dataset=dataset)
-
-    lcha = dataset.channel_set.l_cha
     labels = track_info["mi_labels"]
+    # todo: hardcoded
+    labels_info = track_info["mi_labels_info"][0]
 
     # Compute the PSD
     trials_psd = None
+    new_fs = fs if target_fs is None else target_fs
     for t in features:
         # Compute PSD of the trial
         welch_seg_len = np.round(welch_seg_len_pct / 100 * t.shape[0]).astype(int)
         welch_overlap = np.round(welch_overlap_pct / 100 * welch_seg_len).astype(int)
         welch_ndft = welch_seg_len
-        t_freqs, t_psd = scisig.welch(t, fs=target_fs, nperseg=welch_seg_len,
+        t_freqs, t_psd = scisig.welch(t, fs=new_fs, nperseg=welch_seg_len,
                                       noverlap=welch_overlap,
                                       nfft=welch_ndft, axis=0)
 
@@ -224,18 +239,16 @@ def plot_erd_ers_freq(files, ch_to_plot, order=5,
     m_psd_c1 = np.mean(trials_psd_c1, axis=0)
     m_psd_c2 = np.mean(trials_psd_c2, axis=0)
 
-    # Plotting
-    freqs = np.linspace(0, fs / 2, len(m_psd_c1))
-
-    # Range to plot
-    lims = [0, target_fs / 2]
+    # Plot ranges
+    freqs = np.linspace(0, new_fs / 2, len(m_psd_c1))
+    lims = [0, new_fs / 2]
     if btype == 'bandpass':
         lims = [cutoff[0],
                 cutoff[1]]
     elif btype == 'highpass':
-        lims = [cutoff[0], target_fs / 2]
+        lims[0] = cutoff[0]
     elif btype == 'lowpass':
-        lims = [0, cutoff[1]]
+        lims[1] = cutoff[1]
 
     # Plot
     left = 0.1
@@ -274,7 +287,7 @@ def plot_erd_ers_freq(files, ch_to_plot, order=5,
         ax1.set_xlim(lims)
         ax1.title.set_text(ch_to_plot[n])
         ax1.set_ylabel(r'PSD ($uV^2/Hz$)')
-        ax1.legend(['Left', 'Right'])
+        ax1.legend([labels_info[str(0)], labels_info[str(1)]])
 
         # Signed-r2
         ax2.pcolormesh(freqs, range(2), np.tile(trials_r2[:, i], reps=[2, 1]), cmap='YlOrRd', vmin=0)
@@ -282,39 +295,29 @@ def plot_erd_ers_freq(files, ch_to_plot, order=5,
         ax2.set_ylabel('$r^2$')
         ax2.set_xlabel('Frequency (Hz)')
         figs.append(fig)
-        if show is True:
-            plt.show()
     return figs
 
 
-def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
-                     temp_filt_method='sosfiltfilt', w_epoch_t=(-1000, 6000),
-                     target_fs=128, baseline_mode='trial',
-                     w_baseline_t=(-1000, 0), norm='z', welch_seg_len_pct=50,
-                     welch_overlap_pct=75, background=False, show=True):
-    # Common processing
-    rec = Recording.load(files[0])
-    channel_set = rec.eeg.channel_set
-    dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
-                        biosignal_att_key='eeg', experiment_mode='train')
-    for file in files:
-        dataset.add_recordings(Recording.load(file))
-    fs = rec.eeg.fs
-    preprocessing = StandardPreprocessing(order=order, cutoff=cutoff,
-                                          btype=btype,
-                                          temp_filt_method=temp_filt_method)
-    preprocessing.fit(fs=fs)
-    dataset = preprocessing.fit_transform_dataset(dataset=dataset)
-    feature_extractor = StandardFeatureExtraction(w_epoch_t=w_epoch_t,
-                                                  target_fs=target_fs,
-                                                  baseline_mode=baseline_mode,
-                                                  w_baseline_t=w_baseline_t,
-                                                  norm=norm)
+def plot_r2_topoplot(files, ch_to_plot, features=None, track_info=None,
+                      fs=None, lcha=None, channel_set=None,
+                     welch_seg_len_pct=50,
+                     welch_overlap_pct=75, background=False, **kwargs):
+    for key, value in kwargs.items():
+        globals()[key] = value
 
-    features, track_info = feature_extractor.transform_dataset(dataset=dataset)
+    # Extract only if required
+    if features is None:
+        features, track_info, fs, lcha, channel_set, saved_args = \
+            _extract_erd_ers_features(
+            files, ch_to_plot, **kwargs
+        )
+        for key, value in saved_args.items():
+            globals()[key] = value
 
-    lcha = dataset.channel_set.l_cha
     labels = track_info["mi_labels"]
+    # todo: hardcoded
+    labels_info = track_info["mi_labels_info"][0]
+    new_fs = fs if target_fs is None else target_fs
 
     # Compute the PSD
     trials_psd = None
@@ -323,7 +326,7 @@ def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
         welch_seg_len = np.round(welch_seg_len_pct / 100 * t.shape[0]).astype(int)
         welch_overlap = np.round(welch_overlap_pct / 100 * welch_seg_len).astype(int)
         welch_ndft = welch_seg_len
-        t_freqs, t_psd = scisig.welch(t, fs=fs, nperseg=welch_seg_len,
+        t_freqs, t_psd = scisig.welch(t, fs=new_fs, nperseg=welch_seg_len,
                                       noverlap=welch_overlap,
                                       nfft=welch_ndft, axis=0)
 
@@ -341,9 +344,9 @@ def plot_r2_topoplot(files,  order=5, cutoff=[5, 35], btype='bandpass',
 
     # Topoplot
     values = trials_r2.reshape(1, len(lcha))
-    fig, _, _ = topographic_plots.plot_topography(dataset.channel_set,
+    fig, _, _ = topographic_plots.plot_topography(channel_set,
                                                values, cmap='RdBu',
                                                background=background,
-                                               show=show)
+                                               show=False)
 
     return fig
