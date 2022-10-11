@@ -41,7 +41,7 @@ class MIDataOld(components.ExperimentData):
 
         Parameters
         ----------
-        mode : str {"train"|"test"|"guided_test"}
+        mode : str {"train"|"test"|"guided test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
             Timestamp of each stimulation
@@ -108,7 +108,7 @@ class MIDataOld(components.ExperimentData):
 
     @staticmethod
     def from_serializable_obj(dict_data):
-        return MIData(**dict_data)
+        return MIDataOld(**dict_data)
 
 
 class MIData(components.ExperimentData):
@@ -127,7 +127,7 @@ class MIData(components.ExperimentData):
 
         Parameters
         ----------
-        mode : str {"train"|"test"|"guided_test"}
+        mode : str {"train"|"test"|"guided test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
             Timestamp of the cue with respect to the EEG signal (just when the
@@ -296,7 +296,7 @@ class MIDataset(components.Dataset):
             }
         }
 
-        if experiment_mode in ['train', 'guided_test']:
+        if experiment_mode in ['train', 'guided test']:
             default_track_attributes_train = {
                 'mi_labels': {
                     'track_mode': 'concatenate',
@@ -307,7 +307,7 @@ class MIDataset(components.Dataset):
                 **default_track_attributes,
                 **default_track_attributes_train
             }
-        elif experiment_mode in ['test', 'guided_test']:
+        elif experiment_mode in ['test', 'guided test']:
             default_track_attributes_train = {
                 'mi_result': {
                     'track_mode': 'concatenate',
@@ -632,11 +632,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 norm_epoch_t = self.w_baseline_t
             norm_epoch_s = np.array(norm_epoch_t * fs / 1000, dtype=int)
             norm_epoch = np.expand_dims(signal[norm_epoch_s], axis=0)
-        else:
-            norm_epoch = None
-
-        features = normalize_epochs(features, norm_epochs=norm_epoch,
-                                    norm=self.norm)
+            features = normalize_epochs(features, norm_epochs=norm_epoch,
+                                        norm=self.norm)
         # Resample each epoch to the target frequency
         if self.target_fs is not None:
             if self.target_fs > fs:
@@ -1134,7 +1131,7 @@ class MIModelCSP(MIModel):
 
         # Classification
         self.get_inst('clf_method').fit(x, x_info['mi_labels'])
-        y_proba = self.get_inst('clf_method').predict_proba(x)
+        y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Accuracy
@@ -1144,7 +1141,7 @@ class MIModelCSP(MIModel):
         assessment = {
             'x': x,
             'x_info': x_info,
-            'y_proba': y_proba,
+            'y_prob': y_prob,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
@@ -1171,7 +1168,7 @@ class MIModelCSP(MIModel):
                                                          x_info['onsets'])
         x = self.get_inst('ext_method').extract_log_var_features(x)
         # Classification
-        y_proba = self.get_inst('clf_method').predict_proba(x)
+        y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Decoding
@@ -1184,7 +1181,7 @@ class MIModelCSP(MIModel):
         decoding = {
             'x': x,
             'x_info': x_info,
-            'y_proba': y_proba,
+            'y_prob': y_prob,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
