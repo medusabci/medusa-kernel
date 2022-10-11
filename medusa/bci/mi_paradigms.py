@@ -307,8 +307,8 @@ class MIDataset(components.Dataset):
                 **default_track_attributes,
                 **default_track_attributes_train
             }
-        elif experiment_mode in ['test', 'guided test']:
-            default_track_attributes_train = {
+        if experiment_mode in ['test', 'guided test']:
+            default_track_attributes_test = {
                 'mi_result': {
                     'track_mode': 'concatenate',
                     'parent': experiment_att_key
@@ -316,7 +316,7 @@ class MIDataset(components.Dataset):
             }
             default_track_attributes = {
                 **default_track_attributes,
-                **default_track_attributes_train
+                **default_track_attributes_test
             }
         track_attributes = \
             default_track_attributes if track_attributes is None else \
@@ -381,7 +381,7 @@ class MIDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.experiment_att_key,
-                         'type': MIData}
+                         'type': [MIData, MIDataOld]}
         )
         # Check mode
         # if self.experiment_mode is not None:
@@ -572,7 +572,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         self.concatenate_channels = concatenate_channels
         self.safe_copy = safe_copy
 
-    def transform_signal(self, times, signal, fs, onsets):
+    def transform_signal(self, times, signal, fs, onsets,
+                         w_epoch_t = None):
         """Function to extract MI features from raw signal. It returns a 3D
         feature array with shape [n_events x n_samples x n_channels]. This
         function does not track any other attributes. Use for online processing
@@ -597,6 +598,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         features : np.ndarray [n_events x n_samples x n_channels]
             Feature array with the epochs of signal
         """
+        if w_epoch_t is None:
+            w_epoch_t = self.w_epoch_t
         # Avoid changes in the original signal (this may not be necessary)
         if self.safe_copy:
             signal = signal.copy()
@@ -611,7 +614,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             w_baseline_trial_t = None
         elif self.baseline_mode == 'trial':
             if self.w_baseline_t == 'auto':
-                w_baseline_trial_t = self.w_epoch_t
+                w_baseline_trial_t = w_epoch_t
             else:
                 w_baseline_trial_t = self.w_baseline_t
         elif self.baseline_mode == 'run':
@@ -621,7 +624,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         # Extract features
         features = get_epochs_of_events(timestamps=times, signal=signal,
                                         onsets=onsets, fs=fs,
-                                        w_epoch_t=self.w_epoch_t,
+                                        w_epoch_t=w_epoch_t,
                                         w_baseline_t=w_baseline_trial_t,
                                         norm=norm)
 
@@ -648,7 +651,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                                                     features.shape[2], 1)))
         return features
 
-    def transform_dataset(self, dataset, show_progress_bar=True):
+    def transform_dataset(self, dataset, show_progress_bar=True,
+                          continuous=False):
         #TODO: Review with modifications of Eduardo in erp_spellers (SERGIO)
         """High level function to easily extract features from EEG recordings
         and save useful info for later processing. Nevertheless, the provided
@@ -717,40 +721,57 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             rec_sig = getattr(rec, dataset.biosignal_att_key)
 
             # Get features
+            # Get features
+            list_w_epoch_t = list()
+            if not continuous:
+                list_w_epoch_t.append(self.w_epoch_t)
+            if continuous:
+                start = self.w_epoch_t - np.diff(self.w_epoch_t) / 2
+                stop = rec_exp.w_trial_t[1] - self.w_epoch_t[1]
+                steps_0 = np.arange(start=start[0], stop=stop + 1, step=250,
+                                    dtype=int)
+                steps_1 = np.arange(start=start[1], stop=rec_exp.w_trial_t[
+                                                             1] + 1, step=250,
+                                    dtype=int)
+                for i in range(len(steps_0)):
+                    list_w_epoch_t.append([steps_0[i], steps_1[i]])
 
-            rec_feat = self.transform_signal(
-                times=rec_sig.times,
-                signal=rec_sig.signal,
-                fs=rec_sig.fs,
-                onsets=rec_exp.onsets
-                # ,
-                # calibration_t=rec_exp.calibration_t
-            )
+            for w_epoch_t in list_w_epoch_t:
 
-            features = np.concatenate((features, rec_feat), axis=0) \
-                if features is not None else rec_feat
+                rec_feat = self.transform_signal(
+                    times=rec_sig.times,
+                    signal=rec_sig.signal,
+                    fs=rec_sig.fs,
+                    onsets=rec_exp.onsets,
+                    w_epoch_t=w_epoch_t
+                    # ,
+                    # calibration_t=rec_exp.calibration_t
+                )
 
-            # Special attributes that need tracking across runs to assure the
-            # consistency of the dataset
-            # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
+                features = np.concatenate((features, rec_feat), axis=0) \
+                    if features is not None else rec_feat
 
-            # Track experiment info
-            for key, value in track_attributes.items():
-                if value['parent'] is None:
-                    parent = rec
-                else:
-                    parent = rec
-                    for p in value['parent'].split('.'):
-                        parent = getattr(parent, p)
-                att = getattr(parent, key)
-                if value['track_mode'] == 'append':
-                    track_info[key].append(att)
-                elif value['track_mode'] == 'concatenate':
-                    track_info[key] = np.concatenate(
-                        (track_info[key], att), axis=0
-                    ) if track_info[key] is not None else att
-                else:
-                    raise ValueError('Unknown track mode')
+                # Special attributes that need tracking across runs to assure the
+                # consistency of the dataset
+                # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
+
+                # Track experiment info
+                for key, value in track_attributes.items():
+                    if value['parent'] is None:
+                        parent = rec
+                    else:
+                        parent = rec
+                        for p in value['parent'].split('.'):
+                            parent = getattr(parent, p)
+                    att = getattr(parent, key)
+                    if value['track_mode'] == 'append':
+                        track_info[key].append(att)
+                    elif value['track_mode'] == 'concatenate':
+                        track_info[key] = np.concatenate(
+                            (track_info[key], att), axis=0
+                        ) if track_info[key] is not None else att
+                    else:
+                        raise ValueError('Unknown track mode')
 
             if show_progress_bar:
                 pbar.update(1)
@@ -1282,14 +1303,15 @@ class MIModelEEGSym(MIModel):
         self.is_built = True
         # self.is_fit = False
 
-    def fit_dataset(self, dataset, **kwargs):
+    def fit_dataset(self, dataset, continuous=False, **kwargs):
         # Check errors
         if not self.is_built:
             raise ValueError('Function build must be called first!')
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
-        # Extract CSP features
-        x, x_info = self.get_inst('ext_method').transform_dataset(dataset)
+        # Extract features
+        x, x_info = self.get_inst('ext_method').transform_dataset(dataset,
+                                                                  continuous=continuous)
         # Put channels in symmetric order
         x = self.get_inst('clf_method').symmetric_channels(x,
                                                            dataset.channel_set.l_cha)
