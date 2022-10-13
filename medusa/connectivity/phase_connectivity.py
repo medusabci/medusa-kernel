@@ -110,11 +110,11 @@ def __phase_connectivity_gpu(data):
     Returns
     -------
     plv : numpy 3D square matrix
-        plv-based connectivity matrix. [n_epochs, n_channels x n_channels].
+        plv-based connectivity matrix. [n_epochs, n_channels, n_channels].
     pli : numpy 3D square matrix
-        pli-based connectivity matrix. [n_epochs, n_channels x n_channels].
+        pli-based connectivity matrix. [n_epochs, n_channels, n_channels].
     wpli : numpy 3D square matrix
-        wpli-based connectivity matrix. [n_epochs, n_channels x n_channels].
+        wpli-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
     import tensorflow as tf
