@@ -20,7 +20,7 @@ from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import LaplacianFilter, car
 from medusa.connectivity.phase_connectivity import phase_connectivity
-from medusa.connectivity.amplitude_connectivity import aec
+from medusa.connectivity import amplitude_connectivity
 from medusa.graph_theory import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
@@ -30,8 +30,8 @@ from medusa.local_activation.spectral_parameteres import absolute_band_power
 class SignalPreprocessing(components.ProcessingMethod):
     """
     Common preprocessing applied in Neurofeedback applications.
-    It is composed by a frequency IIR filter followed by a Laplacian spatial
-    filter. Functions are adapted to filter the signal in more than one frequency
+    It is composed by a frequency IIR filter followed by a spatial
+    filters. Functions are adapted to filter the signal in more than one frequency
     range, if necessary.
     """
 
@@ -43,24 +43,21 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         # Error check
         if not filter_dict:
-            raise ValueError('[SignalPreprocessing] Filter bank parameter '
+            raise ValueError('[SignalPreprocessing] Filter dict parameter '
                              '"filter_dict" must be a list containing all '
                              'necessary information to perform the filtering!. '
-                             'The information should be: order, cutoff, btype and'
-                             'filt_method.')
-
+                             'The information should be: type and cutoff')
         for filter in filter_dict:
             if not isinstance(filter, dict):
                 raise ValueError('[SignalPreprocessing] Each filter must '
                                  'be a dict()!')
-            if 'order' not in filter or \
-                    'cutoff' not in filter or \
-                    'filt_method' not in filter or \
-                    'btype' not in filter:
+            if 'cutoff' not in filter or 'type' not in filter:
                 raise ValueError('[SignalPreprocessing] Each filter must '
                                  'be a dict() containing the following keys: '
-                                 '"order", "cutoff", "filt_method" and "btype"!')
-
+                                 '"cutoff"and "type"!')
+            if filter['type'] != 'training' and  filter['type'] != 'artifact':
+                raise ValueError('[SignalPreprocessing] "type" must be "training"'
+                                 'or "artifact".')
         if not montage:
             raise ValueError('[SignalPreprocessing] Pre-processing parameter'
                              '"montage" must be a dict containing all'
@@ -86,7 +83,7 @@ class SignalPreprocessing(components.ProcessingMethod):
 
     def fit(self, fs):
         """
-        Fits the IIR filter and Laplacian spatial filter for signal
+        Fits the IIR filter and Laplacian spatial filter (if selected) for signal
         preprocessing stage.
 
         Parameters
@@ -95,27 +92,27 @@ class SignalPreprocessing(components.ProcessingMethod):
             Sampling rate in Hz.
         """
 
-        # Fit Spectral Filters
+        # Fit Spectral Filters (Predefined to be optimal)
         self.offset_line_removal = mds.IIRFilter(order=3,
-                                                 cutoff=[1, 40],
+                                                 cutoff=[0.5, 40],
                                                  btype='bandpass',
                                                  filt_method='sosfiltfilt')
         self.offset_line_removal.fit(fs, len(self.l_cha))
 
         # Define filters for filtering over epochs
         for filter in self.filter_dict:
-            iir = mds.IIRFilter(order=filter['order'],
+            iir = mds.IIRFilter(order=1,
                                 cutoff=filter['cutoff'],
-                                btype=filter['btype'],
-                                filt_method=filter['filt_method'])
+                                btype='bandpass',
+                                filt_method='sosfiltfilt')
 
             if self.target_channels is None:
                 iir.fit(fs, len(self.l_cha))
             else:
                 iir.fit(fs, len(self.target_channels))
-            if filter['aim'] == 'noise':
+            if filter['type'] == 'artifact':
                 self.artifact_iir_filters.append(iir)
-            elif filter['aim'] == 'target':
+            elif filter['type'] == 'training':
                 self.target_iir_filters.append(iir)
 
         # Fit Laplacian Filter
@@ -139,12 +136,15 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         Returns
         -------
-        signals: numpy.ndarray
-            List containing original signal with offset and line power removed
-            and spatially filtered, as well as signal filtered in frequency
-            bands related to noise to avoid.
+        signal_: numpy.ndarray
+            Original signal with power line and offset removed, and spatially
+            filtered if chosen. [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray
+            If it has been chosen to reject artifact sections, this matrix
+            contains the filtered signal in the frequency bands associated
+            with these artifacts. [n_artifact_bands, n_samples, n_channels].
         """
-        # Initialize signals dictionary
+        # Initialize variable
         n_samples = signal.shape[0]
 
         if len(self.artifact_iir_filters) == 0:
@@ -187,7 +187,7 @@ class SignalPreprocessing(components.ProcessingMethod):
     def prep_fit_transform(self, fs, signal):
         """
         Fits the IIR filter and transforms an EEG signal applying IIR
-        filter and Laplacian spatial filter sequentially
+        filter and spatial filters sequentially.
 
         Parameters
         ----------
@@ -201,15 +201,33 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         Returns
         -------
-        signals: numpy.ndarray
-            List containing original signal with offset and line power removed
-            and spatially filtered, as well as signal filtered in frequency
-            bands related to noise to avoid.
+        signal: numpy.ndarray
+            Original signal with power line and offset removed, and spatially
+            filtered if chosen. [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray
+            If it has been chosen to reject artifact sections, this matrix
+            contains the filtered signal in the frequency bands associated
+            with these artifacts. [n_artifact_bands, n_samples, n_channels].
         """
         self.fit(fs)
         return self.prep_transform(signal)
 
     def narrow_transform(self, signal, parallel_computing=True):
+        """
+        Applies the IIR filter for narrow band filtering.
+
+        Parameters
+        ----------
+        signal: list or numpy.ndarray
+            Signal to transform. Shape [n_samples x n_channels].
+        parallel_computing: bool
+            If true, it filters the signal concurrently.
+
+        Returns
+        -------
+        signal: numpy.ndarray
+            Signal filtered in the training band [n_samples, n_channels].
+        """
         f_signals = np.empty(
             (len(self.target_iir_filters), signal.shape[0], signal.shape[1]))
         if parallel_computing:
@@ -226,12 +244,29 @@ class SignalPreprocessing(components.ProcessingMethod):
         else:
             for filt_idx, filter in enumerate(self.target_iir_filters):
                 f_signals[filt_idx, :, :] = filter.transform(signal)
-        return f_signals
 
+        return np.squeeze(f_signals)
 
 def ignore_noisy_windows(signals, thresholds, pct_tol):
+    """
+    This function check if a specific signal segment contains noise above the
+    pre-established thresholds.
+    Parameters
+    ----------
+    signals: numpy.ndarray
+        Array containing the signal filtered in the frequency bands associated to
+        artifacts to avoid. [n_artifact_bands, n_samples, n_channels].
+    thresholds: numpy.ndarray
+        Array containing the variance thresholds related to artifacts to avoid.
+    pct_tol: numpy.ndarray
+        Array containing variance increase (in percentage) tolerated.
+
+    Returns
+    -------
+
+    """
     # Check if power in forbidden bands is over thresholds
-    over_var = np.sum(np.var(signals, axis=1).mean(axis=-1) >=
+    over_var = np.sum(np.std(signals, axis=1).mean(axis=-1) >=
                       (1 + pct_tol) * thresholds)
     if over_var < 1:
         return True
@@ -241,15 +276,47 @@ def ignore_noisy_windows(signals, thresholds, pct_tol):
 
 def make_windows(signal, fs, update_feature_window, update_rate,
                  n_cha=1, n_samp=2, k=4, reject=True):
+    """
+
+    Parameters
+    ----------
+    signal: numpy.ndarray
+        Signal to be converted into epochs. [n_samples, n_channels].
+    fs: int or float
+        Sampling rate.
+    update_feature_window: int or float
+        Time window taken for the calculation of the characteristic (in seconds).
+    update_rate: int or float
+        Feedback update time in online mode.
+    n_cha: int
+        Threshold number of channels meeting the rejection condition to reject
+        the epoch.
+    n_samp: int
+        Threshold number of samples meeting the rejection condition to reject
+        the epoch.
+    k: int
+        Standard deviation of the signal. Used in the definition of the
+        rejection criterion.
+    reject: bool
+        If true, it returns the epochs that have not been reject. Else, it
+        returns the whole windowed signal.
+
+    Returns
+    -------
+    good_epochs: numpy.ndarray
+        Array containing the signal divided into epochs that are not noisy.
+        [n_epochs, n_samples, n_channels].
+    ind: numpy.ndarray
+        Array containing bools. True for epochs that were rejected and False for
+         epochs that were not.
+
+    """
     if len(signal.shape) == 1:
         signal = signal[:, np.newaxis]
     # Define necessary parameters
     s_duration = signal.shape[0] / fs
     s_mean = np.mean(signal, axis=0)
     s_std = np.std(signal, axis=0)
-
-    # Increase update_feature_window to get enough spectral resolution
-    update_feature_window += 0.5
 
     # Set onsets vector
     onsets = np.arange(0, s_duration - update_feature_window, update_rate)
@@ -281,9 +348,11 @@ class ConnectivityExtraction(components.ProcessingMethod):
             connectivity parameter. In seconds.
         fs: int or float
             Sample rate of the recording.
-        update_feature_window: int
+        update_feature_window: int or float
             Length in seconds of the temporal window applied to calculate
             the feature.
+        update_rate: int or float
+            Feedback update time in online mode.
         fc_measure: str
             "WPLI" or "AECORT". Measure of Functional Connectivity to calculate.
         mode: str
@@ -292,6 +361,8 @@ class ConnectivityExtraction(components.ProcessingMethod):
         montage: EEGChannelSet
         target_channels: list or None
             List containing the labels of the target channels.
+        pct_tol: numpy.ndarray
+        Array containing variance increase (in percentage) tolerated.
         """
 
         super().__init__(ext_feature=['conn_value'])
@@ -336,29 +407,46 @@ class ConnectivityExtraction(components.ProcessingMethod):
         self.update_feature_window = update_feature_window
         self.update_rate = update_rate
         self.w_signal_samples = int(update_feature_window * self.fs)
-        self.w_signal_samples_calibration = int(self.l_baseline_t * self.fs)
+        self.w_signal_samples_calibration = int((self.l_baseline_t)* self.fs)
         self.pct_tol = pct_tol
         self.thresholds = None
         self.baseline_value = None
 
     def set_baseline(self, signal, signal_artifacts, filtered_signal):
-
-        _, index = make_windows(signal[-self.w_signal_samples_calibration:, :]
+        """
+        This functions establish the baseline value.
+        Parameters
+        ----------
+        signal: numpy.ndarray
+            Original signal pre-processed (offset and power-line removed, and CAR)
+            [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray
+            Array containing the signal filtered in each frequency band associated
+            to the artifacts  to avoid. [n_artifact_bands, n_samples, n_channels].
+        filtered_signal: numpy.ndarray
+            Signal filtered in the narrow band for training. [n_samples, n_channels].
+        Returns
+        -------
+        baseline_value: float
+        """
+        # Delete borders to avoid effect borders
+        dif_window = round((signal.shape[0] - self.w_signal_samples_calibration)/2)
+        epochs_original, index = make_windows(signal[dif_window:-dif_window, :]
                                 , self.fs, self.update_feature_window,
                                 self.update_rate)
+        filtered_epochs = make_windows(
+                filtered_signal[dif_window:-dif_window, :], self.fs,
+                self.update_feature_window, self.update_rate,
+                reject=False)[~index, :, :]
 
-        epochs = make_windows(
-            filtered_signal[-self.w_signal_samples_calibration:, :]
-            , self.fs, self.update_feature_window,
-            self.update_rate, reject=False)
+        adj_mat = self.calculate_adj_mat(filtered_epochs)
 
         # Parallel computing baseline values
-        filtered_epochs = epochs[~index, :, :]
         filt_threads = []
         baseline_values = []
-        for epoch in filtered_epochs:
+        for epoch_mat in adj_mat:
             t = components.ThreadWithReturnValue(target=self.calculate_feature,
-                                                 args=(epoch,))
+                                                 args=(epoch_mat,))
             filt_threads.append(t)
             t.start()
 
@@ -366,40 +454,80 @@ class ConnectivityExtraction(components.ProcessingMethod):
             baseline_values.append(thread.join())
 
         self.baseline_value = np.mean(baseline_values)
-        # if prep_signal.shape[0] > 1:
-        #     self.thresholds = np.var(
-        #         prep_signal[1:][-self.w_signal_samples_calibration:,
-        #         :], axis=1).mean(axis=-1)
+
         # Define artifact related thresholds
         if signal_artifacts is not None:
-            self.thresholds = np.var(
+            self.thresholds = np.std(
                 signal_artifacts[:, -self.w_signal_samples_calibration:,
                 :], axis=1).mean(axis=-1)
         return self.baseline_value
 
     def ext_feature(self, signal, signal_artifacts):
+        """
+        Function for extracting FC values in online mode.
+        Parameters
+        ----------
+        signal: numpy.ndarray
+            Signal filtered in the narrow band for training. [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray or None
+            Array containing the signal filtered in each frequency band associated
+            to the artifacts  to avoid. [n_artifact_bands, n_samples, n_channels].
+        Returns
+        -------
+        c_value: float
+        """
         if self.baseline_value is None:
             raise ValueError(
                 '[ConnectivityExtraction] Calibration not performed.')
+        # Delete borders
+        dif_window = round((signal.shape[0] - self.w_signal_samples)/2)
 
-        c_value = self.calculate_feature(signal[-self.w_signal_samples:, :]) \
+        adj_mat = self.calculate_adj_mat(signal[dif_window:-dif_window, :])
+        c_value = self.calculate_feature(np.squeeze(adj_mat)) \
                   - self.baseline_value
         # Check if artifact bands are defined
         if signal_artifacts is not None:
-            if ignore_noisy_windows(signal_artifacts, self.thresholds,
-                                           self.pct_tol):
+            if ignore_noisy_windows(signal_artifacts[:,dif_window:-dif_window,
+                                    self.target_channels], self.thresholds,
+                                    self.pct_tol):
                 return c_value
             else:
                 return None
+        return c_value
 
-    def calculate_feature(self, signal):
-        # First calculate adjacency matrix depending on FC measure chosen
+    def calculate_adj_mat(self, signal):
+        """
+        This function calculates the adjacency matrix depending on the FC mode.
+        Parameters
+        ----------
+        signal: numpy.ndarray
+            Signal filtered in the narrow band for training.
+            [n_epochs, n_samples, n_channels] or [n_samples, n_channels].
+        Returns
+        -------
+        adj_mat: numpy.ndarray
+            [n_epochs, n_channels, n_channels].
+        """
+        # Calculate adjacency matrix depending on FC measure chosen
+        adj_mat = None
         if self.fc_measure == "WPLI":
-            _, _, adj_mat = phase_connectivity(signal.squeeze())
+            _, _, adj_mat = phase_connectivity(signal)
+        # This is under development
         elif self.fc_measure == "AECORT":
-            adj_mat = aec(signal.squeeze())
+            raise NotImplementedError
+            # adj_mat = amplitude_connectivity.aec_ort_cpu(signal)
+        return adj_mat
 
-        # Then calculate the baseline value depending on mode chosen
+    def calculate_feature(self, adj_mat):
+        """
+        Calculates Graph metric from adjacency matrix.
+
+        Parameters
+        ----------
+        adj_mat: numpy.ndarray
+            [n_channels, n_channels].
+        """
+        # Calculate the baseline value depending on mode chosen
         if self.mode == "Global coupling":
             tri_l_idx = np.tril_indices(adj_mat.shape[0], -1)
             return np.nanmean(np.asarray(adj_mat)[tri_l_idx])
@@ -415,8 +543,15 @@ class ConnectivityExtraction(components.ProcessingMethod):
             return self.mean_coupling(adj_mat)
 
     def mean_coupling(self, adj_mat):
-        """This function calculates the connectivity values between all the
-           target channels and average it value. """
+        """
+        This function calculates the connectivity values between all the
+           target channels and average it value.
+
+        Parameters
+        ----------
+        adj_mat: numpy.ndarray
+            [n_channels, n_channels].
+        """
         c = []
         for ind, ch_ind_1 in enumerate(self.target_channels[:-1]):
             for ch_ind_2 in self.target_channels[ind + 1:]:
@@ -442,6 +577,15 @@ class PowerExtraction(components.ProcessingMethod):
         update_feature_window = int
             Length in seconds of the temporal window applied to calculate
             the feature.
+        update_rate: int or float
+            Feedback update time in online mode.
+        f_dict: dict
+            Dict containing the frequency bands associated to training band
+            and artifacts to avoid.
+        pct_tol: numpy.ndarray
+            Array containing variance increase (in percentage) tolerated.
+        mode: str
+            "single" or "ratio"
         """
 
         super().__init__(band_power=['band power'])
@@ -467,81 +611,73 @@ class PowerExtraction(components.ProcessingMethod):
 
         Parameters
         ----------
-        signal_artifacts
-        signal: list or numpy.ndarray
-            EEG already pre-processed. Its shape depends on the Neurofeedback
-            modality: ([n_samples x n_channels] if SingleBandNFT mode,
-            [2 x n_samples x n_channels] if RatioBandNFT mode and
-            [1 + n_bands_to_ban x n_samples x n_channels] if
-            RestrictionBandsNFT mode).
-
+        signal: numpy.ndarray
+            EEG already pre-processed. [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray
+            Signal filtered in the frequency bands associated to the artifacts
+            to be avoided. [n_artifact_bands, n_samples, n_channels].
         Returns
         ------
         baseline_power: float
         """
-        epochs, _ = make_windows(signal[-self.w_signal_samples_calibration:, :]
+        # Delete borders
+        dif_window = round(
+            (signal.shape[0] - self.w_signal_samples_calibration) / 2)
+        epochs, _ = make_windows(signal[dif_window:-dif_window, :]
                                  , self.fs, self.update_feature_window,
                                  self.update_rate)
         _, psd = scipy.signal.welch(epochs, self.fs, 'hamming',
                                     self.w_signal_samples,
-                                    axis=1)
+                                    axis=1,scaling='density')
 
         b_power = self.power(psd)
 
         # Define artifact related thresholds
         if signal_artifacts is not None:
-            self.thresholds = np.var(
+            self.thresholds = np.std(
                 signal_artifacts[:, -self.w_signal_samples_calibration:,
                 :], axis=1).mean(axis=-1)
 
-        if self.mode == 'single mode':
+        if self.mode == 'single':
             self.baseline_power = b_power[0]
-            # Check if artifact bands are defined
-            # if signal.shape[0] > 1:
-            #     self.thresholds = np.var(
-            #         signal[1:][-self.w_signal_samples_calibration:,
-            #         :], axis=1).mean(axis=-1)
 
-        elif self.mode == 'ratio mode':
+        elif self.mode == 'ratio':
             self.baseline_power = b_power[0] / b_power[1]
-            # Check if artifact bands are defined
-            # if signal.shape[0] > 2:
-            #     self.thresholds = np.var(
-            #         signal[2:][-self.w_signal_samples_calibration:,
-            #         :], axis=1).mean(axis=-1)
 
         return self.baseline_power
 
     def band_power(self, signal, signal_artifacts):
         """
-        This function returns the band power applying the mean power to the
-        signal. Its performance depends on the Neurofeedback mode.
+        This function returns the band power from Power Spectral Density.
+        If signal noise is above the pre-established thresholds, this function
+        will return None.
 
         Parameters
         ----------
-        signal: list or numpy.ndarray
-            EEG already pre-processed. Its shape depends on the Neurofeedback
-            modality: ([n_samples x n_channels] if SingleBandNFT mode,
-            [2 x n_samples x n_channels] if RatioBandNFT mode and
-            [1 + n_bands_to_ban x n_samples x n_channels] if RestrictionBandsNFT
-            mode). In the RestrictionBandsNFT mode, the target frequency band is
-            passed previously as if the mode were SingleBandNFT.
+        signal: numpy.ndarray
+            Signal pre-processed. [n_samples, n_channels].
+        signal_artifacts: numpy.ndarray
+            Signal filtered in the frequency bands associated to the artifacts
+            to be avoided. [n_artifact_bands, n_samples, n_channels].
         Returns
         ------
-        b_power: float
+        b_power: float or None
         """
 
         if self.baseline_power is None:
             raise ValueError('[PowerExtraction] Calibration not performed.')
 
-        _, psd = scipy.signal.welch(signal, self.fs, 'hamming',
+        dif_window = round(
+            (signal.shape[0] - self.w_signal_samples) / 2)
+
+        _, psd = scipy.signal.welch(signal[dif_window:-dif_window], self.fs, 'hamming',
                                     self.w_signal_samples,
-                                    axis=0)
+                                    axis=0,scaling='density')
         b_power_uncorrected = self.power(psd)
-        if self.mode == 'single mode':
+        if self.mode == 'single':
             b_power = b_power_uncorrected[0] - self.baseline_power
 
-        elif self.mode == 'ratio mode':
+        elif self.mode == 'ratio':
             b_power = b_power_uncorrected[0] / b_power_uncorrected[
                 1] - self.baseline_power
 
@@ -553,84 +689,36 @@ class PowerExtraction(components.ProcessingMethod):
                     return b_power
                 else:
                     return None
-
-
-        # if self.mode is 'ban mode':
-        #     b_power_main_band = power[0] - self.baseline_power
-        #     # b_power_ban_bands = power[1:]
-        #     return b_power_main_band
-        # elif self.mode is 'ratio mode':
-        #     b_power = power[0] / power[1] - self.baseline_power
-        #     return b_power
-        # elif self.mode is 'single mode':
-        #     b_power = power[0] - self.baseline_power
-        #     return b_power
-
-    # def ban_bands(self, signals, tolerance=1):
-    #     """"
-    #     DEPRECATED
-    #     This function computes the  power of the already filtered signal at
-    #     target frequency band to enhance. Also computes the mean channel variance
-    #     at other bands. If the number of bands whose variance it is above a
-    #     threshold (previously defined at calibration stage) is greater than a
-    #     tolerance parameter, the function returns None as a sign that the epoch is
-    #     not valid.
-    #
-    #     Parameters:
-    #     __________
-    #     signal: list or numpy.ndarray
-    #         Signal already filtered at frequency band of interest.
-    #         Its shape must be [1 + n_bands_to_ban x n_samples x n_channels].
-    #         First element (e.g., [0,:,:]) is the signal filtered at target
-    #         frequency band to enhance. The rest are employed to decide whether
-    #         the epoch is valid or not.
-    #     tolerance: int
-    #         Parameter to restrict the number of banning-bands which are allowed
-    #         to have a variance above the pre-defined thresholds. When this number
-    #         is above the tolerance, the epoch is set as not valid.
-    #     """
-    #     # Get band powers
-    #     b_power_main_band = self.band_power(signals)
-    #
-    #     # Check if power in forbidden bands is over thresholds
-    #     over_var = np.sum(np.var(signals[1:], axis=1).mean(axis=-1) >=
-    #                       1.9 * self.thresholds)
-    #     if over_var < tolerance:
-    #         return b_power_main_band
-    #     else:
-    #         return None
-    # if np.sum(b_power_ban_bands > self.thresholds) < tolerance:
-    #     return b_power_main_band
-    # else:
-    #     return 0
-
-    # @staticmethod
-    # def mean_power(signal):
-    #     """
-    #     This function computes the classical NF feature: the mean power across
-    #     channels.
-    #
-    #     Parameters
-    #     ----------
-    #     signal: list or numpy.ndarray
-    #         EEG signal already filtered. Shape of [n_samples x n_channels]
-    #     """
-    #     return np.mean(np.log(np.mean(np.power(signal, 2), axis=1)), axis=1)
+        return b_power
 
     def power(self, psd):
-        # TODO Checkear dimensiones de return
+        """
+        This function calculates power from Power Spectral Density
+        Parameters
+        ----------
+        psd: numpy.ndarray
+            [n_epochs, n_samples, n_channels].
+
+        Returns
+        -------
+        powers: numpy.ndarray
+            [n_training_bands].
+        """
         # Check if psd has epochs dimension
         if len(psd.shape) == 2:
             psd = psd[np.newaxis,:,:]
         bands = []
         # Extract training bands limits
         for dict in self.f_dict:
-            if dict['aim'] == 'target':
+            if dict['type'] == 'training':
                 bands.append(dict['cutoff'])
         powers = np.empty(len(bands))
+
+        # Calculate band power relative to the whole bandwidth
         for index, band in enumerate(bands):
             powers[index] = np.mean(np.mean(absolute_band_power(psd, self.fs,
-                                                                band), axis=0))
+                                                                band),
+                                            axis=0))
         return powers
 
 
@@ -641,6 +729,13 @@ class ConnectivityBasedNFTModel(components.Algorithm):
                  pct_tol_muscular=None):
         super().__init__(calibration=['baseline_value'],
                          training=['feedback_value'])
+        """
+        Pipeline for Connectivity-based Neurofeedback training. This class
+        inherits from components.Algorithm. Therefore, it can be used to create
+        standalone algorithms that can be used in compatible apps from
+        medusa-platform for online experiments. See components.Algorithm to know
+        more about this functionality.
+        """
 
         # Settings
         self.fs = fs
@@ -665,7 +760,7 @@ class ConnectivityBasedNFTModel(components.Algorithm):
             self.pct_tol = np.array([pct_tol_ocular, pct_tol_muscular])
 
         # Check filter dict
-        if len(self.filter_dict) > 1:
+        if not self.check_cutoff_settings():
             raise Exception('The number of frequency bands selected does not '
                             'match the Neurofeedback mode.')
 
@@ -684,6 +779,18 @@ class ConnectivityBasedNFTModel(components.Algorithm):
                                                pct_tol=self.pct_tol,update_rate=update_rate))
 
     def calibration(self, eeg):
+        """
+        It pre-process eeg, gets signal filtered in artifact-related bands and
+        filters the pre-processed eeg in training band. Then, it calculates the
+        baseline value.
+        Parameters
+        ----------
+        eeg: numpy.ndarray
+            [n_samples, n_channels]
+        Returns
+        -------
+        baseline_value: float
+        """
         original_signal, signal_artifacts = self.get_inst('prep_method').\
             prep_fit_transform(
             signal=eeg,
@@ -695,6 +802,18 @@ class ConnectivityBasedNFTModel(components.Algorithm):
                          filtered_signal=narrow_filtered_signal)
 
     def training(self, eeg):
+        """
+        It pre-process eeg, gets signal filtered in artifact-related bands and
+        filters the pre-processed eeg in training band. Then, it calculates the
+        feedback value.
+        Parameters
+        ----------
+        eeg: numpy.ndarray
+            [n_samples, n_channels]
+        Returns
+        -------
+        feedback_value: float
+        """
         original_signal, signal_artifacts = self.get_inst('prep_method').prep_transform(
             signal=eeg)
         narrow_filtered_signal = self.get_inst('prep_method'). \
@@ -703,17 +822,30 @@ class ConnectivityBasedNFTModel(components.Algorithm):
             signal=narrow_filtered_signal,signal_artifacts=signal_artifacts)
         return feedback_value
 
-class PowerBasedNFTModel_NEW(components.Algorithm):
-    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 update_rate,montage, target_channels, n_cha_lp, mode, pct_tol_ocular=None,
-                 pct_tol_muscular=None):
+    def check_cutoff_settings(self):
         """
-        Skeleton class for power-based Neurofeedback training models. This class
+        Function to check the correct definition of training band dictionary.
+        """
+        target_bands = 0
+        for filter in self.filter_dict:
+            if filter['type'] == 'training':
+                target_bands += 1
+        if target_bands == 1:
+            return True
+        else:
+            return False
+
+
+class PowerBasedNFTModel(components.Algorithm):
+    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
+                 update_rate,montage, target_channels, n_cha_lp, mode,
+                 pct_tol_ocular=None, pct_tol_muscular=None):
+        """
+        Pipeline for Power-based Neurofeedback training. This class
         inherits from components.Algorithm. Therefore, it can be used to create
         standalone algorithms that can be used in compatible apps from
         medusa-platform for online experiments. See components.Algorithm to know
-        more about this functionality. Calibration and Training methods,
-        as are common to all models, are added in this skeleton class.
+        more about this functionality.
         """
         super().__init__(calibration=['baseline_parameters'],
                          training=['feedback_value'])
@@ -745,9 +877,9 @@ class PowerBasedNFTModel_NEW(components.Algorithm):
             self.pct_tol = np.array([pct_tol_ocular, pct_tol_muscular])
 
         # # Check correct filter dict definition
-        # if not self.check_cutoff_settings():
-        #     raise Exception('The number of frequency bands selected does not '
-        #                     'match the Neurofeedback mode.')
+        if not self.check_cutoff_settings():
+            raise Exception('The number of frequency bands selected does not '
+                            'match the Neurofeedback mode.')
 
         self.add_method('prep_method',
                         SignalPreprocessing(filter_dict=self.filter_dict,
@@ -763,19 +895,15 @@ class PowerBasedNFTModel_NEW(components.Algorithm):
 
     def calibration(self, eeg, **kwargs):
         """
-
-        Function that receives the EEG signal, filters it and extract the
-        baseline parameter adapted to the Neurofeedback training mode
-
+        It pre-process eeg and gets signal filtered in artifact-related bands.
+        Then, it calculates the baseline value.
         Parameters
         ----------
         eeg: numpy.ndarray
-            EEG signal to process and extract baseline parameter
-
+            [n_samples, n_channels]
         Returns
         -------
-        baseline_power: float
-            Value of baseline parameter to display it at Platform
+        baseline_value: float
         """
         original_signal, signal_artifacts = self.get_inst('prep_method').\
             prep_fit_transform(signal=eeg, fs=self.fs)
@@ -784,18 +912,15 @@ class PowerBasedNFTModel_NEW(components.Algorithm):
 
     def training(self, eeg):
         """
-        Function that receives the EEG signal, filters it and extract
-        the feature adapted to the Neurofeedback training mode
-
+        It pre-process eeg, gets signal filtered in artifact-related bands. Then,
+        it calculates the feedback value.
         Parameters
         ----------
         eeg: numpy.ndarray
-            EEG signal to process and extract baseline parameter
-
+            [n_samples, n_channels]
         Returns
         -------
         feedback_value: float
-            Value of power
         """
         original_signal, signal_artifacts = self.get_inst('prep_method').\
             prep_transform(signal=eeg)
@@ -803,249 +928,24 @@ class PowerBasedNFTModel_NEW(components.Algorithm):
             signal=original_signal, signal_artifacts=signal_artifacts)
         return feedback_value
 
-    # def check_cutoff_settings(self):
-    #     """
-    #     Function that receives the EEG signal, filters it and extract the
-    #     feature adapted to the Neurofeedback training mode
-    #
-    #     Parameters
-    #     ----------
-    #     eeg: numpy.ndarray
-    #         EEG signal to process and extract baseline parameter
-    #
-    #     Returns
-    #     -------
-    #     baseline_power: float
-    #         Value of baseline parameter to display it at Platform
-    #     """
-    #     if self.mode == 'single mode':
-    #         if len(self.filter_dict) > 1:
-    #             return False
-    #         else:
-    #             return True
-    #     elif self.mode == 'ratio mode':
-    #         if len(self.filter_dict) > 2:
-    #             return False
-    #         else:
-    #             return True
-
-
-class PowerBasedNFTModel(components.Algorithm):
-    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 montage, target_channels, n_cha_lp, **kwargs):
-        """
-        Skeleton class for power-based Neurofeedback training models. This class
-        inherits from components.Algorithm. Therefore, it can be used to create
-        standalone algorithms that can be used in compatible apps from
-        medusa-platform for online experiments. See components.Algorithm to know
-        more about this functionality. Calibration and Training methods,
-        as are common to all models, are added in this skeleton class.
-        """
-        super().__init__(calibration=['baseline_parameters'],
-                         training=['feedback_value'])
-
-        """
-        Class constructor
-        """
-
-        # Settings
-        self.fs = fs
-        self.filter_dict = filter_dict
-        self.l_baseline_t = l_baseline_t
-        self.update_feature_window = update_feature_window
-        self.montage = montage
-        self.target_channels = target_channels
-        self.n_cha_lp = n_cha_lp
-
-        # Init variables
-        self.baseline_power = None
-        self.mode = None
-
-        # if not self.check_cutoff_settings():
-        #     raise Exception('The number of frequency bands selected does not '
-        #                     'match the Neurofeedback mode.')
-
-        self.add_method('prep_method',
-                        SignalPreprocessing(filter_dict=self.filter_dict,
-                                            montage=self.montage,
-                                            target_channels=self.target_channels,
-                                            n_cha_lp=self.n_cha_lp,
-                                            laplacian=True))
-        self.add_method('feat_ext_method',
-                        PowerExtraction(fs=fs, l_baseline_t=l_baseline_t,
-                                        update_feature_window=update_feature_window))
-
-    def calibration(self, eeg, **kwargs):
-        """
-
-        Function that receives the EEG signal, filters it and extract the
-        baseline parameter adapted to the Neurofeedback training mode
-
-        Parameters
-        ----------
-        eeg: numpy.ndarray
-            EEG signal to process and extract baseline parameter
-
-        Returns
-        -------
-        baseline_power: float
-            Value of baseline parameter to display it at Platform
-        """
-        raise NotImplemented
-
-    def training(self, eeg):
-        """
-        Function that receives the EEG signal, filters it and extract
-        the feature adapted to the Neurofeedback training mode
-
-        Parameters
-        ----------
-        eeg: numpy.ndarray
-            EEG signal to process and extract baseline parameter
-
-        Returns
-        -------
-        baseline_power: float
-            Value of baseline parameter to display it at Platform
-        """
-        raise NotImplemented
-
     def check_cutoff_settings(self):
         """
-        Function that receives the EEG signal, filters it and extract the
-        feature adapted to the Neurofeedback training mode
-
-        Parameters
-        ----------
-        eeg: numpy.ndarray
-            EEG signal to process and extract baseline parameter
-
-        Returns
-        -------
-        baseline_power: float
-            Value of baseline parameter to display it at Platform
+        Function to check the correct definition of training band dictionary.
         """
-        raise NotImplemented
-
-
-class SingleBandNFT(PowerBasedNFTModel):
-    """
-    The simplest model of Neurofeedback training. The feedback value consist of
-    the power of the band selected as target.
-    """
-
-    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 montage, target_channels, n_cha_lp):
-        super().__init__(fs=fs, filter_dict=filter_dict,
-                         l_baseline_t=l_baseline_t,
-                         update_feature_window=update_feature_window,
-                         montage=montage,
-                         target_channels=target_channels, n_cha_lp=n_cha_lp)
-
-        self.get_inst('feat_ext_method').mode = 'single mode'
-
-    def check_cutoff_settings(self):
-        if len(self.filter_dict) > 1:
-            return False
-        else:
-            return True
-
-    def calibration(self, eeg, **kwargs):
-        filtered_signal = self.get_inst('prep_method').fit_transform_signal(
-            signal=eeg,
-            fs=self.fs)
-        self.baseline_power = self.get_inst('feat_ext_method').set_baseline(
-            signal=filtered_signal)
-        # return self.baseline_power
-
-    def training(self, eeg, **kwargs):
-        filtered_signal = self.get_inst('prep_method').transform_signal(
-            signal=eeg)
-        feedback_value = self.get_inst('feat_ext_method').band_power(
-            signal=filtered_signal)
-        return feedback_value
-
-
-class RatioBandNFT(PowerBasedNFTModel):
-    """
-    This Neurofeedback model is intended to use the ratio between the power of
-    two frequency bands as feedback value.
-    Thus, the baseline power parameter is the value of this ratio
-    at calibration stage.
-    """
-
-    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 montage, target_channels, n_cha_lp):
-        super().__init__(fs=fs, filter_dict=filter_dict,
-                         l_baseline_t=l_baseline_t,
-                         update_feature_window=update_feature_window,
-                         montage=montage,
-                         target_channels=target_channels, n_cha_lp=n_cha_lp)
-
-        self.get_inst('feat_ext_method').mode = 'ratio mode'
-
-    def check_cutoff_settings(self):
-        if len(self.filter_dict) != 2:
-            return False
-        else:
-            return True
-
-    def calibration(self, eeg, **kwargs):
-        filtered_signals = self.get_inst('prep_method').fit_transform_signal(
-            signal=eeg,
-            fs=self.fs)
-        self.baseline_power = self.get_inst('feat_ext_method').set_baseline(
-            signal=filtered_signals)
-
-    def training(self, eeg, **kwargs):
-        filtered_signals = self.get_inst('prep_method').transform_signal(
-            signal=eeg)
-        feedback_value = self.get_inst('feat_ext_method').band_power(
-            signal=filtered_signals)
-        return feedback_value
-
-
-class RestrictionBandNFT(PowerBasedNFTModel):
-    """
-    This Neurofeedback model, as SingleBandNFT, is aimed to enhance the power of
-    a target band. However, it also tries to keep down the power of other selected
-    frequency bands. Thereby, this training mode ensure that the user is
-    up-regulating only the desired band. That is, this model is a more specific
-    version of SingleBandNFT. It also can be use to prevent the influence of
-    artifacts on the feedback.
-
-    """
-
-    def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 montage, target_channels, n_cha_lp):
-        super().__init__(fs=fs, filter_dict=filter_dict,
-                         l_baseline_t=l_baseline_t,
-                         update_feature_window=update_feature_window,
-                         montage=montage,
-                         target_channels=target_channels, n_cha_lp=n_cha_lp)
-
-        self.get_inst('feat_ext_method').mode = 'ban mode'
-
-    def check_cutoff_settings(self):
-        if len(self.filter_dict) < 2:
-            return False
-        else:
-            return True
-
-    def calibration(self, eeg, **kwargs):
-        filtered_signals = self.get_inst('prep_method').fit_transform_signal(
-            signal=eeg,
-            fs=self.fs)
-        self.baseline_power = self.get_inst('feat_ext_method').set_baseline(
-            signal=filtered_signals)
-
-    def training(self, eeg):
-        filtered_signals = self.get_inst('prep_method').transform_signal(
-            signal=eeg)
-        feedback_value = self.get_inst('feat_ext_method').ban_bands(
-            signals=filtered_signals)
-        return feedback_value
-
+        target_bands = 0
+        for filter in self.filter_dict:
+            if filter['type'] == 'training':
+                target_bands += 1
+        if self.mode == 'single':
+            if target_bands == 1:
+                return True
+            else:
+                return False
+        elif self.mode == 'ratio':
+            if target_bands == 2:
+                return True
+            else:
+                return False
 
 class NeurofeedbackData(components.ExperimentData):
     """Experiment info class for Neurofeedback training experiments. It records
