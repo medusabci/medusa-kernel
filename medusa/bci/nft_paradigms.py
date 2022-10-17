@@ -431,6 +431,10 @@ class ConnectivityExtraction(components.ProcessingMethod):
         """
         # Delete borders to avoid effect borders
         dif_window = round((signal.shape[0] - self.w_signal_samples_calibration)/2)
+        if dif_window <= 0:
+            raise ValueError('The duration of the signal for the baseline '
+                             'calculation should be slightly longer than the '
+                             'window time taken for the baseline calculation. ')
         epochs_original, index = make_windows(signal[dif_window:-dif_window, :]
                                 , self.fs, self.update_feature_window,
                                 self.update_rate)
@@ -481,6 +485,10 @@ class ConnectivityExtraction(components.ProcessingMethod):
                 '[ConnectivityExtraction] Calibration not performed.')
         # Delete borders
         dif_window = round((signal.shape[0] - self.w_signal_samples)/2)
+        if dif_window <= 0:
+            raise ValueError('The duration of the signal for feedback '
+                             'calculation should be slightly longer than the '
+                             'window time taken for the feedback calculation. ')
 
         adj_mat = self.calculate_adj_mat(signal[dif_window:-dif_window, :])
         c_value = self.calculate_feature(np.squeeze(adj_mat)) \
@@ -623,6 +631,10 @@ class PowerExtraction(components.ProcessingMethod):
         # Delete borders
         dif_window = round(
             (signal.shape[0] - self.w_signal_samples_calibration) / 2)
+        if dif_window <= 0:
+            raise ValueError('The duration of the signal for the baseline '
+                             'calculation should be slightly longer than the '
+                             'window time taken for the baseline calculation.')
         epochs, _ = make_windows(signal[dif_window:-dif_window, :]
                                  , self.fs, self.update_feature_window,
                                  self.update_rate)
@@ -669,6 +681,10 @@ class PowerExtraction(components.ProcessingMethod):
 
         dif_window = round(
             (signal.shape[0] - self.w_signal_samples) / 2)
+        if dif_window <= 0:
+            raise ValueError('The duration of the signal for the feedback '
+                             'calculation should be slightly longer than the '
+                             'window time taken for the feedback calculation. ')
 
         _, psd = scipy.signal.welch(signal[dif_window:-dif_window], self.fs, 'hamming',
                                     self.w_signal_samples,
