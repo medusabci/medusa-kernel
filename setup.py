@@ -1,8 +1,6 @@
 from setuptools import setup, find_packages
 from pathlib import Path
 
-# Just testing
-
 # read the contents of your README file
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
@@ -10,7 +8,7 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.4.0',
+    version='1.0.0',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '

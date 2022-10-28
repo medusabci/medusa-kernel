@@ -2,11 +2,11 @@ import numpy as np
 from medusa import components
 
 
-class EMG(components.BiosignalData):
-    """Electromiography (EMG) biosignal data class.
+class NIRS(components.BiosignalData):
+    """Near Infrarred Spectroscopy (NIRS) biosignal data class.
     """
 
-    def __init__(self, times, signal, fs, channel_set, location=None, **kwargs):
+    def __init__(self, times, signal, fs, channel_set, **kwargs):
         """EMG constructor
 
         Parameters
@@ -23,8 +23,6 @@ class EMG(components.BiosignalData):
             Sample rate of the recording.
         channel_set : list or Object
             Channel information
-        location : string
-            Location of the recording (e.g., quadriceps)
         kwargs: kwargs
             Key-value arguments to be saved in the class. This general class
             does not check anything
@@ -34,7 +32,7 @@ class EMG(components.BiosignalData):
         self.times = times
         self.signal = signal
         self.fs = fs
-        self.location = location
+        self.channel_set = channel_set
 
         # Set the specified arguments
         for key, value in kwargs.items():
