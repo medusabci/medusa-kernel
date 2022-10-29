@@ -45,5 +45,10 @@ setup(
     description='Advanced biosignal processing toolbox',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    package_data={'medusa': ['meeg/*.tsv']}
+    package_data={
+        'medusa': [
+            'meeg/*.tsv',
+            'local_activation/computeLZC.dll'
+        ]
+    }
 )

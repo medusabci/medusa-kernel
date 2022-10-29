@@ -1,5 +1,4 @@
 include LICENSE
-include medusa/local_activation/computeLZC.dll
 exclude graph_theory
 
 
