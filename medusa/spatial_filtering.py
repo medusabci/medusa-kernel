@@ -10,6 +10,33 @@ class LaplacianFilter(components.ProcessingMethod):
     Class for fitting and applying Laplacian Filter to EEG Signals.
     A channel set from EEGChannelSet class must have been defined before calling
     LaplacianFilter class.
+
+    This class implements the second order Hjorth's approximation of the Laplacian
+    surface for a spatial-discrete system [1].
+
+    It counts with two different modes:
+    - Auto: First, the location of the channel to be filtered is identified.
+            This allows us to determine the number of surrounding electrodes to
+            be taken into account when calculating the laplacian surface
+            (i.e., an electrode located in the center of the assembly is
+            not the same as an electrode located in a corner). Then, apply the
+            Laplacian surface correction taking into account the distance at
+            which each electrode is located. It should take into account that
+            this mode only applies the laplacian surface to the closest
+            electrodes, so for next-nearest neighbours [2] the custom mode should be
+            used.
+    - Custom: In this mode, a list containing the labels of the channels to be
+              used to calculate the Laplacian surface of each channel to be
+              filtered must be defined. This allows the design of long
+              distance filters [2].
+
+    References
+    [1] Claudio Carvalhaes, J. Acacio de Barros, The surface Laplacian technique
+        in EEG: Theory and methods, International Journal of Psychophysiology,
+        Volume 97, Issue 3, 2015, Pages 174-188.
+    [2] Dennis J McFarland, Lynn M. McCabe, Stephen V. David, Jonathan R. Wolpaw,
+        Spatial filter selection for EEG-based communication, Electroencephalography
+        and clinical Neurophysiology, Volume 193, 1997, Pages 386-394.
     """
 
     def __init__(self, channel_set, mode='auto'):
@@ -22,15 +49,16 @@ class LaplacianFilter(components.ProcessingMethod):
         channel_set: EEGChannelSet
             EEGChannelSet instance
         mode: str {'auto'|'custom'}
-            Defines the behaviour of the filter:
-                - auto: applies the laplacian filtering on the EEG signal,
-                    subtracting the mean of  the n closest channels from each
-                    EEG sample of each channel. The channels to be filtered can be set.
-                - custom: applies the laplacian filtering on the EEG signal on
-                    channels l_cha_to_filter, subtracting the mean of the
-                    l_cha_laplace channels from each EEG sample .
         """
+        # Check Channel Set is initialized
+        if not channel_set.channels:
+            raise Exception('Cannot compute the nearest neighbors if channel set '
+                            'is not initialized!')
 
+        # Chech if there are enough channels to perform filtering
+        if len(channel_set.l_cha) < 5:
+            raise Exception('There are not enough channels to perform Laplacian'
+                            'surface filtering. ')
         # Parameters
         self.channel_set = channel_set
         self.l_cha = channel_set.l_cha
@@ -39,60 +67,55 @@ class LaplacianFilter(components.ProcessingMethod):
 
         # Variables
         self.dist_matrix = None
-        self.lp_filter = None
+        self.lp_filter = []
         self.idx_cha_to_filter = None
+        self.dist_weights = []
 
-        # Check Channel Set is initialized
-        if not channel_set.channels:
-            raise Exception('Cannot compute the nearest neighbors if channel set '
-                            'is not initialized!')
-
-    def fit_lp(self, n_cha_lp=None, l_cha_to_filter=None, l_cha_laplace=None):
+    def fit_lp(self, l_cha_to_filter, l_cha_laplace=None):
         """
         Fits the Laplacian Filter depending on the mode chosen
 
         Parameters
         ----------
-        n_cha_lp: int
-            Number of channels considered in the laplacian filter. Only used
-            in mode auto.
-        l_cha_to_filter: list
+        l_cha_to_filter: list of strings
             List [N x 1] containing the labels of the channels to filter. Used in
             both filtering modes.
-        l_cha_laplace: int
+        l_cha_laplace: list
             List of lists [N x M] containing the labels of the channels to
             compute the laplace filter for channel in position Ni of
-            l_cha_to_filter. Only used in mode custom
+            l_cha_to_filter. Only used in mode custom.
         """
 
-        if self.mode == 'auto':
-            # Check Errors
-            if n_cha_lp is None:
-                raise ValueError("[LaplacianFilter] In 'auto' mode is necessary to "
-                                 "set the number og nearest channels to compute Laplacian"
-                                 "filter in n_cha_lp")
+        self.dist_matrix = self.channel_set.compute_dist_matrix()
+        self.idx_cha_to_filter = np.empty(len(l_cha_to_filter))
 
-            # Check if labels of channels to filter are set
-            if l_cha_to_filter is None:
-                self.dist_matrix = self.channel_set.compute_dist_matrix()
-                self.lp_filter = np.empty((self.n_cha, n_cha_lp))
-                for i in range(self.n_cha):
-                    # Get the closest n channels
-                    self.lp_filter[i, :] = np.argsort(self.dist_matrix[i, :])[1:n_cha_lp + 1]
-                raise Warning("[LaplacianFilter] In 'auto' mode is available to "
-                              "set Laplacian filtering channels  "
-                              "in 'l_cha_to_filter'. Consider this if you do not want"
-                              " to calculate the Laplacian filter for all channels.")
-            else:
-                self.dist_matrix = self.channel_set.compute_dist_matrix()
-                self.lp_filter = np.empty((len(l_cha_to_filter), n_cha_lp))
-                self.idx_cha_to_filter = np.empty(len(l_cha_to_filter))
-                for i in range(len(l_cha_to_filter)):
-                    # Get the indexes of channels to filter
-                    self.idx_cha_to_filter[i] = self.l_cha.index(l_cha_to_filter[i])
-                    # Get the closest n channels
-                    self.lp_filter[i, :] = np.argsort(self.dist_matrix[self.idx_cha_to_filter[i].astype(int),
-                                                      :])[1:n_cha_lp + 1]
+        if self.mode == 'auto':
+            for i in range(len(l_cha_to_filter)):
+                # Get the indexes of channels to filter
+                self.idx_cha_to_filter[i] = self.l_cha.index(l_cha_to_filter[i])
+                nearest_channels = np.unique(np.round(np.sort(self.dist_matrix
+                                                    [self.idx_cha_to_filter[i].astype(int),:])[:5],2))
+
+                # Check the num of channels that can be taken to perform Laplacian
+                if len(nearest_channels) == 2:
+                    n_cha_lp = 4
+                elif len(nearest_channels) == 4:
+                    n_cha_lp = 3
+                elif len(nearest_channels) == 5:
+                    n_cha_lp = 2
+
+                # Get the closest n channels
+                self.lp_filter.append(np.argsort(self.dist_matrix[self.
+                                                           idx_cha_to_filter[i].astype(int), :])
+                                                [1:n_cha_lp + 1])
+
+                # Get the distances of the n channels
+                self.dist_weights.append(1./np.sort(self.dist_matrix[self.
+                                                           idx_cha_to_filter[i].astype(int), :])
+                                                [1:n_cha_lp + 1])
+
+            self.lp_filter = np.array(self.lp_filter,dtype=object)
+            self.dist_weights = np.array(self.dist_weights, dtype=object)
 
         elif self.mode == 'custom':
             # Check Errors
@@ -106,13 +129,21 @@ class LaplacianFilter(components.ProcessingMethod):
                                  "set the labels of the channels to compute the "
                                  "Laplacian filter in 'l_cha_to_filter'.")
 
-            self.lp_filter = np.empty((len(l_cha_to_filter), len(l_cha_laplace[0])))
-            self.idx_cha_to_filter = np.empty(len(l_cha_to_filter))
+            if len(l_cha_to_filter) != len(l_cha_laplace):
+                raise ValueError("[LaplacianFilter] In 'custom' mode is necessary to"
+                                 "define as many list with channel labels to compute"
+                                 "the Laplacian filter as channels to apply such"
+                                 "filter.")
+
             for i in range(len(l_cha_to_filter)):
                 # Get the channel indexes
                 self.idx_cha_to_filter[i] = self.l_cha.index(l_cha_to_filter[i])
                 # Get the channel indexes for Laplacian filtering
-                self.lp_filter[i, :] = [self.l_cha.index(x) for x in l_cha_laplace[i]]
+                self.lp_filter.append(np.array([self.l_cha.index(x)
+                                                      for x in l_cha_laplace[i]]))
+                self.dist_weights.append(1./self.dist_matrix[self.idx_cha_to_filter[i].astype(int),
+                                                           np.array([self.l_cha.index(x)
+                                               for x in l_cha_laplace[i]])])
 
     def apply_lp(self, signal):
         """
@@ -126,35 +157,20 @@ class LaplacianFilter(components.ProcessingMethod):
         Returns
         -------
         s_filtered: np.ndarray
-            - auto: Filtered EEG signal with shape [N_samples x N_channels]
-                    if l_cha_to_filter not previously defined.
-                    [N_samples x len(l_cha_to_filter)] otherwise.
-            - custom: Filtered EEG signal with shape
-                     [N_samples x len(l_cha_to_filter)]
+        Filtered EEG signal with shape [N_samples x len(l_cha_to_filter)].
         """
-        s_filtered = None
         # Check dimensions
         if signal.shape[1] != len(self.l_cha):
             raise ValueError('Dimensions of s in axis 1 must match the number '
                              'of channels')
-        # MODE AUTO
-        if self.mode == 'auto':
-            # Check if channels to filter are set:
 
-            # All channels filtering
-            if self.lp_filter.shape[1] == len(self.l_cha):
-                s_filtered = signal - np.mean(signal[:, self.lp_filter.astype(int)], axis=2)
+        s_filtered = np.empty((signal.shape[0],len( self.idx_cha_to_filter)))
 
-            # Chosen channels filtering
-            else:
-                s_filtered = signal[:, self.idx_cha_to_filter.astype(int)] - np.mean(
-                    signal[:, self.lp_filter.astype(int)],
-                    axis=2)
-
-        # MODE CUSTOM
-        elif self.mode == 'custom':
-            s_filtered = signal[:, self.idx_cha_to_filter.astype(int)] - np.mean(signal[:, self.lp_filter.astype(int)],
-                                                                                 axis=2)
+        for i, index in enumerate(self.idx_cha_to_filter.astype(int)):
+            s_filtered[:,i] = signal[:, index] - np.average(signal[:,
+                                                        self.lp_filter[i].astype(int)],
+                                                        weights=self.dist_weights[i],
+                                                            axis=1)
         return s_filtered
 
 
