@@ -124,7 +124,7 @@ def signal_orthogonalization_gpu(signal_1, signal_2):
     signal_2_chan = signal_2_chan[:,:,tf.newaxis,:]
 
     beta = tf.matmul(signal_2_chan,tf.linalg.pinv(signal_1_chan))
-    # ESTO SERÍA LO MISMO QUE EL RESHAPE
+
     signal_ort = tf.transpose(tf.transpose(tf.reshape(tf.transpose(signal_2_chan - beta *
                                          signal_1_chan,perm=[0,2,3,1]),(n_epo_1,
                                                                         n_samp_1,
