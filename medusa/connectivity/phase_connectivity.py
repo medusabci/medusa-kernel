@@ -134,7 +134,8 @@ def __phase_connectivity_gpu(data):
     phase_data = tf.math.angle(transforms.hilbert(data))
 
     angles_1 =  tf.transpose(tf.reshape(
-                        tf.transpose(tf.tile(phase_data, (1, n_chan, 1))),
+                        tf.transpose(tf.tile(phase_data, (1, n_chan, 1)),
+                                     perm=[0,2,1]),
                         (n_epochs, n_chan * n_chan,n_samples)),perm=[0,2,1])
 
     angles_2 = tf.tile(phase_data, (1, 1, n_chan))
