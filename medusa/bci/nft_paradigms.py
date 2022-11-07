@@ -70,7 +70,6 @@ class SignalPreprocessing(components.ProcessingMethod):
         self.filter_dict = filter_dict
         self.l_cha = montage.l_cha
         self.target_channels = target_channels
-        self.n_cha_lp = n_cha_lp
         self.montage = montage
         self.perform_car = car
         self.perform_laplacian = laplacian
@@ -117,10 +116,11 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         # Fit Laplacian Filter
         if self.perform_laplacian:
-            self.laplacian_filter = LaplacianFilter(self.montage, mode='auto')
-            self.laplacian_filter.fit_lp(n_cha_lp=self.n_cha_lp,
-                                         l_cha_to_filter=
-                                         self.target_channels)
+            if len(self.montage.l_cha) >= 5:
+                self.laplacian_filter = LaplacianFilter(self.montage, mode='auto')
+                self.laplacian_filter.fit_lp(l_cha_to_filter=self.target_channels)
+            else:
+                self.perform_laplacian = False
 
     def prep_transform(self, signal, parallel_computing=True):
         """
@@ -166,6 +166,10 @@ class SignalPreprocessing(components.ProcessingMethod):
             signal_ = self.laplacian_filter.apply_lp(signal_)
 
         signal__ = signal_.copy()
+
+        # Check if surface laplacian filter cannot be performed
+        if signal__.shape[1] != signal_artifacts.shape[2]:
+            signal__ = signal__[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
 
         if parallel_computing:
             filt_threads = []
@@ -854,7 +858,7 @@ class ConnectivityBasedNFTModel(components.Algorithm):
 
 class PowerBasedNFTModel(components.Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 update_rate,montage, target_channels, n_cha_lp, mode,
+                 update_rate,montage, target_channels, mode,
                  pct_tol_ocular=None, pct_tol_muscular=None):
         """
         Pipeline for Power-based Neurofeedback training. This class
@@ -877,7 +881,6 @@ class PowerBasedNFTModel(components.Algorithm):
         self.update_feature_window = update_feature_window
         self.montage = montage
         self.target_channels = target_channels
-        self.n_cha_lp = n_cha_lp
         self.mode = mode
 
         # Init variables
@@ -901,7 +904,6 @@ class PowerBasedNFTModel(components.Algorithm):
                         SignalPreprocessing(filter_dict=self.filter_dict,
                                             montage=self.montage,
                                             target_channels=self.target_channels,
-                                            n_cha_lp=self.n_cha_lp,
                                             laplacian=True))
         self.add_method('feat_ext_method',
                         PowerExtraction(fs=fs, l_baseline_t=l_baseline_t,
