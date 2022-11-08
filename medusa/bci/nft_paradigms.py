@@ -20,7 +20,7 @@ from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import LaplacianFilter, car
 from medusa.connectivity.phase_connectivity import phase_connectivity
-from medusa.connectivity import amplitude_connectivity
+from medusa.connectivity.amplitude_connectivity import __aec_ort_cpu as aec
 from medusa.graph_theory import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
@@ -526,8 +526,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
             _, _, adj_mat = phase_connectivity(signal)
         # This is under development
         elif self.fc_measure == "AECORT":
-            raise NotImplementedError
-            # adj_mat = amplitude_connectivity.aec_ort_cpu(signal)
+            adj_mat = aec(signal)
         return adj_mat
 
     def calculate_feature(self, adj_mat):
