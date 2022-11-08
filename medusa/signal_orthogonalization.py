@@ -52,16 +52,17 @@ def signal_orthogonalization_cpu(signal_1, signal_2):
     n_samp_1 = signal_1.shape[1]
     n_epo_1 = signal_1.shape[0]
 
-    signal_1_chan = np.transpose(np.reshape(np.tile(signal_1, (1, n_chan_1, 1)),
-                          (n_epo_1,n_samp_1, n_chan_1 * n_chan_1),
-                          order='F'),(0,2,1))
+    signal_1_chan = np.transpose(np.repeat(signal_1, repeats=n_chan_1, axis=2), (0,2,1))
     signal_2_chan = np.transpose(np.tile(signal_2, (1, 1, n_chan_2)),(0,2,1))
 
     # Add extra dimensions
     signal_1_chan = signal_1_chan[:,:,np.newaxis,:]
     signal_2_chan = signal_2_chan[:,:,np.newaxis,:]
 
-    beta = np.matmul(signal_2_chan,np.linalg.pinv(signal_1_chan))
+    # Calculate pseudo inverse
+    inv_signal_1_chan = np.repeat(np.linalg.pinv(np.transpose(signal_1,(0,2,1))[:, :,
+                                       np.newaxis, :]),repeats=n_chan_1,axis=1)
+    beta = np.matmul(signal_2_chan, inv_signal_1_chan)
 
     signal_ort = np.transpose(np.reshape(signal_2_chan - beta * signal_1_chan,
                             (n_epo_1,n_chan_2,n_chan_1,n_samp_1),order='F'),(0,3,1,2))
@@ -114,16 +115,19 @@ def signal_orthogonalization_gpu(signal_1, signal_2):
     n_samp_1 = signal_1.shape[1]
     n_epo_1 = signal_1.shape[0]
 
-    signal_1_chan = tf.reshape(tf.transpose(
-        tf.tile(signal_1, (1, n_chan_1, 1)),perm=[0,2,1]),
-                          (n_epo_1, n_chan_1 * n_chan_1,n_samp_1))
+    signal_1_chan = tf.transpose(tf.repeat(signal_1, repeats=n_chan_1, axis=2),
+                                 perm=[0, 2, 1])
     signal_2_chan = tf.transpose(tf.tile(signal_2,(1,1,n_chan_2)),perm=[0,2,1])
 
     # Add extra dimensions
     signal_1_chan = signal_1_chan[:,:,tf.newaxis,:]
     signal_2_chan = signal_2_chan[:,:,tf.newaxis,:]
 
-    beta = tf.matmul(signal_2_chan,tf.linalg.pinv(signal_1_chan))
+    # Calculate pseudo inverse
+    inv_signal_1_chan = tf.repeat(
+        tf.linalg.pinv(tf.transpose(signal_1, perm=[0, 2, 1])[:, :,
+                       np.newaxis, :]), repeats=n_chan_1, axis=1)
+    beta = np.matmul(signal_2_chan, inv_signal_1_chan)
 
     signal_ort = tf.transpose(tf.transpose(tf.reshape(tf.transpose(signal_2_chan - beta *
                                          signal_1_chan,perm=[0,2,3,1]),(n_epo_1,
