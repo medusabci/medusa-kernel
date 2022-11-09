@@ -119,8 +119,6 @@ class SignalPreprocessing(components.ProcessingMethod):
             if len(self.montage.l_cha) >= 5:
                 self.laplacian_filter = LaplacianFilter(self.montage, mode='auto')
                 self.laplacian_filter.fit_lp(l_cha_to_filter=self.target_channels)
-            else:
-                self.perform_laplacian = False
 
     def prep_transform(self, signal, parallel_computing=True):
         """
@@ -160,17 +158,20 @@ class SignalPreprocessing(components.ProcessingMethod):
                      len(self.target_channels)))
 
         signal_ = self.offset_line_removal.transform(signal)
+
+        # Spatial filtering
         if self.perform_car:
             signal_ = car(signal_)
         if self.perform_laplacian:
-            signal_ = self.laplacian_filter.apply_lp(signal_)
+            # Check if surface laplacian filter cannot be performed
+            if self.laplacian_filter is not None:
+                signal_ = self.laplacian_filter.apply_lp(signal_)
+            else:
+                signal_ = signal_[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
 
         signal__ = signal_.copy()
 
-        # Check if surface laplacian filter cannot be performed
-        if signal__.shape[1] != signal_artifacts.shape[2]:
-            signal__ = signal__[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
-
+        # Frequency filtering on artifact-related bands
         if parallel_computing:
             filt_threads = []
             for filter in self.artifact_iir_filters:
@@ -523,7 +524,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
         # Calculate adjacency matrix depending on FC measure chosen
         adj_mat = None
         if self.fc_measure == "WPLI":
-            _, _, adj_mat = phase_connectivity(signal)
+            adj_mat = phase_connectivity(signal,'wpli')
         # This is under development
         elif self.fc_measure == "AECORT":
             adj_mat = aec(signal)
