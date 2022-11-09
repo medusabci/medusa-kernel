@@ -97,10 +97,13 @@ class LaplacianFilter(components.ProcessingMethod):
                                                     [self.idx_cha_to_filter[i].astype(int),:])[:5],2))
 
                 # Check the num of channels that can be taken to perform Laplacian
-                if len(nearest_channels) == 2:
+                # It is fully surrounded by other channels
+                if len(nearest_channels) == 2 or len(nearest_channels) == 3:
                     n_cha_lp = 4
+                # It is in one side
                 elif len(nearest_channels) == 4:
                     n_cha_lp = 3
+                # It is in a corner
                 elif len(nearest_channels) == 5:
                     n_cha_lp = 2
 
