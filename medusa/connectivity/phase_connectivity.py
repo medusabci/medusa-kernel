@@ -27,7 +27,7 @@ def __phase_connectivity_cpu(data, measure=None):
     ----------
     data : numpy 2D matrix
         MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels] and [n_samples].
+        [n_samples, n_channels].
     measure: str or None
         Key of the phase connectivity measure to calculate: "plv", "pli" or
         "wpli". If None, the three phase connectivity measures are calculated.
@@ -81,9 +81,9 @@ def __phase_connectivity_gpu(data, measure=None):
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels] and [n_samples].
+    data : numpy.ndarray
+        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels] and
+        [n_samples, n_channels].
     measure: str or None
         Key of the phase connectivity measure to calculate: "plv", "pli" or
         "wpli". If None, the three phase connectivity measures are calculated.
@@ -222,7 +222,7 @@ def phase_connectivity(data, measure=None):
     ----------
     data : numpy matrix
         MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels] and [n_samples].
+        [n_samples, n_channels].
     measure: str or None
         Key of the phase connectivity measure to calculate: "plv", "pli" or
         "wpli". If None, the three phase connectivity measures are calculated.
@@ -259,8 +259,3 @@ def phase_connectivity(data, measure=None):
         else:
             ph_cnn_measure = __phase_connectivity_cpu(data, measure)
             return np.asarray(ph_cnn_measure)
-
-    # # Remove nan values in wpli main diagonal
-    # # wpli = tf.linalg.set_diag(wpli,np.ones((wpli.shape[0],wpli.shape[1])))
-    #
-    # return np.asarray(plv), np.asarray(pli), np.asarray(wpli)
