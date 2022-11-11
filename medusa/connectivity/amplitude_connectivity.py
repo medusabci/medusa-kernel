@@ -25,84 +25,79 @@ from medusa.utils import check_dimensions
 def __aec_gpu(data):
     """ This method implements the amplitude envelope correlation using GPU.
 
-    REFERENCES: Liu, Z., Fukunaga, M., de Zwart, J. A., & Duyn, J. H. (2010).
-    Large-scale spontaneous fluctuations and correlations in brain electrical
-    activity observed with magnetoencephalography. Neuroimage, 51(1), 102-111.
-
     NOTE: See the orthogonalized version.
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    aec : numpy 2D square matrix
-        aec-based connectivity matrix. [n_channels x n_channels].
-
+    aec : numpy.ndarray
+        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
     """
-    import tensorflow as tf
-    from tensorflow_probability import stats as tfp_stats
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
+    # Set to correct dimensions
+    data = check_dimensions(data)
 
-    #  AEC computation
+    # AEC computation
     hilb = hilbert(data)
     envelope = tf.math.abs(hilb) 
     env = tf.math.log(tf.math.square(envelope))
-    aec = tfp_stats.correlation(env)
-        
-    return aec
+
+    aec = tfp_stats.correlation(env,sample_axis=1)
+
+    return aec.numpy()
 
 
 def __aec_cpu(data):
     """ This method implements the amplitude envelope correlation using CPU.
 
-    REFERENCES: Liu, Z., Fukunaga, M., de Zwart, J. A., & Duyn, J. H. (2010).
-    Large-scale spontaneous fluctuations and correlations in brain electrical
-    activity observed with magnetoencephalography. Neuroimage, 51(1), 102-111.
-
     NOTE: See the orthogonalized version.
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    aec : numpy 2D square matrix
-        aec-based connectivity matrix. [n_channels x n_channels].
+    aec : numpy.ndarray
+        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
+    # Set to correct dimensions
+    data = check_dimensions(data)
 
     #  Variable initialization
-    aec = np.empty((len(data[1]), len(data[1])))
+    n_epo = data.shape[0]
+    n_cha = data.shape[2]
+    aec = np.empty((n_epo, n_cha, n_cha))
     aec[:] = np.nan
 
     # AEC computation
     hilb = hilbert(data)
-    envelope = abs(hilb) 
-    env = np.log(envelope**2)
-    aec = corr.pearson_corr_matrix(env, env)
-        
-    return aec
+    envelope = abs(hilb)
+    env = np.log(envelope ** 2)
 
+    # Concurrent calculation for more than one epoch
+    w_threads = []
+    for epoch in env:
+        t = medusa.components.ThreadWithReturnValue(target= np.corrcoef,
+                                                    args=(epoch,None,False,))
+        w_threads.append(t)
+        t.start()
+
+    for epoch_idx, thread in enumerate(w_threads):
+        aec[epoch_idx, :, :] = thread.join()
+
+    return aec
 
 def __aec_ort_gpu(data):
     """ This method implements the orthogonalized version of the amplitude
@@ -262,19 +257,20 @@ def __aec_ort_comp_aux(env, n_cha, ctype='cpu'):
         aec_ort = tf.math.abs(tf.math.add(aux, tf.transpose(aec_ort)))
         return aec_ort
 
-
-
 def aec(data, ort=True):
     """ This method implements the amplitude envelope correlation (using GPU if
     available). Based on the "ort" param, the signals could be orthogonalized
     before the computation of the amplitude envelope correlation.
 
-    REFERENCES: Liu, Z., Fukunaga, M., de Zwart, J. A., & Duyn, J. H. (2010).
+    REFERENCES:
+    Liu, Z., Fukunaga, M., de Zwart, J. A., & Duyn, J. H. (2010).
     Large-scale spontaneous fluctuations and correlations in brain electrical
     activity observed with magnetoencephalography. Neuroimage, 51(1), 102-111.
+
     Hipp, J. F., Hawellek, D. J., Corbetta, M., Siegel, M., & Engel,
     A. K. (2012). Large-scale cortical correlation structure of spontaneous
     oscillatory activity. Nature neuroscience, 15(6), 884-890.
+
     O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
     J. (2015). Measuring electrophysiological connectivity by power envelope
     correlation: a technical review on MEG methods. Physics in Medicine &
@@ -282,16 +278,17 @@ def aec(data, ort=True):
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels] and
+        [n_samples, n_channels].
     ort : bool
         If True, the signals on "data" will be orthogonalized before the
         computation of the amplitude envelope correlation.
 
     Returns
     -------
-    aec : numpy 2D square matrix
-        aec-based connectivity matrix. [n_channels x n_channels].
+    aec : numpy.ndarray
+        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
     from medusa import tensorflow_integration
@@ -318,116 +315,106 @@ def __iac_gpu(data):
     """ This method implements the instantaneous amplitude correlation using
     GPU.
 
-    REFERENCES: Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
-    A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
-    networks using high temporal resolution MEG measures of functional
-    connectivity. Neuroimage, 200, 38-50.
-
     NOTE: See the orthogonalized version. In the original paper, the
     orthogonalized version was used
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    iac : numpy 2D square matrix
-        iac-based connectivity matrix. [n_channels x n_channels].
+    iac : numpy.ndarray
+        iac-based connectivity matrix.
+        [n_epochs, n_channels, n_channels, n_samples].
+
 
     """
-    import tensorflow as tf
-
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
 
-    # Variable initialization
-    n_chan = data.shape[1]
-    n_samples = data.shape[0]
+    # Set to correct dimensions
+    data = check_dimensions(data)
+
+    #  Variable initialization
+    n_epo = data.shape[0]
+    n_samp = data.shape[1]
+    n_cha = data.shape[2]
 
     # Z-score
     data = tf.math.divide(
         tf.math.subtract(data,
-                         tf.math.reduce_mean(data, axis=0, keepdims=True)),
-        tf.math.reduce_std(data, axis=0, keepdims=True))
+                         tf.math.reduce_mean(data, axis=1, keepdims=True)),
+        tf.math.reduce_std(data, axis=1, keepdims=True))
 
     #  IAC computation
     hilb = hilbert(data)
     envelope = tf.math.abs(hilb)
 
-    iac = tf.multiply(tf.tile(envelope, (1, n_chan)),
+    iac = tf.multiply(tf.tile(envelope, (1, 1, n_cha)),
                       tf.transpose(tf.reshape(
-                          tf.transpose(tf.tile(envelope, (n_chan, 1))),
-                          (n_chan*n_chan, n_samples)))).numpy()
-    iac = tf.reshape(tf.transpose(iac), (n_chan, n_chan, n_samples)).numpy()
+                          tf.transpose(tf.tile(envelope, (1, n_cha,1)),perm=[0,2,1]),
+                          (n_epo, n_cha*n_cha, n_samp)), perm=[0,2,1])).numpy()
+    iac = tf.reshape(tf.transpose(iac,perm=[0,2,1]),
+                     (n_epo, n_cha, n_cha, n_samp)).numpy()
 
     # Set diagonal to 0
-    diag_mask = tf.ones((n_chan, n_chan))
+    diag_mask = tf.ones((n_cha, n_cha))
     diag_mask = tf.linalg.set_diag(diag_mask, tf.zeros(diag_mask.shape[0:-1]),
                                    name=None)
-    iac = tf.multiply(iac, tf.repeat(diag_mask[:, :, None], (iac.shape[2]),
-                                     axis=2))
+    iac = tf.multiply(iac, tf.repeat(tf.repeat(diag_mask[None,:, :, None], n_samp,
+                                     axis=-1), n_epo,axis=0))
 
-    return iac
-
+    return iac.numpy()
 
 def __iac_cpu(data):
     """ This method implements the instantaneous amplitude correlation using
     CPU.
-
-    REFERENCES: Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
-    A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
-    networks using high temporal resolution MEG measures of functional
-    connectivity. Neuroimage, 200, 38-50.
 
     NOTE: See the orthogonalized version. In the original paper, the
     orthogonalized version was used
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    iac : numpy 2D square matrix
-        iac-based connectivity matrix. [n_channels x n_channels].
+    iac : numpy.ndarray
+        iac-based connectivity matrix.
+        [n_epochs, n_channels, n_channels, n_samples].
 
     """
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
+
+    # Set to correct dimensions
+    data = check_dimensions(data)
 
     #  Variable initialization
-    n_chan = data.shape[1]
-    n_samples = data.shape[0]
+    n_epo = data.shape[0]
+    n_samp = data.shape[1]
+    n_cha = data.shape[2]
 
     # IAC computation
-    data = sp_stats.zscore(data, axis=0)
+    data = sp_stats.zscore(data, axis=1)
 
     hilb = hilbert(data)
     envelope = abs(hilb)
     iac = np.multiply(np.reshape(
-        np.tile(envelope, (n_chan, 1)), (n_samples, n_chan*n_chan), order='F'),
-        np.tile(envelope, (1, n_chan)))
-    iac = np.reshape(iac.T, (n_chan, n_chan, n_samples))
+        np.tile(envelope, (1, n_cha, 1)), (n_epo, n_samp, n_cha*n_cha), order='F'),
+        np.tile(envelope, (1, 1, n_cha)))
+    iac = np.reshape(np.transpose(iac,(0,2,1)), (n_epo, n_cha, n_cha, n_samp))
 
     # Set diagonal to 0
-    diag_mask = np.ones((n_chan, n_chan))
+    diag_mask = np.ones((n_cha, n_cha))
     np.fill_diagonal(diag_mask, 0)
-    iac = iac * np.repeat(diag_mask[:, :, None], (iac.shape[2]), axis=2)
+    iac = iac * np.repeat(np.repeat(diag_mask[None,:, :, None], n_samp, axis=-1),
+                          n_epo,axis=0)
 
     return iac
 
@@ -437,176 +424,139 @@ def __iac_ort_gpu(data):
     amplitude correlation using GPU. This orthogonalized version minimizes the
     spurious connectivity caused by common sources (zero-lag correlations).
 
-    REFERENCES: Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
-    A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
-    networks using high temporal resolution MEG measures of functional
-    connectivity. Neuroimage, 200, 38-50.
-    O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
-    J. (2015). Measuring electrophysiological connectivity by power envelope
-    correlation: a technical review on MEG methods. Physics in Medicine &
-    Biology, 60(21), R271.
-
-    Parameters
-    ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    iac : numpy 2D square matrix
-        iac-based connectivity matrix. [n_channels x n_channels].
-
+    iac_ort : numpy.ndarray
+        iac-based connectivity matrix.
+        [n_epochs, n_channels, n_channels, n_samples].
     """
-    import tensorflow as tf
-    from tensorflow_probability import stats as tfp_stats
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
 
-    # Variable initialization
-    n_cha = data.shape[1]
-    n_samples = data.shape[0]
-    # iac = np.empty((num_chan, num_chan))
-    # iac[:] = np.nan
+    # Set to correct dimensions
+    data = check_dimensions(data)
+
+    #  Variable initialization
+    n_epo = data.shape[0]
+    n_samp = data.shape[1]
+    n_cha = data.shape[2]
 
     # IAC Ort Calculation (CPU orthogonalization is much faster than GPU one)
     # Z-score
     data = tf.math.divide(
         tf.math.subtract(data,
-                         tf.math.reduce_mean(data, axis=0, keepdims=True)),
-        tf.math.reduce_std(data, axis=0, keepdims=True))
+                         tf.math.reduce_mean(data, axis=1, keepdims=True)),
+        tf.math.reduce_std(data, axis=1, keepdims=True))
 
     signal_ort = orthogonalizate.signal_orthogonalization_cpu(data.numpy(),
                                                               data.numpy())
 
-    signal_ort_2 = tf.transpose(tf.reshape(tf.transpose(signal_ort),
-                                           (n_cha * n_cha,
-                                            signal_ort.shape[0])))
+    signal_ort_2 = tf.transpose(tf.reshape(tf.transpose(signal_ort, perm=
+                                                        [0,3,2,1]),
+                                           (n_epo, n_cha * n_cha,n_samp)),
+                                perm = [0,2,1])
+
     hilb_1 = hilbert(signal_ort_2)
     envelope = tf.math.abs(hilb_1)
 
-    iac = tf.multiply(tf.tile(envelope, (1, n_cha**2)),
+    iac = tf.multiply(tf.tile(envelope, (1, 1, n_cha**2)),
                       tf.transpose(tf.reshape(
-                          tf.transpose(tf.tile(envelope, (n_cha**2, 1))),
-                          ((n_cha*n_cha)**2, n_samples))))
-    iac = tf.reshape(tf.transpose(iac), (n_cha**2, n_cha**2, n_samples))
+                          tf.transpose(tf.tile(envelope, (1, n_cha**2, 1)), perm=
+                                       [0,2,1]),
+                          (n_epo,(n_cha*n_cha)**2, n_samp)),perm=[0,2,1]))
+    iac = tf.reshape(tf.transpose(iac,perm=[0,2,1]), (n_epo, n_cha**2, n_cha**2,
+                                                      n_samp))
 
     iac_tmp2 = tf.transpose(
         tf.reshape(
-            tf.transpose(iac, (1, 0, 2)),
-            (int(iac.shape[0] * iac.shape[0] / n_cha), -1, iac.shape[2])
-        ), (1, 0, 2)
+            tf.transpose(iac, (0,2, 1, 3)),
+            (n_epo,int(iac.shape[1] * iac.shape[1] / n_cha), -1, iac.shape[3])
+        ), (0,2, 1, 3)
     )
-    idx = tf.cast(tf.linspace(0, iac_tmp2.shape[1]-1, n_cha), dtype=tf.int32)
-    iac = tf.gather(iac_tmp2, idx, axis=1)
+    idx = tf.cast(tf.linspace(0, iac_tmp2.shape[2]-1, n_cha), dtype=tf.int32)
+    iac = tf.gather(iac_tmp2, idx, axis=2)
 
     # Orthogonalize A regarding B is not the same as orthogonalize B regarding
     # A, so we average lower and upper triangular matrices to construct the
     # symmetric matrix required for Orthogonalized iac
 
-    iac_upper = tf.linalg.band_part(tf.transpose(iac, (2, 0, 1)), 0, -1)
-    iac_lower = tf.transpose(tf.linalg.band_part(tf.transpose(iac, (2, 0, 1)),
-                                                 -1, 0), (0, 2, 1))
+    iac_upper = tf.linalg.band_part(tf.transpose(iac, (0,3, 1, 2)), 0, -1)
+    iac_lower = tf.transpose(tf.linalg.band_part(tf.transpose(iac, (0,3, 1, 2)),
+                                                 -1, 0), (0,1, 3, 2))
     iac_ort = tf.math.divide(tf.math.add(iac_upper, iac_lower), 2)
     aux = tf.linalg.band_part(iac_ort, 0, -1) - tf.linalg.band_part(iac_ort, 0,
                                                                     0)
-    iac_ort = tf.math.abs(tf.math.add(aux, tf.transpose(aux, (0, 2, 1))))
+    iac_ort = tf.math.abs(tf.math.add(aux, tf.transpose(aux, (0,1, 3, 2))))
 
-    return tf.transpose(iac_ort, (1, 2, 0))
-
+    return tf.transpose(iac_ort, (0, 2, 3, 1)).numpy()
 
 def __iac_ort_cpu(data):
     """ This method implements the orthogonalized version of the instantaneous
-    amplitude correlation using GPU. This orthogonalized version minimizes the
+    amplitude correlation using CPU. This orthogonalized version minimizes the
     spurious connectivity caused by common sources (zero-lag correlations).
-
-    REFERENCES: Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
-    A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
-    networks using high temporal resolution MEG measures of functional
-    connectivity. Neuroimage, 200, 38-50.
-    O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
-    J. (2015). Measuring electrophysiological connectivity by power envelope
-    correlation: a technical review on MEG methods. Physics in Medicine &
-    Biology, 60(21), R271.
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
 
     Returns
     -------
-    iac : numpy 2D square matrix
-        iac-based connectivity matrix. [n_channels x n_channels].
-
+    iac_ort : numpy.ndarray
+        iac-based connectivity matrix.
+        [n_epochs, n_channels, n_channels, n_samples].
     """
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
-    if data.shape[0] < data.shape[1]:
-        warnings.warn("Warning: Signal dimensions flipped out. If you have more"
-                      " samples than channels, comment this "
-                      "line")
-        data = data.T
 
-    # Variable initialization
-    n_cha = data.shape[1]
-    n_samples = data.shape[0]
+    # Set to correct dimensions
+    data = check_dimensions(data)
+
+    #  Variable initialization
+    n_epo = data.shape[0]
+    n_samp = data.shape[1]
+    n_cha = data.shape[2]
 
     # AEC Ort Calculation
-    data = sp_stats.zscore(data, axis=0)
+    data = sp_stats.zscore(data, axis=1)
 
     signal_ort = orthogonalizate.signal_orthogonalization_cpu(data, data)
+    signal_ort_2 = np.transpose(
+        np.reshape(np.transpose(signal_ort, (0, 3, 2, 1)),
+                   (n_epo, n_cha * n_cha, n_samp)), (0, 2, 1))
 
-    # 1st method of calculating the Ort AEC. Faster
-    signal_ort_2 = np.transpose(np.reshape(np.transpose(signal_ort),
-                                           (n_cha*n_cha,
-                                            signal_ort.shape[0])))
     hilb_1 = hilbert(signal_ort_2)
     envelope_1 = np.abs(hilb_1)
 
     iac = np.multiply(np.reshape(np.tile(
-        envelope_1, (n_cha**2, 1)), (n_samples, n_cha**2*n_cha**2), order='F'),
-                      np.tile(envelope_1, (1, n_cha**2)))
-    iac = np.reshape(iac.T, (n_cha**2, n_cha**2, n_samples))
+        envelope_1, (1, n_cha**2, 1)), (n_epo, n_samp, n_cha**2*n_cha**2),
+        order='F'), np.tile(envelope_1, (1, 1, n_cha**2)))
+    iac = np.reshape(np.transpose(iac,[0,2,1]), (n_epo,n_cha**2, n_cha**2, n_samp))
     iac_tmp2 = np.transpose(
         np.reshape(
-            np.transpose(iac, (1, 0, 2)),
-            (int(iac.shape[0] * iac.shape[0] / n_cha), -1, iac.shape[2])
-        ), (1, 0, 2)
+            np.transpose(iac, (0,2, 1, 3)),
+            (n_epo,int(iac.shape[1] * iac.shape[1] / n_cha), -1, n_samp)
+        ), (0,2, 1, 3)
     )
-    idx = np.linspace(0, iac_tmp2.shape[1]-1, n_cha).astype(np.int32)
-    iac = iac_tmp2[:, idx, :]
-
-    # 2nd method of calculating the Ort AEC
-    # iac = np.zeros((n_cha, n_cha, signal_ort.shape[0]))
-    # for cha in range(n_cha):
-    #     hilb = hilbert(signal_ort[:, :, cha])
-    #     env = np.abs(hilb)
-    #
-    #     iac_tmp = np.multiply(np.reshape(np.tile(env, (n_cha, 1)), (n_samples,
-    #                                       n_cha * n_cha), order='F'),
-    #                       np.tile(env, (1, n_cha)))
-    #     iac_tmp = np.reshape(iac_tmp.T, (n_cha, n_cha, n_samples))
-    #
-    #     iac[:, cha, :] = iac_tmp[:, cha, :]
+    idx = np.linspace(0, iac_tmp2.shape[2]-1, n_cha).astype(np.int32)
+    iac = iac_tmp2[:,:, idx, :]
 
     # Orthogonalize A regarding B is not the same as orthogonalize B regarding
     # A, so we average lower and upper triangular matrices to construct the
     # symmetric matrix required for Orthogonalized AEC
 
-    iac_upper = np.triu(np.transpose(iac, (2, 0, 1)), k=1)
-    iac_lower = np.transpose(np.tril(np.transpose(iac, (2, 0, 1)), k=-1), (0, 2,
-                                                                           1))
+    iac_upper = np.triu(np.transpose(iac, (0,3, 1, 2)), k=1)
+    iac_lower = np.transpose(np.tril(np.transpose(iac, (0,3, 1, 2)), k=-1), (0,1, 3,
+                                                                           2))
     iac_ort = (iac_upper + iac_lower) / 2
-    iac_ort = abs(np.triu(iac_ort, k=1) + np.transpose(iac_ort, (0, 2, 1)))
+    iac_ort = abs(np.triu(iac_ort, k=1) + np.transpose(iac_ort, (0,1, 3, 2)))
 
-    return np.transpose(iac_ort, (1, 2, 0))
+    return np.transpose(iac_ort, (0,2, 3, 1))
 
 
 def iac(data, ort=True):
@@ -614,15 +564,22 @@ def iac(data, ort=True):
     GPU if available). Based on the "ort" param, the signals could be
     orthogonalized before the computation of the amplitude envelope correlation.
 
-    REFERENCES: Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
+    REFERENCES:
+    Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
     A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
     networks using high temporal resolution MEG measures of functional
     connectivity. Neuroimage, 200, 38-50.
 
+    O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
+    J. (2015). Measuring electrophysiological connectivity by power envelope
+    correlation: a technical review on MEG methods. Physics in Medicine &
+    Biology, 60(21), R271.
+
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. [n_samples x n_channels].
+    data : numpy.ndarray
+        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels] and
+        [n_samples, n_channels].
     ort : bool
         If True, the signals on "data" will be orthogonalized before the
         computation of the instantaneous amplitude correlation.
@@ -630,7 +587,8 @@ def iac(data, ort=True):
     Returns
     -------
     iac : numpy 2D square matrix
-        iac-based connectivity matrix. [n_channels x n_channels].
+        iac-based connectivity matrix.
+        [n_epochs, n_channels, n_channels, n_samples].
 
     """
     from medusa import tensorflow_integration
