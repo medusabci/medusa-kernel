@@ -100,19 +100,20 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         # Define filters for filtering over epochs
         for filter in self.filter_dict:
-            iir = mds.IIRFilter(order=1,
-                                cutoff=filter['cutoff'],
-                                btype='bandpass',
-                                filt_method='sosfiltfilt')
+            for f in filter['cutoff']:
+                iir = mds.IIRFilter(order=1,
+                                    cutoff=f,
+                                    btype='bandpass',
+                                    filt_method='sosfiltfilt')
 
-            if self.target_channels is None:
-                iir.fit(fs, len(self.l_cha))
-            else:
-                iir.fit(fs, len(self.target_channels))
-            if filter['type'] == 'artifact':
-                self.artifact_iir_filters.append(iir)
-            elif filter['type'] == 'training':
-                self.target_iir_filters.append(iir)
+                if self.target_channels is None:
+                    iir.fit(fs, len(self.l_cha))
+                else:
+                    iir.fit(fs, len(self.target_channels))
+                if filter['type'] == 'artifact':
+                    self.artifact_iir_filters.append(iir)
+                elif filter['type'] == 'training':
+                    self.target_iir_filters.append(iir)
 
         # Fit Laplacian Filter
         if self.perform_laplacian:
@@ -732,13 +733,14 @@ class PowerExtraction(components.ProcessingMethod):
         for dict in self.f_dict:
             if dict['type'] == 'training':
                 bands.append(dict['cutoff'])
-        powers = np.empty(len(bands))
+        powers = np.zeros(len(bands))
 
         # Calculate band power relative to the whole bandwidth
-        for index, band in enumerate(bands):
-            powers[index] = np.mean(np.mean(absolute_band_power(psd, self.fs,
-                                                                band),
-                                            axis=0))
+        for idx, band in enumerate(bands):
+            for b in band:
+                powers[idx] += np.mean(np.mean(absolute_band_power(psd, self.fs,
+                                                                   b),
+                                               axis=0))
         return powers
 
 
