@@ -12,8 +12,8 @@ def hilbert(x, flag=0):
 
     Parameters
     ----------
-    x :  numpy 2D matrix
-        MEEG Signal.
+    x :  numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
     flag : bool
         If True, if forces using Tensorflow. It is not recommended as it is MUCH
          slower.
@@ -63,14 +63,14 @@ def hilbert(x, flag=0):
         return hilbert_sp(x, axis=1)
 
 
-def power_spectral_density(signal, fs, epoch_len=None):
+def power_spectral_density(signal, fs):
     """This method allows to compute the power spectral density by means of
     Welch's periodogram method.
 
     Parameters
     ----------
-    signal : numpy 2D matrix
-        Signal. [n_samples x n_channels].
+    signal : numpy.ndarray
+        MEEG Signal. [n_epochs, n_samples, n_channels].
     fs : int
         Sampling frequency of the signal
     epoch_len : int or None
@@ -86,29 +86,15 @@ def power_spectral_density(signal, fs, epoch_len=None):
         PSD of M/EEG Signal. [n_epochs, n_samples, n_channels]
     """
 
-    if len(signal.shape) < 2:
-        signal = signal[..., np.newaxis]
-
-    if epoch_len is not None:
-        if not isinstance(epoch_len,int):
-            raise ValueError("Epoch length must be a integer"
-                             "value.")
-        if epoch_len > signal.shape[0]:
-            raise ValueError("Epoch length must be shorter than"
-                             "signal duration")
-    else:
-        epoch_len = signal.shape[0]
-
-    signal_epoched = epoching.get_epochs(signal, epoch_len)
-
-    if len(signal_epoched.shape) < 3:
-        signal_epoched = signal_epoched[np.newaxis, ...]
+    # Check signal dimensions
+    signal = check_dimensions(signal)
 
     # Estimating the PSD
     # Get the number of samples for the PSD length
-    n_samp = signal_epoched.shape[1]
+    n_samp = signal.shape[1]
+
     # Compute the PSD
-    f, psd = welch_sp(signal_epoched, fs=fs, window='boxcar',
+    f, psd = welch_sp(signal, fs=fs, window='boxcar',
                       nperseg=n_samp, noverlap=0, axis=-2)
     return f, psd
 
