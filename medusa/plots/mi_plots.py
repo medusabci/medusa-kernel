@@ -59,7 +59,7 @@ class MIPlots():
         self.fs = rec.eeg.fs
         self.channel_set = rec.eeg.channel_set
         self.dataset = MIDataset(channel_set=self.channel_set, fs=self.fs,
-                                 experiment_att_key='midataold',
+                                 experiment_att_key='midata',
                                  biosignal_att_key='eeg',
                                  experiment_mode='train')
         for file in files:
