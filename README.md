@@ -1,4 +1,4 @@
-# MEDUSA© Kernel
+# MEDUSA© Kernel hola
 
 MEDUSA© is a software ecosystem for the development of BCIs and neuroscience experiments. It has two independent components with dfferent goals: MEDUSA© Kernel and MEDUSA© Platform. 
 
