@@ -10,13 +10,13 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='0.4.0',
+    version='1.1.0',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
            'Víctor Martínez-Cagigal, '
-           'Víctor Rodríguez-González, '
            'Diego Marcos-Martínez, '
+           'Víctor Rodríguez-González, '
            'Sergio Pérez-Velasco',
     author_email='support@medusabci.com',
     license='CC Attribution-NonCommercial-NoDerivs 2.0',
