@@ -23,92 +23,6 @@ from medusa import get_epochs_of_events, resample_epochs
 from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import CSP, LaplacianFilter
-from medusa.deep_learning_models import EEGSym
-
-
-class MIDataOld(components.ExperimentData):
-    # TODO: Check everything
-
-    """Class with the necessary attributes to define motor imagery (MI)
-    experiments. It provides compatibility with high-level functions for this
-    MI paradigms in BCI module.
-    """
-
-    def __init__(self, mode, onsets, w_trial_t, mi_result=None,
-                 calibration_t=None, mi_labels=None, mi_labels_info=None,
-                 w_rest_t=None, **kwargs):
-        """MIData constructor
-
-        Parameters
-        ----------
-        mode : str {"train"|"test"|"guided test"}
-            Mode of this run.
-        onsets : list or numpy.ndarray [n_stim x 1]
-            Timestamp of each stimulation
-        w_trial_t: list [start, end]
-            Temporal window of the motor imagery with respect to each onset in
-            ms. For example, if  w_trial_t = [500, 4000] the subject was
-            performing the motor imagery task from 500ms after to 4000ms after
-            the onset.
-        calibration_t: int end
-            Time duration of the calibration recorded normally at the
-            beginning of each run. For example, if calibration_t = 5000 the
-            subject was in resting state for the first 5 seconds of the run.
-        mi_result : list or numpy.ndarray [n_mi_labels x 1]
-            Result of this run. Each position contains the data of the
-            selected target at each trial.
-        mi_labels : list or numpy.ndarray [n_mi_labels x 1]
-            Only in train mode. Contains the mi labels of each stimulation,
-            as many as classes in the experiment.
-        mi_labels_info : dict
-            Contains the description of the mi labels.
-            Example:
-                mi_labels_info =
-                    {0: "Rest",
-                    1: "Left_hand",
-                    2: "Right_hand"}
-        w_rest_t: list [start, end]
-            Temporal window of the rest with respect to each onset in ms. For
-            example, if w_rest_t = [-1000, 0] the subject was resting from
-            1000ms before to the onset.
-        kwargs : kwargs
-            Custom arguments that will also be saved in the class
-            (e.g., timings, calibration gaps, etc.)
-        """
-
-        # Check errors
-        mode = mode.lower()
-        if mode == 'train':
-            if mi_labels is None:
-                raise ValueError('Attributes mi_labels, '
-                                 'should be provided in train mode')
-
-        # Standard attributes
-        self.mode = mode
-        self.onsets = np.array(onsets)
-        self.w_trial_t = np.array(w_trial_t)
-        self.calibration_t = np.array(calibration_t)
-        self.mi_result = np.array(mi_result) if mi_result is not None else \
-            mi_result
-        self.mi_labels = np.array(mi_labels) if mi_labels is not None else \
-            mi_labels
-        self.mi_labels_info = mi_labels_info
-        self.w_rest_t = np.array(w_rest_t)
-
-        # Optional attributes
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def to_serializable_obj(self):
-        rec_dict = self.__dict__
-        for key in rec_dict.keys():
-            if type(rec_dict[key]) == np.ndarray:
-                rec_dict[key] = rec_dict[key].tolist()
-        return rec_dict
-
-    @staticmethod
-    def from_serializable_obj(dict_data):
-        return MIDataOld(**dict_data)
 
 
 class MIData(components.ExperimentData):
@@ -390,7 +304,7 @@ class MIDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.experiment_att_key,
-                         'type': [MIData, MIDataOld]}
+                         'type': MIData}
         )
 
         # Check track_attributes
