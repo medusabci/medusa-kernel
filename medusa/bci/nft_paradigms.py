@@ -20,7 +20,7 @@ from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import LaplacianFilter, car
 from medusa.connectivity.phase_connectivity import phase_connectivity
-from medusa.connectivity import amplitude_connectivity
+from medusa.connectivity.amplitude_connectivity import __aec_ort_cpu as aec
 from medusa.graph_theory import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
@@ -70,7 +70,6 @@ class SignalPreprocessing(components.ProcessingMethod):
         self.filter_dict = filter_dict
         self.l_cha = montage.l_cha
         self.target_channels = target_channels
-        self.n_cha_lp = n_cha_lp
         self.montage = montage
         self.perform_car = car
         self.perform_laplacian = laplacian
@@ -101,26 +100,26 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         # Define filters for filtering over epochs
         for filter in self.filter_dict:
-            iir = mds.IIRFilter(order=1,
-                                cutoff=filter['cutoff'],
-                                btype='bandpass',
-                                filt_method='sosfiltfilt')
+            for f in filter['cutoff']:
+                iir = mds.IIRFilter(order=1,
+                                    cutoff=f,
+                                    btype='bandpass',
+                                    filt_method='sosfiltfilt')
 
-            if self.target_channels is None:
-                iir.fit(fs, len(self.l_cha))
-            else:
-                iir.fit(fs, len(self.target_channels))
-            if filter['type'] == 'artifact':
-                self.artifact_iir_filters.append(iir)
-            elif filter['type'] == 'training':
-                self.target_iir_filters.append(iir)
+                if self.target_channels is None:
+                    iir.fit(fs, len(self.l_cha))
+                else:
+                    iir.fit(fs, len(self.target_channels))
+                if filter['type'] == 'artifact':
+                    self.artifact_iir_filters.append(iir)
+                elif filter['type'] == 'training':
+                    self.target_iir_filters.append(iir)
 
         # Fit Laplacian Filter
         if self.perform_laplacian:
-            self.laplacian_filter = LaplacianFilter(self.montage, mode='auto')
-            self.laplacian_filter.fit_lp(n_cha_lp=self.n_cha_lp,
-                                         l_cha_to_filter=
-                                         self.target_channels)
+            if len(self.montage.l_cha) >= 5:
+                self.laplacian_filter = LaplacianFilter(self.montage, mode='auto')
+                self.laplacian_filter.fit_lp(l_cha_to_filter=self.target_channels)
 
     def prep_transform(self, signal, parallel_computing=True):
         """
@@ -160,13 +159,20 @@ class SignalPreprocessing(components.ProcessingMethod):
                      len(self.target_channels)))
 
         signal_ = self.offset_line_removal.transform(signal)
+
+        # Spatial filtering
         if self.perform_car:
             signal_ = car(signal_)
         if self.perform_laplacian:
-            signal_ = self.laplacian_filter.apply_lp(signal_)
+            # Check if surface laplacian filter cannot be performed
+            if self.laplacian_filter is not None:
+                signal_ = self.laplacian_filter.apply_lp(signal_)
+            else:
+                signal_ = signal_[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
 
         signal__ = signal_.copy()
 
+        # Frequency filtering on artifact-related bands
         if parallel_computing:
             filt_threads = []
             for filter in self.artifact_iir_filters:
@@ -519,11 +525,10 @@ class ConnectivityExtraction(components.ProcessingMethod):
         # Calculate adjacency matrix depending on FC measure chosen
         adj_mat = None
         if self.fc_measure == "WPLI":
-            _, _, adj_mat = phase_connectivity(signal)
+            adj_mat = phase_connectivity(signal,'wpli')
         # This is under development
         elif self.fc_measure == "AECORT":
-            raise NotImplementedError
-            # adj_mat = amplitude_connectivity.aec_ort_cpu(signal)
+            adj_mat = aec(signal)
         return adj_mat
 
     def calculate_feature(self, adj_mat):
@@ -728,13 +733,14 @@ class PowerExtraction(components.ProcessingMethod):
         for dict in self.f_dict:
             if dict['type'] == 'training':
                 bands.append(dict['cutoff'])
-        powers = np.empty(len(bands))
+        powers = np.zeros(len(bands))
 
         # Calculate band power relative to the whole bandwidth
-        for index, band in enumerate(bands):
-            powers[index] = np.mean(np.mean(absolute_band_power(psd, self.fs,
-                                                                band),
-                                            axis=0))
+        for idx, band in enumerate(bands):
+            for b in band:
+                powers[idx] += np.mean(np.mean(absolute_band_power(psd, self.fs,
+                                                                   b),
+                                               axis=0))
         return powers
 
 
@@ -854,7 +860,7 @@ class ConnectivityBasedNFTModel(components.Algorithm):
 
 class PowerBasedNFTModel(components.Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 update_rate,montage, target_channels, n_cha_lp, mode,
+                 update_rate,montage, target_channels, mode,
                  pct_tol_ocular=None, pct_tol_muscular=None):
         """
         Pipeline for Power-based Neurofeedback training. This class
@@ -877,7 +883,6 @@ class PowerBasedNFTModel(components.Algorithm):
         self.update_feature_window = update_feature_window
         self.montage = montage
         self.target_channels = target_channels
-        self.n_cha_lp = n_cha_lp
         self.mode = mode
 
         # Init variables
@@ -901,7 +906,6 @@ class PowerBasedNFTModel(components.Algorithm):
                         SignalPreprocessing(filter_dict=self.filter_dict,
                                             montage=self.montage,
                                             target_channels=self.target_channels,
-                                            n_cha_lp=self.n_cha_lp,
                                             laplacian=True))
         self.add_method('feat_ext_method',
                         PowerExtraction(fs=fs, l_baseline_t=l_baseline_t,
@@ -969,7 +973,8 @@ class NeurofeedbackData(components.ExperimentData):
     allowing offline analysis."""
 
     def __init__(self, run_onsets, run_durations, run_success, run_pauses,
-                 run_restarts, medusa_nft_app_settings):
+                 run_restarts, medusa_nft_app_settings, nft_values, nft_times,
+                 nft_baseline):
 
         self.run_onsets = run_onsets
         self.run_durations = run_durations
@@ -977,6 +982,9 @@ class NeurofeedbackData(components.ExperimentData):
         self.run_pauses = run_pauses
         self.run_restarts = run_restarts
         self.medusa_nft_app_settings = medusa_nft_app_settings
+        self.nft_values = nft_values
+        self.nft_times = nft_times
+        self.nft_baseline = nft_baseline
 
     def to_serializable_obj(self):
         rec_dict = self.__dict__
