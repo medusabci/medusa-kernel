@@ -269,28 +269,37 @@ class MIDataset(components.Dataset):
                                  '{train|test|guided test|None}')
 
         # Default track attributes
+        # TODO: esto no va a funcionar con MIDataOld
         default_track_attributes = {
             'subject_id': {
                 'track_mode': 'append',
                 'parent': None
             },
-            'w_trial_t': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'w_rest_t': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'calibration_t': {
-                'track_mode': 'append',
-                'parent': experiment_att_key
-            },
             'onsets': {
                 'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
+            'w_trial_t': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'calibration_onset_w': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'w_preparation_t': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'w_rest_t': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
             'mi_labels_info': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'paradigm_info': {
                 'track_mode': 'append',
                 'parent': experiment_att_key
             }
@@ -383,14 +392,6 @@ class MIDataset(components.Dataset):
             rule_params={'attribute': self.experiment_att_key,
                          'type': [MIData, MIDataOld]}
         )
-        # Check mode
-        # if self.experiment_mode is not None:
-        #     checker.add_consistency_rule(
-        #         rule='check-attribute-value',
-        #         rule_params={'attribute': 'mode',
-        #                      'value': self.experiment_mode},
-        #         parent=self.experiment_att_key
-        #     )
 
         # Check track_attributes
         if self.track_attributes is not None:
@@ -404,7 +405,7 @@ class MIDataset(components.Dataset):
                     checker.add_consistency_rule(
                         rule='check-attribute-type',
                         rule_params={'attribute': key,
-                                     'type': [list, np.ndarray]},
+                                     'type': [list, np.ndarray, dict]},
                         parent=value['parent']
                     )
 
@@ -790,10 +791,10 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
     - Extract CSP features of those MI events.
     """
 
-    def __init__(self, n_filters=4, w_epoch_t=(500, 4000), target_fs=60,
+    def __init__(self, n_filters=4, w_epoch_t=(500, 4000), target_fs=None,
                  baseline_mode='trial',
                  w_baseline_t=(-1500, -500), norm='z',
-                 concatenate_channels=False, safe_copy=True):
+                 concatenate_channels=False, safe_copy=True, **kwargs):
         """Class constructor
 
         n_filter : int or None
@@ -1106,12 +1107,13 @@ class MIModelCSP(MIModel):
         super().__init__()
 
     def configure(self, p_filt_cutoff=(8, 30), f_w_epoch_t=(500, 4000),
-                  f_target_fs=60):
+                  f_target_fs=60, **kwargs):
         self.settings = {
             'p_filt_cutoff': p_filt_cutoff,
             'f_w_epoch_t': f_w_epoch_t,
             'f_target_fs': f_target_fs
         }
+        self.settings = dict(self.settings, **kwargs)
         # Update state
         self.is_configured = True
         self.is_built = False
@@ -1127,10 +1129,7 @@ class MIModelCSP(MIModel):
         ))
         # Feature extraction (default: epochs [500, 4000] ms + resampling to 80
         # Hz)
-        self.add_method('ext_method', CSPFeatureExtraction(
-            w_epoch_t=self.settings['f_w_epoch_t'],
-            target_fs=self.settings['f_target_fs'],
-        ))
+        self.add_method('ext_method', CSPFeatureExtraction(**self.settings))
         # Feature classification (rLDA)
         clf = components.ProcessingClassWrapper(
             LinearDiscriminantAnalysis(solver='eigen', shrinkage='auto'),
