@@ -319,7 +319,8 @@ class CSP(components.ProcessingMethod):
         eigenvalues = [eigenvalues[i] for i in ix_sorted]
         eigenvalues = np.diag(eigenvalues)
         # Activation spatial patterns
-        patterns = slinalg.pinv2(filters).T
+        # patterns = slinalg.pinv2(filters).T   # deprecated and removed in scipy 1.9.0
+        patterns = slinalg.pinv(filters).T
 
         # Attribute storing of number of filters
         self.filters = filters[:, :self.n_filters].T
