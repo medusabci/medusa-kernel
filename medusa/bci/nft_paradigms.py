@@ -172,22 +172,28 @@ class SignalPreprocessing(components.ProcessingMethod):
 
         signal__ = signal_.copy()
 
-        # Frequency filtering on artifact-related bands
-        if parallel_computing:
-            filt_threads = []
-            for filter in self.artifact_iir_filters:
-                t = components.ThreadWithReturnValue(target=
-                                                     filter.transform,
-                                                     args=(signal__,))
-                filt_threads.append(t)
-                t.start()
+        if signal_artifacts is not None:
+            # Filter only the target channels in Power Based models
+            if signal__.shape[1] != signal_artifacts.shape[2]:
+                signal__ = signal__[:,self.montage.get_cha_idx_from_labels(
+                    self.target_channels)]
 
-            for filt_idx, thread in enumerate(filt_threads):
-                signal_artifacts[filt_idx, :, :] = thread.join()
-        else:
-            for filt_idx, filter in enumerate(self.artifact_iir_filters):
-                signal_artifacts[filt_idx, :, :] = filter.transform(
-                    signal__[np.newaxis, :, :])
+            # Frequency filtering on artifact-related bands
+            if parallel_computing:
+                filt_threads = []
+                for filter in self.artifact_iir_filters:
+                    t = components.ThreadWithReturnValue(target=
+                                                         filter.transform,
+                                                         args=(signal__,))
+                    filt_threads.append(t)
+                    t.start()
+
+                for filt_idx, thread in enumerate(filt_threads):
+                    signal_artifacts[filt_idx, :, :] = thread.join()
+            else:
+                for filt_idx, filter in enumerate(self.artifact_iir_filters):
+                    signal_artifacts[filt_idx, :, :] = filter.transform(
+                        signal__[np.newaxis, :, :])
         return signal_, signal_artifacts
 
     def prep_fit_transform(self, fs, signal):
@@ -747,8 +753,7 @@ class PowerExtraction(components.ProcessingMethod):
 class ConnectivityBasedNFTModel(components.Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
                  update_rate, montage, target_channels, fc_measure, mode,
-                 pct_tol_ocular=None,
-                 pct_tol_muscular=None):
+                 apply_car, pct_tol_ocular=None,pct_tol_muscular=None):
         super().__init__(calibration=['baseline_value'],
                          training=['feedback_value'])
         """
@@ -768,6 +773,7 @@ class ConnectivityBasedNFTModel(components.Algorithm):
         self.target_channels = target_channels
         self.fc_measure = fc_measure
         self.mode = mode
+        self.apply_car = apply_car
 
         # Variables
         self.baseline_value = None
@@ -791,7 +797,7 @@ class ConnectivityBasedNFTModel(components.Algorithm):
                         SignalPreprocessing(filter_dict=self.filter_dict,
                                             montage=self.montage,
                                             target_channels=None,
-                                            car=True))
+                                            car=self.apply_car))
         self.add_method('feat_ext_method',
                         ConnectivityExtraction(fs=self.fs, l_baseline_t=self.l_baseline_t,
                                                update_feature_window=update_feature_window,
@@ -860,8 +866,8 @@ class ConnectivityBasedNFTModel(components.Algorithm):
 
 class PowerBasedNFTModel(components.Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
-                 update_rate,montage, target_channels, mode,
-                 pct_tol_ocular=None, pct_tol_muscular=None):
+                 update_rate,montage, target_channels, mode, apply_car,
+                 apply_laplacian, pct_tol_ocular=None, pct_tol_muscular=None):
         """
         Pipeline for Power-based Neurofeedback training. This class
         inherits from components.Algorithm. Therefore, it can be used to create
@@ -884,6 +890,8 @@ class PowerBasedNFTModel(components.Algorithm):
         self.montage = montage
         self.target_channels = target_channels
         self.mode = mode
+        self.apply_car = apply_car
+        self.apply_laplacian = apply_laplacian
 
         # Init variables
         self.baseline_value = None
@@ -906,7 +914,8 @@ class PowerBasedNFTModel(components.Algorithm):
                         SignalPreprocessing(filter_dict=self.filter_dict,
                                             montage=self.montage,
                                             target_channels=self.target_channels,
-                                            laplacian=True))
+                                            laplacian=self.apply_laplacian,
+                                            car=self.apply_car))
         self.add_method('feat_ext_method',
                         PowerExtraction(fs=fs, l_baseline_t=l_baseline_t,
                                         update_feature_window=update_feature_window,
