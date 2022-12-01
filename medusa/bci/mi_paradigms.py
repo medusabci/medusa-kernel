@@ -967,7 +967,6 @@ class MIModel(components.Algorithm):
     def __init__(self):
         """Class constructor
         """
-        print('MIModel')
         super().__init__(fit_dataset=['mi_target', 'mi_result', 'accuracy'],
                          predict=['mi_result'])
         # Settings
