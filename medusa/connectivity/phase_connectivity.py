@@ -11,7 +11,6 @@ import warnings
 # External imports
 import scipy.signal as sp_signal
 import numpy as np
-from numba import jit
 import tensorflow as tf
 
 # Medusa imports
