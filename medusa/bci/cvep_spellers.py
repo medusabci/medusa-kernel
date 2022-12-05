@@ -431,15 +431,18 @@ class CVEPModelCircularShifting(components.Algorithm):
             times, onsets, fs)
 
     def fit_dataset(self, dataset, **kwargs):
+        # Safe copy
+        data = copy.deepcopy(dataset)
+
         # Preprocessing
-        dataset = self.get_inst('prep_method').fit_transform_dataset(
-            dataset=dataset,
+        data = self.get_inst('prep_method').fit_transform_dataset(
+            dataset=data,
             show_progress_bar=True
         )
 
         # Feature extraction and classification
         fitted_info = self.get_inst('clf_method').fit_dataset(
-            dataset=dataset,
+            dataset=data,
             std_epoch_rejection=3.0,
             show_progress_bar=True
         )
@@ -447,15 +450,18 @@ class CVEPModelCircularShifting(components.Algorithm):
         return fitted_info
 
     def predict_dataset(self, dataset):
+        # Safe copy
+        data = copy.deepcopy(dataset)
+
         # Preprocessing
-        dataset = self.get_inst('prep_method').transform_dataset(
-            dataset=dataset,
+        data = self.get_inst('prep_method').transform_dataset(
+            dataset=data,
             show_progress_bar=True
         )
 
         # Feature extraction and classification
         pred_items = self.get_inst('clf_method').predict_dataset(
-            dataset=dataset,
+            dataset=data,
             show_progress_bar=True
         )
 
@@ -484,14 +490,21 @@ class CVEPModelCircularShifting(components.Algorithm):
         return cmd_decoding
 
     def predict(self, times, signal, trial_idx, exp_data, sig_data):
+        # Safe copy
+        times_ = copy.deepcopy(times)
+        signal_ = copy.deepcopy(signal)
+        trial_idx_ = copy.deepcopy(trial_idx)
+        exp_data_ = copy.deepcopy(exp_data)
+        sig_data_ = copy.deepcopy(sig_data)
+
         # Preprocessing
-        signal = self.get_inst('prep_method').transform_signal(
-            signal=signal
+        signal_ = self.get_inst('prep_method').transform_signal(
+            signal=signal_
         )
 
         # Feature extraction and classification
         pred_item_by_no_cycles = self.get_inst('clf_method').predict(
-            times, signal, trial_idx, exp_data, sig_data
+            times_, signal_, trial_idx_, exp_data_, sig_data_
         )
 
         # Extract the selected label using the maximum number of cycles
@@ -515,6 +528,8 @@ class CVEPModelCircularShifting(components.Algorithm):
         return cmd_decoding
 
     def must_stop(self, corr_vector, std=3.0):
+        # Safe copy
+        corr_vector_ = copy.deepcopy(corr_vector)
         return self.get_inst('es_method').check_early_stop(
             corr_vector=corr_vector,
             std=std
@@ -793,7 +808,6 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         """ Class constructor """
         super().__init__(fit_dataset=['templates',
                                       'cca_by_seq'])
-        self.safe_copy = True
         self.fitted = dict()
 
         self.art_rej = art_rej
@@ -871,10 +885,6 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         # Error checking
         fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank = \
             self._assert_consistency(dataset)
-
-        # Avoid changes in the original recordings (this may not be necessary)
-        if self.safe_copy:
-            dataset = copy.deepcopy(dataset)
 
         # Init progress bar for sequences
         if show_progress_bar:

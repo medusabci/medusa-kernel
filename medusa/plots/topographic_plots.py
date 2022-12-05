@@ -123,7 +123,9 @@ def plot_topography(channel_set, values, head_radius=0.7266,
                     plot_extra=0.29, k=3, make_contour=True, plot_channels=True,
                     plot_skin_in_color=False, plot_clabels=False,
                     plot_contour_ch=False, chcontour_radius=None,
-                    interp_points=500, cmap='YlGnBu_r', show=True, clim=None):
+                    interp_points=500, cmap='YlGnBu_r', show=True, clim=None,
+                    axes=None, fig=None, show_colorbar=True, linewidth=4.0,
+                    background=False):
 
     """ This function depicts a topographic map of the scalp
     over the desired channel locations.
@@ -166,8 +168,13 @@ def plot_topography(channel_set, values, head_radius=0.7266,
         computation (default: 500)
     cmap : str
         Matplotlib colormap
+    background: bool (Optional)
+        Set background
     show : bool
         Show matplotlib figure
+    axes : matplotlib.pyplot.axes
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new axes.
     clim : list or None
         Color bar limits. Index 0 contain the lower limit, whereas index 1 must
         contain the upper limit. if none, min and max values are used
@@ -199,7 +206,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
                           plot_contour_ch=plot_contour_ch,
                           chcontour_radius=chcontour_radius,
                           interp_points=interp_points,
-                          show=False)
+                          show=False, axes=axes, fig=fig, linewidth=linewidth,
+                          background=background)
 
     # Create points out of the head to get a natural interpolation
     r_ext_points = 1.5  # Radius of the virtual electrodes
@@ -233,25 +241,27 @@ def plot_topography(channel_set, values, head_radius=0.7266,
     interp_z[~mask] = float('nan')
 
     # Plotting the final interpolation
-    p_interp = plt.pcolor(interp_x, interp_y, interp_z, cmap=cmap)
+    p_interp = axes.pcolor(interp_x, interp_y, interp_z, cmap=cmap)
     if clim is not None:
-        plt.clim(clim[0], clim[1])
-    cbar = plt.colorbar(p_interp)
+        p_interp.set_clim(clim[0], clim[1])
+    if show_colorbar:
+        cbar = plt.colorbar(p_interp)
 
     # Plotting the contour
     if make_contour:
         axes.contour(interp_x, interp_y, interp_z, alpha=1, colors='0.2',
-                     linewidths=0.75)
+                     linewidths=linewidth/4.2)
 
     if show is True:
         plt.show(dpi=400)
-    return fig, axes
+    return fig, axes, p_interp
 
 
 def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
               plot_skin_in_color=False, plot_clabels=False,
               plot_contour_ch=False, chcontour_radius=None,
-              interp_points=500, show=True):
+              interp_points=500, show=True, axes=None, fig=None,
+              linewidth=4.0, background=False):
     """This function depicts a two-dimensional head diagram.
 
     Parameters
@@ -280,9 +290,13 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     interp_points: int (Optional)
         No. interpolation points. The lower N, the lower resolution and faster
         computation (default: 500)
+    background: bool (Optional)
+        Set background
     show : bool
         Show matplotlib figure
-
+    axes : matplotlib.pyplot.axes
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new figure.
     Returns
     -------
     figure : plt.figure
@@ -293,8 +307,10 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
         raise ValueError('The channel set must have 2 dimensions')
 
     # Initialize figure and axis
-    fig = plt.figure()
-    axes = fig.add_subplot(111)
+    if fig is None:
+        fig = plt.figure()
+    if axes is None:
+        axes = fig.add_subplot(111)
 
     # Compute the cartesian coordinates of each channel
     ch_x, ch_y = get_cartesian_coordinates(channel_set)
@@ -308,10 +324,10 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                   (np.pi / 2) - (nt * np.pi / 2)]
     nose_x = nose_rho * np.cos(nose_theta)
     nose_y = nose_rho * np.sin(nose_theta)
-    axes.plot(nose_x, nose_y, 'k', linewidth=4)
+    axes.plot(nose_x, nose_y, 'k', linewidth=linewidth)
     if plot_skin_in_color:
         axes.fill(nose_x, nose_y, 'k',
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
 
     # Plotting the ears as ellipses
     ellipse_a = 0.08  # Horizontal eccentricity
@@ -330,23 +346,23 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                  np.cos(ear_theta_left)
     ear_y_left = ear_rho(ear_theta_left, ellipse_a, ellipse_b) * \
                  np.sin(ear_theta_left)
-    axes.plot(ear_x_right + head_rho + offset, ear_y_right, 'k', linewidth=4)
-    axes.plot(ear_x_left - head_rho - offset, ear_y_left, 'k', linewidth=4)
+    axes.plot(ear_x_right + head_rho + offset, ear_y_right, 'k', linewidth=linewidth)
+    axes.plot(ear_x_left - head_rho - offset, ear_y_left, 'k', linewidth=linewidth)
 
     # Plotting the head limits as a circle
     head_theta = np.linspace(0, 2 * np.pi, interp_points)
     head_x = head_rho * np.cos(head_theta)
     head_y = head_rho * np.sin(head_theta)
-    axes.plot(head_x, head_y, 'k', linewidth=4)
+    axes.plot(head_x, head_y, 'k', linewidth=linewidth)
     if plot_skin_in_color:
         axes.fill(head_x, head_y, facecolor='#E8BEAC',
                   edgecolor='k', linewidth=4)
 
     if plot_skin_in_color:
         axes.fill(ear_x_right + head_rho + offset, ear_y_right,
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
         axes.fill(ear_x_left - head_rho - offset, ear_y_left,
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=4)
+                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
 
     # Compute optimal minimum distance between channels
     if chcontour_radius is None:
@@ -362,8 +378,9 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                 M = 71
             elif channel_set.montage == '10-20':
                 M = 21
-        elif isinstance(channel_set.montage, dict):
-            M = len(channel_set.montage)
+        elif isinstance(channel_set.montage, dict) or channel_set.montage\
+                is None:
+            M = channel_set.n_cha
         percentage = len(channel_set.channels) * (0.25 / (M - 2)) + \
                      0.25 * ((M - 4) / (M - 2))
         min_dist = min_dist * percentage
@@ -380,12 +397,14 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
 
     # Plotting the electrodes
     if plot_channels:
-        axes.scatter(ch_x, ch_y, 15, facecolors='w', edgecolors='k', zorder=10)
+        axes.scatter(ch_x, ch_y, linewidth*3.5, facecolors='w', edgecolors='k',
+                     zorder=10)
 
     if plot_clabels:
         for t in range(len(channel_set.channels)):
             axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * min_dist,
-                      channel_set.channels[t]['label'], fontsize=9, color='w',
+                      channel_set.channels[t]['label'], fontsize=linewidth*2,
+                      color='w',
                       zorder=11)
 
     # Last considerations
@@ -393,10 +412,11 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     axes.set_xlim([-plot_lim, plot_lim])
     axes.set_ylim([-plot_lim, plot_lim])
     axes.set_aspect('equal', 'box')
-    plt.axis('off')
-    # fig = plt.gcf()
-    fig.patch.set_alpha(0.0)  # Set transparent background
-    fig.tight_layout()
+    axes.axis('off')
+    if fig is not None:
+        # fig = plt.gcf()
+        fig.patch.set_alpha(background)  # Set transparent background
+        fig.tight_layout()
     if show is True:
         plt.show(dpi=400)
 

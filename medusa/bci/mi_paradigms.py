@@ -23,7 +23,6 @@ from medusa import get_epochs_of_events, resample_epochs
 from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import CSP, LaplacianFilter
-from medusa.deep_learning_models import EEGSym
 
 
 class MIData(components.ExperimentData):
@@ -34,29 +33,33 @@ class MIData(components.ExperimentData):
     MI paradigms in BCI module.
     """
 
-    def __init__(self, mode, onsets, w_trial_t, mi_result=None,
-                 calibration_t=None, mi_labels=None, mi_labels_info=None,
-                 w_rest_t=None, **kwargs):
+    def __init__(self, mode, onsets, w_trial_t,
+                 calibration_onset_w=None, w_preparation_t=None, w_rest_t=None,
+                 mi_labels=None, mi_labels_info=None, mi_result=None,
+                 paradigm_info=None, **kwargs):
         """MIData constructor
 
         Parameters
         ----------
-        mode : str {"train"|"test"|"guided_test"}
+        mode : str {"train"|"test"|"guided test"}
             Mode of this run.
         onsets : list or numpy.ndarray [n_stim x 1]
-            Timestamp of each stimulation
+            Timestamp of the cue with respect to the EEG signal (just when the
+            motor imagery starts).
         w_trial_t: list [start, end]
             Temporal window of the motor imagery with respect to each onset in
             ms. For example, if  w_trial_t = [500, 4000] the subject was
-            performing the motor imagery task from 500ms after to 4000ms after
+            performing the motor imagery task from 500ms to 4000ms after
             the onset.
-        calibration_t: int end
-            Time duration of the calibration recorded normally at the
-            beginning of each run. For example, if calibration_t = 5000 the
-            subject was in resting state for the first 5 seconds of the run.
-        mi_result : list or numpy.ndarray [n_mi_labels x 1]
-            Result of this run. Each position contains the data of the
-            selected target at each trial.
+        calibration_onset_w: list [start, end]
+            Timestamps of the onsets regarding the calibration window,
+            if exists, respect to the EEG signal.
+        w_preparation_t: list [start, end]
+            Temporal window of the preparation time (no motor imagery),
+            if exists, with respect to each onset in ms.
+        w_rest_t: list [start, end]
+            Temporal window of the rest time (no motor imagery),
+            if exists, with respect to each onset in ms.
         mi_labels : list or numpy.ndarray [n_mi_labels x 1]
             Only in train mode. Contains the mi labels of each stimulation,
             as many as classes in the experiment.
@@ -67,10 +70,12 @@ class MIData(components.ExperimentData):
                     {0: "Rest",
                     1: "Left_hand",
                     2: "Right_hand"}
-        w_rest_t: list [start, end]
-            Temporal window of the rest with respect to each onset in ms. For
-            example, if w_rest_t = [-1000, 0] the subject was resting from
-            1000ms before to the onset.
+        mi_result : list or numpy.ndarray [n_mi_labels x 1]
+            Result of this run. Each position contains the data of the
+            selected target at each trial.
+        paradigm_info: dict()
+            Recommended but not mandatory. Use this variable to keep the
+            information regarding the different timings of the paradigm.
         kwargs : kwargs
             Custom arguments that will also be saved in the class
             (e.g., timings, calibration gaps, etc.)
@@ -80,20 +85,22 @@ class MIData(components.ExperimentData):
         mode = mode.lower()
         if mode == 'train':
             if mi_labels is None:
-                raise ValueError('Attributes mi_labels, '
-                                 'should be provided in train mode')
+                raise ValueError('Attribute "mi_labels" must be provided in '
+                                 'train mode')
 
         # Standard attributes
         self.mode = mode
         self.onsets = np.array(onsets)
         self.w_trial_t = np.array(w_trial_t)
-        self.calibration_t = np.array(calibration_t)
-        self.mi_result = np.array(mi_result) if mi_result is not None else \
-            mi_result
+        self.calibration_onset_w = np.array(calibration_onset_w)
+        self.w_preparation_t = np.array(w_preparation_t)
+        self.w_rest_t = np.array(w_rest_t)
         self.mi_labels = np.array(mi_labels) if mi_labels is not None else \
             mi_labels
         self.mi_labels_info = mi_labels_info
-        self.w_rest_t = np.array(w_rest_t)
+        self.mi_result = np.array(mi_result) if mi_result is not None else \
+            mi_result
+        self.paradigm_info = paradigm_info
 
         # Optional attributes
         for key, value in kwargs.items():
@@ -176,34 +183,43 @@ class MIDataset(components.Dataset):
                                  '{train|test|guided test|None}')
 
         # Default track attributes
+        # TODO: esto no va a funcionar con MIDataOld
         default_track_attributes = {
             'subject_id': {
                 'track_mode': 'append',
                 'parent': None
             },
+            'onsets': {
+                'track_mode': 'concatenate',
+                'parent': experiment_att_key
+            },
             'w_trial_t': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'w_rest_t': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'calibration_t': {
                 'track_mode': 'append',
                 'parent': experiment_att_key
             },
-            'onsets': {
-                'track_mode': 'concatenate',
+            'calibration_onset_w': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'w_preparation_t': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
+            },
+            'w_rest_t': {
+                'track_mode': 'append',
                 'parent': experiment_att_key
             },
             'mi_labels_info': {
                 'track_mode': 'append',
                 'parent': experiment_att_key
+            },
+            'paradigm_info': {
+                'track_mode': 'append',
+                'parent': experiment_att_key
             }
         }
 
-        if experiment_mode in ['train', 'guided_test']:
+        if experiment_mode in ['train', 'guided test']:
             default_track_attributes_train = {
                 'mi_labels': {
                     'track_mode': 'concatenate',
@@ -214,8 +230,8 @@ class MIDataset(components.Dataset):
                 **default_track_attributes,
                 **default_track_attributes_train
             }
-        elif experiment_mode in ['test', 'guided_test']:
-            default_track_attributes_train = {
+        if experiment_mode in ['test', 'guided test']:
+            default_track_attributes_test = {
                 'mi_result': {
                     'track_mode': 'concatenate',
                     'parent': experiment_att_key
@@ -223,7 +239,7 @@ class MIDataset(components.Dataset):
             }
             default_track_attributes = {
                 **default_track_attributes,
-                **default_track_attributes_train
+                **default_track_attributes_test
             }
         track_attributes = \
             default_track_attributes if track_attributes is None else \
@@ -290,14 +306,6 @@ class MIDataset(components.Dataset):
             rule_params={'attribute': self.experiment_att_key,
                          'type': MIData}
         )
-        # Check mode
-        # if self.experiment_mode is not None:
-        #     checker.add_consistency_rule(
-        #         rule='check-attribute-value',
-        #         rule_params={'attribute': 'mode',
-        #                      'value': self.experiment_mode},
-        #         parent=self.experiment_att_key
-        #     )
 
         # Check track_attributes
         if self.track_attributes is not None:
@@ -311,7 +319,7 @@ class MIDataset(components.Dataset):
                     checker.add_consistency_rule(
                         rule='check-attribute-type',
                         rule_params={'attribute': key,
-                                     'type': [list, np.ndarray]},
+                                     'type': [list, np.ndarray, dict]},
                         parent=value['parent']
                     )
 
@@ -479,7 +487,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         self.concatenate_channels = concatenate_channels
         self.safe_copy = safe_copy
 
-    def transform_signal(self, times, signal, fs, onsets):
+    def transform_signal(self, times, signal, fs, onsets,
+                         w_epoch_t = None):
         """Function to extract MI features from raw signal. It returns a 3D
         feature array with shape [n_events x n_samples x n_channels]. This
         function does not track any other attributes. Use for online processing
@@ -504,6 +513,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         features : np.ndarray [n_events x n_samples x n_channels]
             Feature array with the epochs of signal
         """
+        if w_epoch_t is None:
+            w_epoch_t = self.w_epoch_t
         # Avoid changes in the original signal (this may not be necessary)
         if self.safe_copy:
             signal = signal.copy()
@@ -518,7 +529,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             w_baseline_trial_t = None
         elif self.baseline_mode == 'trial':
             if self.w_baseline_t == 'auto':
-                w_baseline_trial_t = self.w_epoch_t
+                w_baseline_trial_t = w_epoch_t
             else:
                 w_baseline_trial_t = self.w_baseline_t
         elif self.baseline_mode == 'run':
@@ -528,7 +539,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         # Extract features
         features = get_epochs_of_events(timestamps=times, signal=signal,
                                         onsets=onsets, fs=fs,
-                                        w_epoch_t=self.w_epoch_t,
+                                        w_epoch_t=w_epoch_t,
                                         w_baseline_t=w_baseline_trial_t,
                                         norm=norm)
 
@@ -539,11 +550,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 norm_epoch_t = self.w_baseline_t
             norm_epoch_s = np.array(norm_epoch_t * fs / 1000, dtype=int)
             norm_epoch = np.expand_dims(signal[norm_epoch_s], axis=0)
-        else:
-            norm_epoch = None
-
-        features = normalize_epochs(features, norm_epochs=norm_epoch,
-                                    norm=self.norm)
+            features = normalize_epochs(features, norm_epochs=norm_epoch,
+                                        norm=self.norm)
         # Resample each epoch to the target frequency
         if self.target_fs is not None:
             if self.target_fs > fs:
@@ -558,7 +566,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                                                     features.shape[2], 1)))
         return features
 
-    def transform_dataset(self, dataset, show_progress_bar=True):
+    def transform_dataset(self, dataset, show_progress_bar=True,
+                          continuous=False):
         #TODO: Review with modifications of Eduardo in erp_spellers (SERGIO)
         """High level function to easily extract features from EEG recordings
         and save useful info for later processing. Nevertheless, the provided
@@ -627,40 +636,57 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             rec_sig = getattr(rec, dataset.biosignal_att_key)
 
             # Get features
+            # Get features
+            list_w_epoch_t = list()
+            if not continuous:
+                list_w_epoch_t.append(self.w_epoch_t)
+            if continuous:
+                start = self.w_epoch_t - np.diff(self.w_epoch_t) / 2
+                stop = rec_exp.w_trial_t[1] - self.w_epoch_t[1]
+                steps_0 = np.arange(start=start[0], stop=stop + 1, step=250,
+                                    dtype=int)
+                steps_1 = np.arange(start=start[1], stop=rec_exp.w_trial_t[
+                                                             1] + 1, step=250,
+                                    dtype=int)
+                for i in range(len(steps_0)):
+                    list_w_epoch_t.append([steps_0[i], steps_1[i]])
 
-            rec_feat = self.transform_signal(
-                times=rec_sig.times,
-                signal=rec_sig.signal,
-                fs=rec_sig.fs,
-                onsets=rec_exp.onsets
-                # ,
-                # calibration_t=rec_exp.calibration_t
-            )
+            for w_epoch_t in list_w_epoch_t:
 
-            features = np.concatenate((features, rec_feat), axis=0) \
-                if features is not None else rec_feat
+                rec_feat = self.transform_signal(
+                    times=rec_sig.times,
+                    signal=rec_sig.signal,
+                    fs=rec_sig.fs,
+                    onsets=rec_exp.onsets,
+                    w_epoch_t=w_epoch_t
+                    # ,
+                    # calibration_t=rec_exp.calibration_t
+                )
 
-            # Special attributes that need tracking across runs to assure the
-            # consistency of the dataset
-            # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
+                features = np.concatenate((features, rec_feat), axis=0) \
+                    if features is not None else rec_feat
 
-            # Track experiment info
-            for key, value in track_attributes.items():
-                if value['parent'] is None:
-                    parent = rec
-                else:
-                    parent = rec
-                    for p in value['parent'].split('.'):
-                        parent = getattr(parent, p)
-                att = getattr(parent, key)
-                if value['track_mode'] == 'append':
-                    track_info[key].append(att)
-                elif value['track_mode'] == 'concatenate':
-                    track_info[key] = np.concatenate(
-                        (track_info[key], att), axis=0
-                    ) if track_info[key] is not None else att
-                else:
-                    raise ValueError('Unknown track mode')
+                # Special attributes that need tracking across runs to assure the
+                # consistency of the dataset
+                # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
+
+                # Track experiment info
+                for key, value in track_attributes.items():
+                    if value['parent'] is None:
+                        parent = rec
+                    else:
+                        parent = rec
+                        for p in value['parent'].split('.'):
+                            parent = getattr(parent, p)
+                    att = getattr(parent, key)
+                    if value['track_mode'] == 'append':
+                        track_info[key].append(att)
+                    elif value['track_mode'] == 'concatenate':
+                        track_info[key] = np.concatenate(
+                            (track_info[key], att), axis=0
+                        ) if track_info[key] is not None else att
+                    else:
+                        raise ValueError('Unknown track mode')
 
             if show_progress_bar:
                 pbar.update(1)
@@ -679,10 +705,10 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
     - Extract CSP features of those MI events.
     """
 
-    def __init__(self, n_filters=4, w_epoch_t=(500, 4000), target_fs=60,
+    def __init__(self, n_filters=4, w_epoch_t=(500, 4000), target_fs=None,
                  baseline_mode='trial',
                  w_baseline_t=(-1500, -500), norm='z',
-                 concatenate_channels=False, safe_copy=True):
+                 concatenate_channels=False, safe_copy=True, **kwargs):
         """Class constructor
 
         n_filter : int or None
@@ -855,7 +881,6 @@ class MIModel(components.Algorithm):
     def __init__(self):
         """Class constructor
         """
-        print('MIModel')
         super().__init__(fit_dataset=['mi_target', 'mi_result', 'accuracy'],
                          predict=['mi_result'])
         # Settings
@@ -995,12 +1020,13 @@ class MIModelCSP(MIModel):
         super().__init__()
 
     def configure(self, p_filt_cutoff=(8, 30), f_w_epoch_t=(500, 4000),
-                  f_target_fs=60):
+                  f_target_fs=60, **kwargs):
         self.settings = {
             'p_filt_cutoff': p_filt_cutoff,
             'f_w_epoch_t': f_w_epoch_t,
             'f_target_fs': f_target_fs
         }
+        self.settings = dict(self.settings, **kwargs)
         # Update state
         self.is_configured = True
         self.is_built = False
@@ -1016,10 +1042,7 @@ class MIModelCSP(MIModel):
         ))
         # Feature extraction (default: epochs [500, 4000] ms + resampling to 80
         # Hz)
-        self.add_method('ext_method', CSPFeatureExtraction(
-            w_epoch_t=self.settings['f_w_epoch_t'],
-            target_fs=self.settings['f_target_fs'],
-        ))
+        self.add_method('ext_method', CSPFeatureExtraction(**self.settings))
         # Feature classification (rLDA)
         clf = components.ProcessingClassWrapper(
             LinearDiscriminantAnalysis(solver='eigen', shrinkage='auto'),
@@ -1041,7 +1064,7 @@ class MIModelCSP(MIModel):
 
         # Classification
         self.get_inst('clf_method').fit(x, x_info['mi_labels'])
-        y_proba = self.get_inst('clf_method').predict_proba(x)
+        y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Accuracy
@@ -1051,7 +1074,7 @@ class MIModelCSP(MIModel):
         assessment = {
             'x': x,
             'x_info': x_info,
-            'y_proba': y_proba,
+            'y_prob': y_prob,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
@@ -1078,7 +1101,7 @@ class MIModelCSP(MIModel):
                                                          x_info['onsets'])
         x = self.get_inst('ext_method').extract_log_var_features(x)
         # Classification
-        y_proba = self.get_inst('clf_method').predict_proba(x)
+        y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
 
         # Decoding
@@ -1091,7 +1114,7 @@ class MIModelCSP(MIModel):
         decoding = {
             'x': x,
             'x_info': x_info,
-            'y_proba': y_proba,
+            'y_prob': y_prob,
             'y_pred': y_pred,
             'accuracy': accuracy,
             'report': clf_report
@@ -1192,14 +1215,15 @@ class MIModelEEGSym(MIModel):
         self.is_built = True
         # self.is_fit = False
 
-    def fit_dataset(self, dataset, **kwargs):
+    def fit_dataset(self, dataset, continuous=False, **kwargs):
         # Check errors
         if not self.is_built:
             raise ValueError('Function build must be called first!')
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
-        # Extract CSP features
-        x, x_info = self.get_inst('ext_method').transform_dataset(dataset)
+        # Extract features
+        x, x_info = self.get_inst('ext_method').transform_dataset(dataset,
+                                                                  continuous=continuous)
         # Put channels in symmetric order
         x = self.get_inst('clf_method').symmetric_channels(x,
                                                            dataset.channel_set.l_cha)
