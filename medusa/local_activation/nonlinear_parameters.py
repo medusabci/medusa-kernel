@@ -1,12 +1,5 @@
-"""
-In this module you will find useful functions to apply non-linear metrics for
-signal analysis. Enjoy!
-
-@authors: Víctor Rodríguez-González and Diego Marcos-Martínez
-"""
 # Built-in imports
 import math
-import threading
 import ctypes
 
 # External imports
@@ -27,14 +20,16 @@ def central_tendency_measure(signal, r):
     the points within a radius "r". CTM assigns higher values to less variable
     signals
 
-    REFERENCES: Cohen, M. E., Hudson, D. L., & Deedwania, P. C. (1996). Applying
+    References
+    ----------
+    Cohen, M. E., Hudson, D. L., & Deedwania, P. C. (1996). Applying
     continuous chaotic modeling to cardiac signal analysis. IEEE Engineering in
     Medicine and Biology Magazine, 15(5), 97-102.
 
     Parameters
     ----------
     signal : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        Signal with shape [n_epochs, n_samples, n_channels].
     r : double
         Radius used to compute the CTM.
 
@@ -105,7 +100,8 @@ def sample_entropy(signal, m, r, dist_type='chebyshev'):
                  - Lower bound: 0
                  - Upper bound : log(N-m) + log(N-m-1) - log(2)
 
-    REFERENCES:
+    References
+    ----------
     Richman, J. S., & Moorman, J. R. (2000). Physiological
     time-series analysis using approximate entropy and sample entropy. American
     Journal of Physiology-Heart and Circulatory Physiology.
@@ -113,7 +109,7 @@ def sample_entropy(signal, m, r, dist_type='chebyshev'):
     Parameters
     ----------
     signal : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        Signal with shape [n_epochs, n_samples, n_channels].
     m : int
         Sequence length
     r : float
@@ -152,7 +148,7 @@ def sample_entropy(signal, m, r, dist_type='chebyshev'):
     sigma = np.std(signal, axis=1)
     templates_m = []
     templates_m_plus_one = []
-    B, A, value = np.empty((n_epo, n_channels)), np.empty((n_epo, n_channels)), \
+    B, A, value = np.empty((n_epo, n_channels)), np.empty((n_epo, n_channels)),\
                   np.empty((n_epo, n_channels))
 
     # Calculate B values
@@ -212,7 +208,8 @@ def multiscale_entropy(signal, max_scale, m, r):
     compare the complexity of time-series. The MSE curve whose entropy values
     are higher for the most of time-scales is considered more complex.
 
-    REFERENCES:
+    References
+    ----------
     Costa, M., Goldberger, A. L., & Peng, C. K. (2005). Multiscale entropy
     analysis of biological signals, Physical review E, 71(2), 021906.
 
@@ -277,7 +274,7 @@ def __coarse_grain(signal, scale, decimate_mode=True):
         # Returned signal
         y = np.empty((n_epo,tau,n_cha))
         for i in range(tau):
-            y[:,i,:] = np.mean(signal[:,i * scale:(i * scale + scale),:])
+            y[:, i, :] = np.mean(signal[:, i * scale:(i * scale + scale), :])
         return y
 
 
@@ -297,14 +294,13 @@ def __lempelziv_complexity(signal):
     Returns
     -------
     lz_channel_values: numpy 1D matrix
-        Lempel-Ziv values for each channel.
-        [n_channels].
+        Lempel-Ziv values for each channel with shape [n_channels].
     """
 
     if signal.size == len(signal):
         signal = signal[:, np.newaxis]
 
-    signal = __binarisation(signal,[signal.shape[0]],signal.shape[0])
+    signal = __binarisation(signal, [signal.shape[0]], signal.shape[0])
     if signal.shape[1] == 1:
         return __lz_algorithm(signal)
     else:
@@ -371,6 +367,7 @@ def lempelziv_complexity(signal):
         lz_result[e_idx, :] = lz_channel_values
     return lz_result
 
+
 def multiscale_lempelziv_complexity(signal, W):
     """Calculate the multiscale signal binarisation and the Multiscale
     Lempel-Ziv's complexity.
@@ -426,7 +423,6 @@ def multiscale_lempelziv_complexity(signal, W):
             else:
                 result[ep_idx, w_idx, :] = __lz_algorithm(binarised_signal)
     return result
-
 
 
 def __lz_algorithm(signal):

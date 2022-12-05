@@ -1618,6 +1618,7 @@ class Algorithm(ProcessingMethod):
                     obj.from_pickleable_obj(method_dict['instance'])
         return alg
 
+
 class ThreadWithReturnValue(Thread):
     """This class inherits from thread class and allows getting
      the target function return"""
@@ -1625,10 +1626,11 @@ class ThreadWithReturnValue(Thread):
                  args=(), kwargs={}):
         Thread.__init__(self, group, target, name, args, kwargs)
         self._return = None
+
     def run(self):
         if self._target is not None:
-            self._return = self._target(*self._args,
-                                                **self._kwargs)
+            self._return = self._target(*self._args, **self._kwargs)
+
     def join(self, *args):
         Thread.join(self, *args)
         return self._return

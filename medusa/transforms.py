@@ -1,107 +1,107 @@
-import tensorflow as tf
 import numpy as np
-from . import epoching
-from . import tensorflow_integration
 from scipy.signal import welch as welch_sp
 from scipy.signal import hilbert as hilbert_sp
 from medusa.utils import check_dimensions
 
 
-def hilbert(x, flag=0):
+def hilbert(signal):
     """This method implements the Hilbert transform.
 
     Parameters
     ----------
-    x :  numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
-    flag : bool
-        If True, if forces using Tensorflow. It is not recommended as it is MUCH
-         slower.
+    signal :  numpy.ndarray
+        Input signal with shape [n_epochs x n_samples x n_channels].
 
     Returns
     -------
     hilb : numpy 3D matrix
         Analytic signal of x [n_epochs, n_samples, n_channels].
     """
-    x = np.asarray(x)
-    x = check_dimensions(x)
-    if np.iscomplexobj(x):
-        raise ValueError("x must be real.")
-    n = x.shape[0]
-    if n == 0:
-        raise ValueError("Incorrect dimensions along axis 0")
+    # Check dimensions
+    signal = np.asarray(signal)
+    signal = check_dimensions(signal)
+    # Check errors
+    if np.iscomplexobj(signal):
+        raise ValueError("Signal must be real.")
 
-    if tensorflow_integration.check_tf_config(autoconfig=True) and flag:
+    # Old tensorflow implementation
+    # if tensorflow_integration.check_tf_config(autoconfig=True) and flag:
+    #
+    #     # Run the fft on the columns, not the rows.
+    #     signal = tf.convert_to_tensor(signal, dtype=tf.complex128)
+    #     signal = tf.transpose(tf.signal.fft(tf.transpose(signal)))
+    #
+    #     # Coeficients
+    #     h = np.zeros(n)
+    #     if (n > 0) and (2*np.fix(n/2) == n):
+    #         # Even and nonempty
+    #         h[0:int(n/2+1)] = 1
+    #         h[1:int(n/2)] *= 2
+    #     elif n > 0:
+    #         # Odd and nonempty
+    #         h[0] = 1
+    #         h[1:int((n+1)/2)] = 2
+    #
+    #     tf_h = tf.constant(h, name='h', dtype=tf.float64)
+    #     if len(signal.shape) == 2:
+    #         reps = tf.Tensor.get_shape(signal).as_list()[-1]
+    #         hs = tf.stack([tf_h]*reps, -1)
+    #     elif len(signal.shape) == 1:
+    #         hs = tf_h
+    #     else:
+    #         raise NotImplementedError
+    #
+    #     xc = signal * tf.complex(hs, tf.zeros_like(hs))
+    #     return tf.transpose(tf.signal.ifft(tf.transpose(xc)))
 
-        # Run the fft on the columns, not the rows.
-        x = tf.convert_to_tensor(x, dtype=tf.complex128)
-        x = tf.transpose(tf.signal.fft(tf.transpose(x)))
-
-        # Coeficients
-        h = np.zeros(n)
-        if (n > 0) and (2*np.fix(n/2) == n):
-            # Even and nonempty
-            h[0:int(n/2+1)] = 1
-            h[1:int(n/2)] *= 2
-        elif n > 0:
-            # Odd and nonempty
-            h[0] = 1
-            h[1:int((n+1)/2)] = 2
-
-        tf_h = tf.constant(h, name='h', dtype=tf.float64)
-        if len(x.shape) == 2:
-            reps = tf.Tensor.get_shape(x).as_list()[-1]
-            hs = tf.stack([tf_h]*reps, -1)
-        elif len(x.shape) == 1:
-            hs = tf_h
-        else:
-            raise NotImplementedError
-
-        xc = x * tf.complex(hs, tf.zeros_like(hs))
-        return tf.transpose(tf.signal.ifft(tf.transpose(xc)))
-    else:
-        return hilbert_sp(x, axis=1)
+    return hilbert_sp(signal, axis=1)
 
 
-def power_spectral_density(signal, fs):
-    """This method allows to compute the power spectral density by means of
-    Welch's periodogram method.
+def power_spectral_density(signal, fs, segment_pct=80, overlap_pct=50,
+                           window='boxcar'):
+    """This method allows to compute the one-sided power spectral density (PSD)
+    by means of Welch's periodogram method. This method wraps around
+    scipy.signal.welch method to compute the PSD, allowing to pass epoched
+    signals and defining the segment length and overlap in percentage,
+    simplifying the use for specific purposes. For more advanced configurations,
+    use the original scipy (or equivalent) function.
 
     Parameters
     ----------
-    signal : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+    signal : numpy nd array
+        Signal with shape [n_epochs x n_samples x n_channels].
     fs : int
         Sampling frequency of the signal
-    epoch_len : int or None
-        Length of the epochs in which divide the signal. If None,
-        the power spectral density of the entire signal will be calculated.
+    segment_pct: float
+        Percentage of the signal (n_samples) used to calculate the FFT. Default:
+        80% of the signal.
+    overlap_pct: float
+        Percentage of overlap (n_samples) for the Welch method. Default: 50% of
+        the signal.
 
     Returns
     -------
     f : numpy 1D array
-        Array of sample frequencies.
-
+        Array of sampled frequencies.
     psd: numpy 2D array
-        PSD of M/EEG Signal. [n_epochs, n_samples, n_channels]
+        PSD of the signal with shape [n_epochs, n_samples, n_channels]
     """
 
     # Check signal dimensions
     signal = check_dimensions(signal)
-
-    # Estimating the PSD
     # Get the number of samples for the PSD length
     n_samp = signal.shape[1]
-
+    # Get nperseg and noverlap
+    nperseg = n_samp * segment_pct / 100
+    noverlap = n_samp * overlap_pct / 100
     # Compute the PSD
-    f, psd = welch_sp(signal, fs=fs, window='boxcar',
-                      nperseg=n_samp, noverlap=0, axis=-2)
+    f, psd = welch_sp(signal, fs=fs, window=window, nperseg=nperseg,
+                      noverlap=noverlap, axis=1)
     return f, psd
 
 
 def normalize_psd(psd, norm='rel'):
-    """
-    Normalizes the PSD by the total power.
+    """Normalizes the PSD using different methods.
 
     Parameters
     ----------
@@ -114,18 +114,13 @@ def normalize_psd(psd, norm='rel'):
         relative power.
 
     """
+    # To numpy arrays
+    psd = np.array(psd)
+
     # Check errors
-    if len(psd.shape) > 3:
-        raise Exception('Parameter psd must have shape [samples],'
-                        ' [samples x channels] or '
-                        '[epochs x samples x channels]')
-
-    # Reshape
-    if len(psd.shape) == 1:
-        psd = psd.reshape(psd.shape[0], 1)
-
-    if len(psd.shape) == 2:
-        psd = psd.reshape(1, psd.shape[0], psd.shape[1])
+    if len(psd.shape) != 3:
+        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
+                        'n_channels]')
 
     if norm == 'rel':
         p = np.sum(psd, axis=1, keepdims=True)
@@ -138,3 +133,5 @@ def normalize_psd(psd, norm='rel'):
         raise Exception('Unknown normalization. Choose z or rel')
 
     return psd_norm
+
+
