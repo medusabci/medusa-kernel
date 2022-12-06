@@ -24,7 +24,6 @@ setup(
         'numpy',
         'scipy',
         'matplotlib',
-        'numba',
         'sklearn',
         'statsmodels',
         'bson',
