@@ -34,6 +34,7 @@ class EMG(components.BiosignalData):
         self.times = times
         self.signal = signal
         self.fs = fs
+        self.channel_set = channel_set
         self.location = location
 
         # Set the specified arguments

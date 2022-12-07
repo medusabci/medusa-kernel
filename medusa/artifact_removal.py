@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
                         n_cha=1):
     """Simple thresholding method to reject noisy epochs. It discards epochs
