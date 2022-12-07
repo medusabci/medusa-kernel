@@ -78,6 +78,8 @@ def power_spectral_density(signal, fs, segment_pct=80, overlap_pct=50,
     overlap_pct: float
         Percentage of overlap (n_samples) for the Welch method. Default: 50% of
         the signal.
+    window:
+        Desired window to use. See scipy.signal.welch docs for more details
 
     Returns
     -------
