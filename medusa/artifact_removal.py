@@ -1,4 +1,5 @@
 import numpy as np
+from medusa.plots.timeplot import time_plot
 
 
 def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
@@ -49,3 +50,171 @@ def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
     idx = np.sum((np.sum(cmp, axis=1) >= n_samp), axis=1) >= n_cha
     pct_rejected = (np.sum(idx) / epochs.shape[0]) * 100
     return pct_rejected, epochs[~idx, :, :], idx
+
+class ICA:
+    def __init__(self, n_components = None, random_sate = None):
+
+        self.n_components = n_components
+        self.random_sate = random_sate
+
+        self.pre_whitener = None
+        self.unmixing_matrix = None
+        self.mixing_matrix = None
+        self._ica_n_iter = None
+
+        # PCA attributes
+        self._max_pca_components = None
+        self.n_pca_components = None
+        self._pca_mean = None
+        self._pca_explained_variance = None
+        self._pca_explained_variance_ratio = None
+        self._pca_components = None
+
+    def _get_pre_whitener(self,signal):
+        self.pre_whitener = np.std(signal)
+
+    def _pre_whiten(self,signal):
+        signal /= self.pre_whitener
+        return signal
+
+    def _whitener(self, signal):
+        from sklearn.decomposition import PCA
+
+        signal = self._pre_whiten(signal)
+
+        pca = PCA(n_components=self._max_pca_components,whiten=True,
+                  random_state=self.random_sate)
+        signal_pca = pca.fit_transform(signal)
+
+        self._pca_mean = pca.mean_
+        self._pca_components = pca.components_
+        self._pca_explained_variance = pca.explained_variance_
+        self._pca_explained_variance_ratio = pca.explained_variance_ratio_
+        self.n_pca_components = pca.n_components
+        del pca
+
+        # if n_pca is None:
+        #     n_pca = len(self._pca_explained_variance_ratio)
+
+        if self.n_components is None:
+            self.n_components = min(self.n_pca_components,
+                                    self._exp_var_ncomp(
+                self._pca_explained_variance_ratio,0.99999)[0])
+        elif isinstance(self.n_components, float):
+            self.n_components = self._exp_var_ncomp(
+                self._pca_explained_variance_ratio, self.n_components)[0]
+            if self.n_components == 1:
+                raise RuntimeError(
+                    'One PCA component captures most of the '
+                    f'explained variance, your threshold '
+                    'results in 1 component. You should select '
+                    'a higher value.')
+        else:
+            if not isinstance(self.n_components,int):
+                raise ValueError(f'n_components={self.n_components} must be None,'
+                                 f'float or int value')
+
+        # if self.n_components > self.n_pca_components:
+        #     raise ValueError()
+
+        #TODO AQUI UNA FUNCIÓN PARA CREAR UNA LISTA DE ICA LABELS EN FUNCIÓN DEL NÚMERO
+        # DE COMPONENTES
+
+        return signal_pca
+
+    def fit(self, signal):
+        from sklearn.decomposition import FastICA
+        from scipy import linalg
+
+        # Check input dimensions
+        if len(signal.shape) == 3:
+            signal = np.vstack(signal)
+        elif len(signal.shape) == 1:
+            raise ValueError("signal input only has one dimension, but two"
+                             "dimensions (n_samples, n_channels) arer nedded at"
+                             "least")
+
+        self._get_pre_whitener(signal)
+        signal = self._whitener(signal)
+
+        ica = FastICA(whiten=False,random_state=self.random_sate,tol=1e-6)
+        ica.fit(signal[:,:self.n_components])
+        self.unmixing_matrix = ica.components_
+        self._ica_n_iter = ica.n_iter_
+
+        assert self.unmixing_matrix.shape == (self.n_components,)*2
+        # Whitening unmixing matrix
+        norm = np.sqrt(self._pca_explained_variance[:self.n_components])
+        norm[norm == 0] = 1.
+        self.unmixing_matrix /= norm
+        self.mixing_matrix = linalg.pinv(self.unmixing_matrix)
+
+    def transform(self, signal):
+        if not hasattr(self, 'mixing_matrix'):
+            raise RuntimeError('ICA has not been fitted yet. Please, fit ICA.')
+
+        #TODO CHECK IF SIGNAL IS DIVIDED IN EPOCHS
+
+        signal = self._pre_whiten(signal)
+        if self._pca_mean is not None:
+            signal -= self._pca_mean
+
+        # Transform signal to PCA space and then apply unmixing matrix
+        pca_transform = np.dot(self.unmixing_matrix,
+                          self._pca_components[:self.n_components])
+        sources = np.dot(pca_transform,signal.T)
+
+            # np.dot(np.dot(signal,self._pca_components[
+            # :self.n_components].T),self.unmixing_matrix,)
+        return sources.T
+
+    def get_components(self):
+        # Transform
+        components  = np.dot(self.mixing_matrix[:, :self.n_components].T,
+                      self._pca_components_[:self.n_components]).T
+
+        return components
+
+    @staticmethod
+    def _exp_var_ncomp(var, n):
+        cvar = np.asarray(var, dtype=np.float64)
+        cvar = cvar.cumsum()
+        cvar /= cvar[-1]
+        # We allow 1., which would give us N+1
+        n = min((cvar <= n).sum() + 1, len(cvar))
+        return n, cvar[n - 1]
+
+
+if __name__== "__main__":
+    import scipy.signal as ss
+
+    np.random.seed(10)
+    T = 10
+    fs = 250
+    time = np.linspace(0,T,fs*T)
+
+    s1 = np.sin(2 * time)  # Signal 1 : sinusoidal signal
+    s2 = np.sign(np.sin(3 * time))  # Signal 2 : square signal
+    s3 = ss.sawtooth(2 * np.pi * time)  # Signal 3: saw tooth signal
+
+    S = np.c_[s1, s2, s3]
+    S += 0.2 * np.random.normal(size=S.shape)
+
+    A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
+    signal = np.dot(S, A.T)
+
+    ica = ICA(n_components=3)
+    ica.fit(signal)
+    sources = ica.transform(signal)
+    time_plot(sources,fs)
+    time_plot(S,fs)
+
+
+
+
+
+
+
+
+
+
