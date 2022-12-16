@@ -17,6 +17,8 @@ from medusa.utils import check_dimensions
 
 
 def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
+    """Aux function to plot vertical lines in case of signal is divided in two
+        or more epochs"""
     vertical_lines = np.empty((blocks - 1, 2, 50))
     for block in range(blocks - 1):
         vertical_lines[block, :, :] = np.asarray(
@@ -26,7 +28,8 @@ def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
                 '--', color='red', linewidth=1.5)
 
 
-def __plot_events_lines(ax, events_dict, min_val, max_val):
+def __plot_events_lines(ax, events_dict, fs, min_val, max_val):
+    """Aux function to plot vertical lines corresponding  to marked events"""
     # Check errors
     if not isinstance(events_dict, dict):
         raise ValueError("'events_dict' must be a dict."
@@ -74,8 +77,6 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
         if str(events_order[event_idx]) not in legend_lines.keys():
             legend_lines.update({str(events_order[event_idx]):l[0]})
 
-
-
     # Create legend above the plot
     if previous_conditions is not None:
         previous_handles = ax.legend_.legendHandles
@@ -90,7 +91,9 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
                   bbox_to_anchor=(0.5, 1.15),ncol=3, fancybox=True, shadow=True)
 
 
-def __plot_condition_shadow(ax, conditions_dict, min_val, max_val):
+def __plot_condition_shades(ax, conditions_dict, fs, min_val, max_val):
+    """Aux function to plot background shades to corresponding to different
+       conditions during the signal recording. """
     # Check errors
     if not isinstance(conditions_dict, dict):
         raise ValueError("'conditions_dict' must be a dict."
@@ -149,7 +152,7 @@ def __plot_condition_shadow(ax, conditions_dict, min_val, max_val):
 
 
 def __reshape_signal(epochs):
-    """This is an auxiliary function than reshapes the signal if it is divided in
+    """Aux function than reshapes the signal if it is divided in
     epochs in order to plot it in a row"""
     try:
         epoch_c = epochs.copy()
@@ -162,7 +165,7 @@ def __reshape_signal(epochs):
 
 
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
-              ch_to_show=None,
+              ch_to_show=None, channel_offset=None,
               conditions_dict=None, events_dict=None):
     """
     Parameters
@@ -183,8 +186,45 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         Number of channels depicted in the plot. This parameter must be less or
         equal to the number of channels available in the recording. If None,
         this parameter is set as the total number of channels.
-    conditions_dict:
+    channel_offset: flot or None
+        Amplitude value to compute the offset of each channel. If None, the value
+        is automatically calculated from signal values.
+    conditions_dict: dict
+        Dictionary with the following structure:
+        {'conditions':{'con_1':{'desc_name':'Condition 1','label':0},
+                       'con_2':{'desc_name':'Condition 2','label':1}},
+         'condition_labels': [0,0,1,1,0,0],
+         'condition_times': [0,14,14,28,28,35]}
+
+         In this example, the sub-dictionary 'conditions' include each condition
+         with a descriptor name ('desc_name') which will be show in the time-plot
+         legend, and the label to identify the condition. For its part,
+         'condition_labels' must be a list containing the order of start and end
+         of each condition. Finally, 'condition_times' value must be a list
+         with the same length as 'condition_labels' containing the time stamps
+         (in seconds) related with the start and the end of each condition. Note
+         that these time stamps must be referenced to the start of the signal
+         recording (the value 14 in the example means the 14th second after the
+         start of recording). Note that as the end of a conditions coincides
+         with the start of the following condition, the same time stamps must be
+         included twice (see 14 and 28 values in 'condition_times' in the
+         example).
     events_dict:
+        Dictionary with the following structure:
+        {'events':{'event_1':{'desc_name':'Event 1','label':0},
+                   'event_2':{'desc_name':'Event 2','label':1}},
+         'event_labels': [0,1,1,1,0,1],
+         'event_times': [0,14,15.4,28,2,35]}
+
+         In this example, the sub-dictionary 'events' include each event with a
+         descriptor name ('desc_name') which will be show in the time-plot
+         legend, and the label to identify the event. For its part,
+         'event_labels' must be a list containing the order in which each event
+         ocurred. Finally, 'condition_times' value must be a list
+         with the same length as 'event_times' containing the time stamps
+         (in seconds) related with each event. Note that, as in 'conditions_dict'
+         argument, these time stamps must be referenced to the start of the
+         signal recording.
 
     Notes
     ---------
@@ -215,11 +255,14 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         del signal
 
         # Set offset between channels
-        channel_offset = np.zeros(epoch_c.shape[1])
-        if len(channel_offset) > 1:
-            channel_offset[1:] = np.max(np.max(epoch_c[:, 1:], axis=0) -
-                                        np.min(epoch_c[:, :-1], axis=0))
-            channel_offset = np.cumsum(channel_offset)
+        if channel_offset is None:
+            channel_offset = np.zeros(epoch_c.shape[1])
+            if len(channel_offset) > 1:
+                channel_offset[1:] = np.max(np.max(epoch_c[:, 1:], axis=0) -
+                                            np.min(epoch_c[:, :-1], axis=0))
+        else:
+            channel_offset = np.ones(epoch_c.shape[1]) * channel_offset
+        channel_offset = np.cumsum(channel_offset)
         epoch_c = epoch_c - channel_offset
         ch_off = channel_offset
         del channel_offset
@@ -344,11 +387,11 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
         #  Call the aux function to plot conditions
         if conditions_dict is not None:
-            __plot_condition_shadow(ax, conditions_dict, min_val, max_val)
+            __plot_condition_shades(ax, conditions_dict, fs, min_val, max_val)
 
         #  Call the aux function to plot vertical lines to mark the events
         if events_dict is not None:
-            __plot_events_lines(ax, events_dict, min_val, max_val)
+            __plot_events_lines(ax, events_dict, fs, min_val, max_val)
 
         # Plot the signal
         ax.plot(display_times, epoch_c, 'k', linewidth=0.5)
