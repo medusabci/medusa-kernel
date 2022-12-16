@@ -405,7 +405,9 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         # Call the aux function to plot vertical lines to split signal in epochs
         __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val)
 
-        plt.show(block=True)
+        plt.show()
+
+        return fig, ax
 
     except Exception as e:
         print(e)
