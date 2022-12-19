@@ -340,7 +340,7 @@ def _extract_erd_ers_features(files, ch_to_plot, order=1000, cutoff=[5, 35],
     fs = rec.eeg.fs
     channel_set = rec.eeg.channel_set
     dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
-                        experiment_att_key='midataold',
+                        experiment_att_key='midata',
                         biosignal_att_key='eeg', experiment_mode='train')
     for file in files:
         dataset.add_recordings(Recording.load(file))
