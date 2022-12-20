@@ -1,8 +1,11 @@
 import numpy as np
-
 import epoching
 from medusa.plots.timeplot import time_plot
-import components
+from components import SerializableComponent
+import matplotlib.pyplot as plt
+from medusa.plots.topographic_plots import plot_topography
+from medusa.meeg.meeg import EEGChannelSet
+
 
 def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
                         n_cha=1):
@@ -68,7 +71,6 @@ class ICA:
         self.ica_labels = None
 
         # PCA attributes
-        self._max_pca_components = None
         self.n_pca_components = None
         self._pca_mean = None
         self._pca_explained_variance = None
@@ -101,7 +103,7 @@ class ICA:
 
         signal = self._pre_whiten(signal)
 
-        pca = PCA(n_components=self._max_pca_components, whiten=True,
+        pca = PCA(n_components=None, whiten=True,
                   random_state=self.random_state)
         signal_pca = pca.fit_transform(signal)
 
@@ -109,12 +111,10 @@ class ICA:
         self._pca_components = pca.components_
         self._pca_explained_variance = pca.explained_variance_
         self._pca_explained_variance_ratio = pca.explained_variance_ratio_
-        self.n_pca_components = pca.n_components
+        self.n_pca_components = pca.n_components_
         del pca
 
-        # if n_pca is None:
-        #     n_pca = len(self._pca_explained_variance_ratio)
-
+        # Check a correct input of n_components parameter
         if self.n_components is None:
             self.n_components = min(self.n_pca_components,
                                     self._exp_var_ncomp(
@@ -126,7 +126,7 @@ class ICA:
             if self.n_components == 1:
                 raise RuntimeError(
                     'One PCA component captures most of the '
-                    f'explained variance, your threshold '
+                    'explained variance, your threshold '
                     'results in 1 component. You should select '
                     'a higher value.')
         else:
@@ -135,26 +135,31 @@ class ICA:
                     f'n_components={self.n_components} must be None,'
                     f'float or int value')
 
-        # TODO Checkear esto
-        # if self.n_components > self.n_pca_components:
-        #     raise ValueError()
+        if self.n_components > self.n_pca_components:
+            raise ValueError(f'The number of ICA components('
+                             f'n_components={self.n_components}) must be '
+                             f'lower than the number of PCA components'
+                             f'({self.n_pca_components}).')
 
         self.ica_labels = [f"ICA_{n}" for n in range(self.n_components)]
 
         return signal_pca
 
-    def fit(self, signal, n_components):
+    def fit(self, signal, n_components, fs=1):
         from sklearn.decomposition import FastICA
         from scipy import linalg
 
+        # Set arguments
         self.n_components = n_components
+        self.fs = fs
 
         signal, _ = self._check_signal_dimensions(signal)
 
         self._get_pre_whitener(signal)
         signal = self._whitener(signal)
 
-        ica = FastICA(whiten=False, random_state=self.random_state, tol=1e-6)
+        ica = FastICA(whiten=False, random_state=self.random_state,
+                      max_iter=1000)
         ica.fit(signal[:, :self.n_components])
         self.unmixing_matrix = ica.components_
         self._ica_n_iter = ica.n_iter_
@@ -167,7 +172,7 @@ class ICA:
         self.unmixing_matrix /= norm
         self.mixing_matrix = linalg.pinv(self.unmixing_matrix)
 
-    def transform(self, signal):
+    def get_sources(self, signal):
         if not hasattr(self, 'mixing_matrix'):
             raise RuntimeError('ICA has not been fitted yet. Please, fit ICA.')
 
@@ -191,10 +196,10 @@ class ICA:
         signal = self._pre_whiten(signal)
 
         if exclude is not None:
-            if isinstance(exclude,int):
+            if isinstance(exclude, int):
                 exclude = [exclude]
             exclude = np.array(list(set(exclude)))
-            if len(np.where(exclude>self.n_components)[0]) > 0:
+            if len(np.where(exclude > self.n_components)[0]) > 0:
                 raise ValueError("One or more ICA component keys that you have"
                                  "marked to exclude from signal rebuild are "
                                  "greater than the total number of "
@@ -206,16 +211,16 @@ class ICA:
             signal -= self._pca_mean
 
         # Determine ica components to keep in signal rebuild
-        c_to_keep = np.setdiff1d(np.arange(self.n_components),exclude)
+        c_to_keep = np.setdiff1d(np.arange(self.n_components), exclude)
 
         # Define projection matrix
         proj = np.dot(np.dot(self._pca_components[:self.n_components].T,
-                             self.mixing_matrix[:,c_to_keep]),
-                      np.dot(self.unmixing_matrix[c_to_keep,:],
+                             self.mixing_matrix[:, c_to_keep]),
+                      np.dot(self.unmixing_matrix[c_to_keep, :],
                              self._pca_components[:self.n_components]))
 
         # Apply projection to signal
-        signal_rebuilt = np.transpose(np.dot(proj,signal.T))
+        signal_rebuilt = np.transpose(np.dot(proj, signal.T))
 
         if self._pca_mean is not None:
             signal_rebuilt += self._pca_mean
@@ -225,9 +230,10 @@ class ICA:
         # Restore epochs if original signal was divided in epochs
         if n_epo_samples is not None:
             signal_rebuilt = np.reshape(signal_rebuilt,
-                                        (int(signal_rebuilt.shape[0]/n_epo_samples)
-                                         ,n_epo_samples,signal_rebuilt.shape[1]))
-
+                                        (int(signal_rebuilt.shape[
+                                                 0] / n_epo_samples)
+                                         , n_epo_samples,
+                                         signal_rebuilt.shape[1]))
 
         return signal_rebuilt
 
@@ -235,20 +241,80 @@ class ICA:
         # Transform
         components = np.dot(self.mixing_matrix[:, :self.n_components].T,
                             self._pca_components[:self.n_components]).T
-
         return components
+
+    def plot_components(self, l_cha, cmap='bwr'):
+
+        # # Get ICA components
+        components = self.get_components()
+
+        # components = np.load('C:/Users\Diego\Desktop/icamne.npy')
+
+        # Define subplot parameters
+        n_components = components.shape[1]
+
+        if n_components <= 5:
+            cols = n_components
+            rows = 1
+        else:
+            cols = 5
+            rows = np.ceil(n_components/5)
+
+        # Define subplot
+        fig, axes = plt.subplots(int(rows), int(cols))
+
+        # Topo plots
+        channel_set = EEGChannelSet()
+        channel_set.set_standard_montage(l_cha)
+        ic_c = 0
+        for r in axes:
+            if len(axes.shape) == 1:
+                if ic_c < n_components:
+                    plot_topography(channel_set, values=components[:, ic_c],
+                                    cmap=cmap,
+                                    axes=r, fig=fig, show=False, interp_points=300,
+                                    linewidth=1.5, show_colorbar=False,
+                                    plot_extra=0,clim=())
+                    r.set_title(self.ica_labels[ic_c])
+                    ic_c += 1
+                else:
+                    r.set_axis_off()
+            else:
+                for c in r:
+                    if ic_c < n_components:
+                        plot_topography(channel_set, values=components[:, ic_c],
+                                        cmap=cmap,
+                                        axes=c, fig=fig, show=False,
+                                        interp_points=300,
+                                        linewidth=1.5, show_colorbar=False,
+                                        plot_extra=0)
+                        c.set_title(self.ica_labels[ic_c])
+                        ic_c += 1
+                    else:
+                        c.set_axis_off()
+        plt.subplots_adjust(wspace=0, hspace=0.2)
+        plt.show()
+        return (fig, axes)
+
+    def plot_sources(self, signal, sources_to_show=None, time_to_show=None):
+        sources = self.get_sources(signal)
+
+        fig, ax = time_plot(sources, self.fs, self.ica_labels,
+                            ch_to_show=sources_to_show,time_to_show=time_to_show,
+                            channel_offset=np.max(np.abs(sources[:, 0])))
+        return (fig, ax)
 
     def save(self, path):
         if not hasattr(self, 'mixing_matrix'):
             raise RuntimeError('ICA has not been fitted yet. Please, fit ICA.')
 
-        ica_data = ICAData(self.pre_whitener,self.unmixing_matrix,
+        ica_data = ICAData(self.pre_whitener, self.unmixing_matrix,
                            self.mixing_matrix, self.n_components,
-                           self._pca_components,self._pca_mean,
+                           self._pca_components, self._pca_mean,
                            self.components_excluded,
                            self.random_state)
 
-        ica_data.save(path,'bson')
+        ica_data.save(path, 'bson')
 
     def load(self, path):
         # Load ICAData instance
@@ -273,10 +339,12 @@ class ICA:
         n = min((cvar <= n).sum() + 1, len(cvar))
         return n, cvar[n - 1]
 
-class ICAData(components.SerializableComponent):
-    def __init__(self,pre_whitener=None,unmixing_matrix=None,mixing_matrix=None,
+
+class ICAData(SerializableComponent):
+    def __init__(self, pre_whitener=None, unmixing_matrix=None,
+                 mixing_matrix=None,
                  n_components=None, pca_components=None, pca_mean=None,
-                 components_excluded=None,random_state=None):
+                 components_excluded=None, random_state=None):
 
         # General parameters
         self.n_components = n_components
@@ -308,6 +376,7 @@ if __name__ == "__main__":
     import scipy.signal as ss
     import medusa
 
+    lca = ['Fz', 'Cz', 'Pz']
     np.random.seed(10)
     T = 10
     fs = 250
@@ -323,23 +392,24 @@ if __name__ == "__main__":
     A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
     signal = np.dot(S, A.T)
 
-    ica = ICA(n_components=3,random_state=0)
-    ica.fit(signal)
-    sources = ica.transform(signal)
-    time_plot(sources, fs, ica.ica_labels)
-    time_plot(S, fs)
-    rebuilt = ica.rebuild(signal,0)
-    time_plot(rebuilt,fs)
-    ica.save('C:/Users\Diego\Downloads\ica')
-    ica.load('C:/Users\Diego\Downloads\ica')
+    ica = ICA(random_state=0)
+    # ica.fit(signal,3,fs)
+    # sources = ica.get_sources(signal)
+    # ica.plot_sources(signal)
+    # ica.plot_components(lca,3)
+    # rebuilt = ica.rebuild(signal, 0)
+    # time_plot(rebuilt, fs)
+    # ica.save('C:/Users\Diego\Downloads\ica')
+    # ica.load('C:/Users\Diego\Downloads\ica')
 
-    path = 'C:/Users\Diego\Documents\Tesis\Estudios\FM-Theta\Sujetos\S13\Sesiones\s_2/registros/resting_pre.rec.bson'
-    # from medusa import components
-    # from medusa.meeg import meeg
-    #
-    # file = components.Recording.load(path)
-    # # time_plot(file.eeg.signal)
-    # from medusa.frequency_filtering import IIRFilter
+    path = 'C:/Users\Diego\Documents\Tesis\Estudios/FM-Theta/Sujetos/S17/Sesiones/s_4/registros/resting_pre.rec.bson'
+    from medusa import components
+    from medusa.meeg import meeg
+
+    file = components.Recording.load(path)
+    # time_plot(file.eeg.signal)
+    from medusa.frequency_filtering import IIRFilter
+
     #
     # time_stamps_conditions = np.array([0,3750,3750,7500,7500,11250,11250,15000])
     # time_stamps_events= np.array(
@@ -360,9 +430,12 @@ if __name__ == "__main__":
     #     'event_labels': [0, 0, 0, 1, 0, 2, 0, 1],
     #     'event_times': times_e}
     #
-    # iir = IIRFilter(2, [0.1, 40], 'bandpass')
-    # iir.fit(256, 16)
-    # s = iir.transform(file.eeg.signal)
+    iir = IIRFilter(2, [0.1, 40], 'bandpass')
+    iir.fit(256, 16)
+    s = iir.transform(file.eeg.signal)
+    ica.fit(s, 16, 256)
+    ica.plot_sources(s,time_to_show=20)
+    ica.plot_components(file.eeg.channel_set.l_cha, 'bwr')
     # ss = epoching.get_epochs(s,512)
     # f,a = time_plot(s, 256,time_to_show=30, ch_labels=file.eeg.channel_set.l_cha,ch_to_show=8,
     #           conditions_dict=conditions_dict,events_dict=events_dict)
@@ -374,6 +447,7 @@ if __name__ == "__main__":
     # s = np.repeat(signal,5,axis=1)
     # s[:,2] *= 5
     # time_plot(s,512,channel_offset=1)
+    mne = np.load('C:/Users\Diego\Desktop/icamne.npy')
 
 
 
