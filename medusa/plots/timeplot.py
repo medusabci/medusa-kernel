@@ -346,7 +346,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
             def __update_ch(val):
                 # Update y-axis
                 ax.set_ylim(
-                    -ch_off[max_val_ch_slider - val - 1] - 0.5 * ch_off[1],
+                    -ch_off[max_y - val - 1] - 0.5 * ch_off[1],
                     -ch_off[-val] + 0.5 * ch_off[1])
                 # Update canvas
                 fig.canvas.draw()
@@ -406,8 +406,6 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val)
 
         plt.show()
-
         return fig, ax
-
     except Exception as e:
         print(e)
