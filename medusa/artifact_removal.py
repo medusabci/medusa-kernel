@@ -101,11 +101,10 @@ class ICA:
     def _whitener(self, signal):
         from sklearn.decomposition import PCA
 
-        signal = self._pre_whiten(signal)
+        signal_pw = self._pre_whiten(signal)
 
-        pca = PCA(n_components=None, whiten=True,
-                  random_state=self.random_state)
-        signal_pca = pca.fit_transform(signal)
+        pca = PCA(n_components=None, whiten=True)
+        signal_pca = pca.fit_transform(signal_pw)
 
         self._pca_mean = pca.mean_
         self._pca_components = pca.components_
@@ -141,8 +140,6 @@ class ICA:
                              f'lower than the number of PCA components'
                              f'({self.n_pca_components}).')
 
-        self.ica_labels = [f"ICA_{n}" for n in range(self.n_components)]
-
         return signal_pca
 
     def fit(self, signal, n_components, fs=1):
@@ -156,11 +153,11 @@ class ICA:
         signal, _ = self._check_signal_dimensions(signal)
 
         self._get_pre_whitener(signal)
-        signal = self._whitener(signal)
+        signal_pca = self._whitener(signal.copy())
 
         ica = FastICA(whiten=False, random_state=self.random_state,
                       max_iter=1000)
-        ica.fit(signal[:, :self.n_components])
+        ica.fit(signal_pca[:, :self.n_components])
         self.unmixing_matrix = ica.components_
         self._ica_n_iter = ica.n_iter_
 
@@ -171,6 +168,21 @@ class ICA:
         norm[norm == 0] = 1.
         self.unmixing_matrix /= norm
         self.mixing_matrix = linalg.pinv(self.unmixing_matrix)
+
+        # Sort ica components from greater to lower explained variance
+        self._sort_components(signal)
+
+        self.ica_labels = [f"ICA_{n}" for n in range(self.n_components)]
+
+    def _sort_components(self,signal):
+        sources = self.get_sources(signal)
+        meanvar = np.sum(self.mixing_matrix**2,axis=0) * \
+                  np.sum(sources**2, axis=0)/\
+                  (sources.shape[0] * sources.shape[1] - 1)
+        c_order = np.argsort(meanvar)[::-1]
+        self.unmixing_matrix = self.unmixing_matrix[c_order,:]
+        self.mixing_matrix = self.mixing_matrix[:,c_order]
+
 
     def get_sources(self, signal):
         if not hasattr(self, 'mixing_matrix'):
@@ -262,24 +274,14 @@ class ICA:
 
         # Define subplot
         fig, axes = plt.subplots(int(rows), int(cols))
+        if len(axes.shape) == 1:
+            axes = np.array([axes])
 
         # Topo plots
         channel_set = EEGChannelSet()
         channel_set.set_standard_montage(l_cha)
         ic_c = 0
         for r in axes:
-            if len(axes.shape) == 1:
-                if ic_c < n_components:
-                    plot_topography(channel_set, values=components[:, ic_c],
-                                    cmap=cmap,
-                                    axes=r, fig=fig, show=False, interp_points=300,
-                                    linewidth=1.5, show_colorbar=False,
-                                    plot_extra=0,clim=())
-                    r.set_title(self.ica_labels[ic_c])
-                    ic_c += 1
-                else:
-                    r.set_axis_off()
-            else:
                 for c in r:
                     if ic_c < n_components:
                         plot_topography(channel_set, values=components[:, ic_c],
@@ -296,12 +298,15 @@ class ICA:
         plt.show()
         return (fig, axes)
 
-    def plot_sources(self, signal, sources_to_show=None, time_to_show=None):
+    def plot_sources(self, signal, sources_to_show=None, time_to_show=None,
+                     ch_offset=None):
         sources = self.get_sources(signal)
 
+        if ch_offset is None:
+            ch_offset = np.max(np.abs(sources[:,0]))
         fig, ax = time_plot(sources, self.fs, self.ica_labels,
                             ch_to_show=sources_to_show,time_to_show=time_to_show,
-                            channel_offset=np.max(np.abs(sources[:, 0])))
+                            channel_offset=ch_offset)
         return (fig, ax)
 
     def save(self, path):
@@ -396,7 +401,7 @@ if __name__ == "__main__":
     # ica.fit(signal,3,fs)
     # sources = ica.get_sources(signal)
     # ica.plot_sources(signal)
-    # ica.plot_components(lca,3)
+    # ica.plot_components(lca)
     # rebuilt = ica.rebuild(signal, 0)
     # time_plot(rebuilt, fs)
     # ica.save('C:/Users\Diego\Downloads\ica')
