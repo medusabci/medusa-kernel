@@ -1,6 +1,6 @@
 """
 Created on Thu Aug 25 17:09:18 2022
-Edited on Thu Dec 15 18:09:25 2022
+Edited on Mon Jan 09 14:00:00 2023
 
 @author: Diego Marcos-Martínez
 """
@@ -16,7 +16,8 @@ from matplotlib.widgets import Slider
 from medusa.utils import check_dimensions
 
 
-def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
+def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val,
+                        color='red'):
     """Aux function to plot vertical lines in case of signal is divided in two
         or more epochs"""
     vertical_lines = np.empty((blocks - 1, 2, 50))
@@ -25,10 +26,10 @@ def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
             [np.ones(50) * (block + 1) * int(samples_per_block / fs),
              np.linspace(min_val, 1.5 * max_val, 50)])
         ax.plot(vertical_lines[block, 0, :], vertical_lines[block, 1, :],
-                '--', color='red', linewidth=1.5)
+                '--', color=color, linewidth=1.5)
 
 
-def __plot_events_lines(ax, events_dict, fs, min_val, max_val):
+def __plot_events_lines(ax, events_dict, min_val, max_val):
     """Aux function to plot vertical lines corresponding  to marked events"""
     # Check errors
     if not isinstance(events_dict, dict):
@@ -91,7 +92,7 @@ def __plot_events_lines(ax, events_dict, fs, min_val, max_val):
                   bbox_to_anchor=(0.5, 1.15),ncol=3, fancybox=True, shadow=True)
 
 
-def __plot_condition_shades(ax, conditions_dict, fs, min_val, max_val):
+def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
     """Aux function to plot background shades to corresponding to different
        conditions during the signal recording. """
     # Check errors
@@ -165,8 +166,9 @@ def __reshape_signal(epochs):
 
 
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
-              ch_to_show=None, channel_offset=None,
-              conditions_dict=None, events_dict=None):
+              ch_to_show=None, channel_offset=None, color='k',
+              conditions_dict=None, events_dict=None, show_epoch_lines=True,
+              show=False, fig=None,axes =None):
     """
     Parameters
     ---------
@@ -189,6 +191,8 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     channel_offset: flot or None
         Amplitude value to compute the offset of each channel. If None, the value
         is automatically calculated from signal values.
+    color: string or tuple
+        Color of the signal line. It is plotted in black by default.
     conditions_dict: dict
         Dictionary with the following structure:
         {'conditions':{'con_1':{'desc_name':'Condition 1','label':0},
@@ -225,6 +229,18 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
          (in seconds) related with each event. Note that, as in 'conditions_dict'
          argument, these time stamps must be referenced to the start of the
          signal recording.
+    show_epoch_lines: bool
+        If signal is divided in epochs and the parameter value is True, vertical
+        dotted red lines will be plotted, splitting the epochs. Otherwise, they
+        will not be plotted. True is the default value.
+    show: bool
+        Show matplotlib figure
+    fig: matplotlib.pyplot.figure or None
+        If a matplotlib figure is specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new figure.
+    axes: matplotlib.pyplot.axes or None
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new figure.
 
     Notes
     ---------
@@ -274,9 +290,13 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
                                     epoch_c.shape[0])
 
         # Initialize plot
-        fig, ax = plt.subplots()
+        if fig is None:
+            fig = plt.figure()
+        if axes is None:
+            axes = fig.add_subplot(111)
+
         fig.patch.set_alpha(0)
-        ax.set_alpha(0)
+        axes.set_alpha(0)
         fig.subplots_adjust(left=0.15, bottom=0.15, right=0.85)
         ch_slider, time_slider = None, None
 
@@ -317,7 +337,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
             # Function to be call everytime the slider is moved
             def __update_time(val):
                 # Update x-axis
-                ax.set_xlim(val, max_x / fs + val)
+                axes.set_xlim(val, max_x / fs + val)
                 # Update canvas
                 fig.canvas.draw()
 
@@ -345,7 +365,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
             # Function to be call everytime the slider is moved
             def __update_ch(val):
                 # Update y-axis
-                ax.set_ylim(
+                axes.set_ylim(
                     -ch_off[max_y - val - 1] - 0.5 * ch_off[1],
                     -ch_off[-val] + 0.5 * ch_off[1])
                 # Update canvas
@@ -391,21 +411,24 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
         #  Call the aux function to plot vertical lines to mark the events
         if events_dict is not None:
-            __plot_events_lines(ax, events_dict, fs, min_val, max_val)
+            __plot_events_lines(axes, events_dict, fs, min_val, max_val)
 
         # Plot the signal
-        ax.plot(display_times, epoch_c, 'k', linewidth=0.5)
-        ax.set_yticks(-ch_off, labels=ch_labels)
+        axes.plot(display_times, epoch_c, color, linewidth=0.5)
+        axes.set_yticks(-ch_off, labels=ch_labels)
         if len(ch_off) > 1:
-            ax.set_ylim(-ch_off[max_y - 1] - 0.5 * ch_off[1],
+            axes.set_ylim(-ch_off[max_y - 1] - 0.5 * ch_off[1],
                         -ch_off[0] + 0.5 * ch_off[1])
-        ax.set_xlim(0, display_times[max_x])
-        ax.set_xlabel('Time (s)')
+        axes.set_xlim(0, display_times[max_x])
+        axes.set_xlabel('Time (s)')
 
         # Call the aux function to plot vertical lines to split signal in epochs
-        __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val)
+        if show_epoch_lines:
+            __plot_epochs_lines(axes, blocks, samples_per_block, fs,
+                                min_val, max_val)
 
-        plt.show()
-        return fig, ax
+        if show:
+            plt.show()
+        return fig, axes
     except Exception as e:
         print(e)
