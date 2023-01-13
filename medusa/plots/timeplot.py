@@ -323,7 +323,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         # Create a time slider only if the time window to show is less than the
         # signal duration
         if time_to_show < epoch_c.shape[0] / fs:
-            max_x = time_to_show * fs
+            max_x = int(time_to_show * fs)
             # Adjust the main plot to make room for the sliders
             ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
             # Define the max value of slider
