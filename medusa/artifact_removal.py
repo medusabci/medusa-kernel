@@ -9,9 +9,9 @@ from scipy.signal import welch
 # Medusa imports
 from medusa.plots.topographic_plots import plot_topography
 from medusa.meeg.meeg import EEGChannelSet
-import epoching
+from medusa import epoching
 from medusa.plots.timeplot import time_plot
-from components import SerializableComponent
+from medusa.components import SerializableComponent
 
 
 def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
@@ -102,7 +102,7 @@ class ICA:
         self.channel_set = EEGChannelSet()
         self.channel_set.set_standard_montage(self.l_cha)
 
-        signal, _ = self._check_signal_dimensions(signal)
+        signal, _ = self._check_signal_dimensions(signal.copy())
 
         self._get_pre_whitener(signal)
         signal_pca = self._whitener(signal.copy())
@@ -130,7 +130,7 @@ class ICA:
         if not hasattr(self, 'mixing_matrix'):
             raise RuntimeError('ICA has not been fitted yet. Please, fit ICA.')
 
-        signal, _ = self._check_signal_dimensions(signal)
+        signal, _ = self._check_signal_dimensions(signal.copy())
 
         signal = self._pre_whiten(signal)
         if self._pca_mean is not None:
@@ -145,7 +145,7 @@ class ICA:
 
     def rebuild(self, signal, exclude=None):
 
-        signal, n_epo_samples = self._check_signal_dimensions(signal)
+        signal, n_epo_samples = self._check_signal_dimensions(signal.copy())
 
         signal = self._pre_whiten(signal)
 
@@ -360,7 +360,7 @@ class ICA:
                             channel_offset=ch_offset,show=True)
         return (fig, ax)
 
-    def plot_summary(self, signal, component, psd_overlap=20,psd_segment_pct=30,
+    def plot_summary(self, signal, component, psd_freq_range=[1,70],
                      psd_window='hamming', time_to_show=2,cmap='bwr'):
         # Check error
         if isinstance(component,int):
@@ -385,7 +385,7 @@ class ICA:
         components = self.get_components()
 
         if n_samples_epoch is None:
-            n_samples_epoch = time_to_show * self.fs
+            n_samples_epoch = int(time_to_show * self.fs)
             n_stacks = (int(len(sources[:, 0]) / n_samples_epoch))
 
         for ii in range(len(component)):
@@ -410,17 +410,20 @@ class ICA:
 
             # PSD
             f, psd = welch(stacked_source, self.fs, window=psd_window, )
+            f_range = np.logical_and(f>=psd_freq_range[0],f<=psd_freq_range[1])
             psd_mean = np.mean(10*np.log10(psd),axis=0)
             psd_std = np.std(10*np.log10(psd),axis=0)
-            ax_2.fill_between(f, psd_mean-psd_std,psd_mean+psd_std,
+            ax_2.fill_between(f[f_range], (psd_mean-psd_std)[f_range],
+                              (psd_mean+psd_std)[f_range],
                               color='k',alpha=0.3)
-            ax_2.plot(f,psd_mean,'k')
-            ax_2.set_xlim(f[0],f[-1])
+            ax_2.plot(f[f_range],psd_mean[f_range],'k')
+            ax_2.set_xlim(f[f_range][0],f[f_range][-1])
             ax_2.set_xlabel('Frequency (Hz)')
             ax_2.set_ylabel('Power/Hz (dB)')
             ax_2.set_title('Power spectral density')
 
             # Stacked data image
+            # TODO Creo que va de arriba a abajo y está mal
             ax_3.pcolormesh(np.linspace(0,time_to_show,n_samples_epoch),
                                np.arange(n_stacks),stacked_source,cmap=cmap,
                                shading='gouraud')
@@ -440,7 +443,7 @@ class ICA:
                        time_to_show=None, ch_offset=None):
 
         if ch_offset is None:
-            ch_offset = np.max(np.abs(signal))
+            ch_offset = np.max(np.abs(signal.copy()))
 
         # Check if signal is divided in epochs
         if len(signal.shape) == 3:
