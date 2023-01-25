@@ -204,8 +204,8 @@ class TridimentionalBrain():
         try:
             if self.markers is None:
                 self.__init_markers()
-            markers = Markers(light_color=self.text_color,size = 100)
-            markers.set_data(locs)
+            markers = Markers(light_color=self.text_color,spherical=True)
+            markers.set_data(locs,size=25,)
             self.markers[sub_plot[0]][sub_plot[1]] = markers
 
             _view_idx = self.__calculate_subplot_idx(sub_plot)
@@ -423,8 +423,8 @@ if __name__ == '__main__':
     app = use_app("pyqt5")
     app.create()
     # Set canvas
-    triplot = TridimentionalBrain( bg_color='white',
-                                  text_color='black',translucent=[True,True],subplots=(1,2), names=['Prueba1','Prueba2'])
+    triplot = TridimentionalBrain( bg_color='black',
+                                  text_color='white',translucent=[True,True],subplots=(1,2), names=['Prueba1','Prueba2'])
 
     # Define channel set and its coord
     channel_set = EEGChannelSet(dim='3D', coord_system='cartesian')
@@ -434,10 +434,10 @@ if __name__ == '__main__':
         channel_coord[ch_idx, 0] = 0.8 * (channel['x'])
         channel_coord[ch_idx, 1] = 0.9 * (channel['y'] - 0.2)
         channel_coord[ch_idx, 2] = 0.85 * (channel['z'])
-    adj_mat = np.random.randn(len(channel_set.channels),
+    adj_mat = np.random.rand(len(channel_set.channels),
                               len(channel_set.channels))
-    adj_mat = 2 * adj_mat - 1
-    triplot.set_connections(adj_mat, channel_coord, threshold=[0.6], plot_labels=True,
+    # adj_mat = 2 * adj_mat - 1
+    triplot.set_connections(adj_mat, channel_coord, threshold=[0.85], plot_labels=True,
                             labels=channel_set.l_cha, plot_markers=True,cmap='Spectral',sub_plot=(0,0))
     triplot.set_connections(adj_mat, channel_coord, threshold=[0.6], plot_labels=False,
                             labels=channel_set.l_cha, plot_markers=True,cmap='Spectral',sub_plot=(0,1))
