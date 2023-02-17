@@ -13,7 +13,7 @@ from medusa.components import Recording
 # from medusa.bci.mi_feat_extraction import extract_mi_trials_from_midata
 from medusa.local_activation import statistics
 # from medusa.bci.mi_models import MIModelSettings
-from medusa.plots import topographic_plots
+from medusa.plots import head_plots
 from medusa.bci.mi_paradigms import StandardPreprocessing, \
     StandardFeatureExtraction, MIDataset
 
@@ -318,7 +318,7 @@ class MIPlots():
         values = trials_r2.reshape(1, len(lcha))
         _, ax_to_plot, p_interp = topographic_plots.plot_topography(
             self.dataset.channel_set, values, clim=(-max_r2, max_r2),
-            cmap='RdBu_r', linewidth=self.line_width * 2,
+            cmap='RdBu_r', contour_linewidth=self.line_width * 2,
             head_radius=1.0, axes=ax_to_plot, show_colorbar=False,
             show=False, plot_skin_in_color=True)
         ax_to_plot.set_title("Signed $r^2$ (%s)" % ' vs. '.join(ch_to_plot),
@@ -340,7 +340,7 @@ def _extract_erd_ers_features(files, ch_to_plot, order=1000, cutoff=[5, 35],
     fs = rec.eeg.fs
     channel_set = rec.eeg.channel_set
     dataset = MIDataset(channel_set=channel_set, fs=rec.eeg.fs,
-                        experiment_att_key='midataold',
+                        experiment_att_key='midata',
                         biosignal_att_key='eeg', experiment_mode='train')
     for file in files:
         dataset.add_recordings(Recording.load(file))

@@ -10,7 +10,7 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='1.1.2',
+    version='1.1.3',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
@@ -24,13 +24,14 @@ setup(
         'numpy',
         'scipy',
         'matplotlib',
-        'sklearn',
+        'scikit-learn',
         'statsmodels',
         'bson',
         'h5py',
         'dill',
         'tqdm',
-        'tensorflow'
+        'tensorflow==2.11',
+        'tensorflow-probability==0.16'
     ],
     classifiers=[
         'Development Status :: 4 - Beta',

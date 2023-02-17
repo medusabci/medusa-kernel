@@ -1,8 +1,3 @@
-"""
-Created on Mon Mar 21 15:34:18 2022
-
-@author: Diego Marcos-Martínez
-"""
 # Python modules
 import argparse
 import os
@@ -20,7 +15,8 @@ from vispy.color import get_colormap
 from medusa.meeg import EEGChannelSet
 
 
-class TridimentionalBrain():
+class TridimentionalBrain:
+
     def __init__(self, bg_color='black', text_color='white', translucent=None,
                  subplots=None, models=None, names=None):
 
@@ -47,6 +43,7 @@ class TridimentionalBrain():
         self.lines_cmap = None
         self.n_subplots = None
 
+        # Check subplots
         self.__check_subplot()
 
         # Set canvas and view
@@ -83,7 +80,7 @@ class TridimentionalBrain():
         try:
             if self.translucent is None:
                 self.translucent = np.ones(self.n_subplots, dtype=bool)
-            elif isinstance(self.translucent,bool):
+            elif isinstance(self.translucent, bool):
                 self.translucent = [self.translucent]
             else:
                 assert len(self.translucent) == self.n_subplots
@@ -176,18 +173,18 @@ class TridimentionalBrain():
                             color=(1, 1, 1, alpha))
                 mesh.shading_filter.shininess = 1e+2
                 self.brain_visuals.append(mesh)
-                self.attach_headlight(mesh, self.views[i], self.canvas)
+                self.__attach_headlight(mesh, self.views[i], self.canvas)
         except Exception as ex:
             print(ex)
 
-    def add_brains(self):
+    def __add_brains(self):
         try:
             for view_idx in range(len(self.views)):
                 self.views[view_idx].add(self.brain_visuals[view_idx])
         except Exception as ex:
             print(ex)
 
-    def attach_headlight(self, mesh, view, canvas):
+    def __attach_headlight(self, mesh, view, canvas):
         """This function sets the initial light direction """
         light_dir = (1, 0, 1, 1)
         mesh.shading_filter.light_dir = light_dir[:3]
@@ -200,12 +197,14 @@ class TridimentionalBrain():
             transform = view.camera.transform
             mesh.shading_filter.light_dir = transform.map(initial_light_dir)[:3]
 
-    def set_markers(self, locs, sub_plot):
+    def __set_markers(self, locs, sub_plot):
         try:
             if self.markers is None:
                 self.__init_markers()
+                
             markers = Markers(light_color=self.text_color,spherical=True)
             markers.set_data(locs,size=25,)
+            
             self.markers[sub_plot[0]][sub_plot[1]] = markers
 
             _view_idx = self.__calculate_subplot_idx(sub_plot)
@@ -213,7 +212,7 @@ class TridimentionalBrain():
         except Exception as ex:
             print(ex)
 
-    def set_labels(self, labels, locs, sub_plot):
+    def __set_labels(self, labels, locs, sub_plot):
         try:
             if self.labels_text is None:
                 self.__init_labels()
@@ -257,98 +256,14 @@ class TridimentionalBrain():
             if clim is None:
                 clim = []
                 clim.append(np.round(np.min(self.connections_values[sub_plot[0]]
-                                        [sub_plot[1]]),decimals=2))
+                                        [sub_plot[1]]), decimals=2))
                 clim.append(np.round(np.max(self.connections_values[sub_plot[0]]
-                                   [sub_plot[1]]),decimals = 2))
+                                            [sub_plot[1]]), decimals=2))
 
-            color = self.lines_cmap.map((self.connections_values[sub_plot[0]]
-                                        [sub_plot[1]] - clim[0])/(clim[1] - clim[0]))
+            color = self.lines_cmap.map(
+                (self.connections_values[sub_plot[0]][sub_plot[1]] - clim[0]) /
+                (clim[1] - clim[0]))
             return color, clim
-        except Exception as ex:
-            print(ex)
-
-    def set_connections(self, adj_mat, locs, sub_plot=None, threshold=0.5,
-                        plot_markers=True, labels=None, plot_labels=False,
-                        cmap='seismic', clim = None, cbar = False):
-        try:
-            if sub_plot is None and self.n_subplots == 1:
-                sub_plot = (0, 0)
-            assert isinstance(sub_plot, tuple)
-            assert sub_plot[0] <= self.subplots[0] and sub_plot[1] <= \
-                   self.subplots[1]
-            if clim is not None:
-                assert  isinstance(clim,list)
-
-            if plot_labels:
-                if labels is None:
-                    print("Labels could not been added because labels parameter"
-                          "is None")
-                else:
-                    assert all(isinstance(elem, str) for elem in labels)
-                    self.set_labels(labels, locs, sub_plot)
-
-            if plot_markers:
-                self.set_markers(locs, sub_plot)
-
-
-            # Extract connectivity values
-            self.connections_values[sub_plot[0]][
-                sub_plot[1]] = self.__extract_conn_values(adj_mat)
-
-            # Set connections matrix
-            self.connections_coords_invariant[sub_plot[0]][
-                sub_plot[1]] = self.__set_connections_coords(locs,
-                                                             self.connections_values
-                                                             [sub_plot[0]][
-                                                                 sub_plot[
-                                                                     1]])
-
-            # Get color map and color connections
-            self.lines_cmap = get_colormap(cmap)
-            color, clim = self.__set_conn_color(sub_plot, threshold, clim)
-
-
-            _view_idx = self.__calculate_subplot_idx(sub_plot)
-            self.lines[sub_plot[0]][sub_plot[1]] = scene.Line(antialias=True,
-                                                              parent=self.views[
-                                                                  _view_idx].scene,
-                                                              )
-            self.lines[sub_plot[0]][sub_plot[1]].set_data(
-                pos=self.connections_coords_mutable[sub_plot[0]][sub_plot[1]],
-                color=color, width=4)
-
-            # Plot color bar (In process)
-            if cbar:
-                cbar_widget = scene.ColorBarWidget(clim=clim, cmap=cmap,
-                                                   orientation='bottom',)
-
-                self.grid.add_widget(cbar_widget, row=sub_plot[0]+2,
-                                     col=sub_plot[1])
-
-        except Exception as ex:
-            print(ex)
-
-    def update_connections(self, adj_mat, sub_plot, threshold):
-        try:
-            if sub_plot is None:
-                sub_plot = (0, 0)
-            if threshold is None:
-                threshold = 0.5
-            # Extract connectivity values
-            self.connections_values[sub_plot[0]][
-                sub_plot[1]] = self.__extract_conn_values(adj_mat)
-            color = self.__set_conn_color(sub_plot, threshold)
-            _view_idx = self.__calculate_subplot_idx(sub_plot)
-
-            self.lines[sub_plot[0]][sub_plot[1]].parent = None
-
-            self.lines[sub_plot[0]][sub_plot[1]] = scene.Line(antialias=True,
-                                                              parent=self.views[
-                                                                  _view_idx].scene)
-            self.lines[sub_plot[0]][sub_plot[1]].set_data(
-                pos=self.connections_coords_mutable[sub_plot[0]][sub_plot[1]],
-                color=color, width=4, )
-            self.canvas.update()
         except Exception as ex:
             print(ex)
 
@@ -414,15 +329,104 @@ class TridimentionalBrain():
         except Exception as ex:
             print(ex)
 
+    def set_connections(self, adj_mat, locs, sub_plot=None, threshold=0.5,
+                        plot_markers=True, labels=None, plot_labels=False,
+                        cmap='seismic', clim=None, cbar=False):
+        try:
+            if sub_plot is None and self.n_subplots == 1:
+                sub_plot = (0, 0)
+            assert isinstance(sub_plot, tuple)
+            assert sub_plot[0] <= self.subplots[0] and sub_plot[1] <= \
+                   self.subplots[1]
+            if clim is not None:
+                assert  isinstance(clim,list)
 
+            if plot_labels:
+                if labels is None:
+                    print("Labels could not been added because labels parameter"
+                          "is None")
+                else:
+                    assert all(isinstance(elem, str) for elem in labels)
+                    self.__set_labels(labels, locs, sub_plot)
+
+            if plot_markers:
+                self.__set_markers(locs, sub_plot)
+
+            # Extract connectivity values
+            self.connections_values[sub_plot[0]][
+                sub_plot[1]] = self.__extract_conn_values(adj_mat)
+
+            # Set connections matrix
+            self.connections_coords_invariant[sub_plot[0]][
+                sub_plot[1]] = self.__set_connections_coords(
+                locs, self.connections_values
+                [sub_plot[0]][sub_plot[1]])
+
+            # Get color map and color connections
+            self.lines_cmap = get_colormap(cmap)
+            color, clim = self.__set_conn_color(sub_plot, threshold, clim)
+
+
+            _view_idx = self.__calculate_subplot_idx(sub_plot)
+            self.lines[sub_plot[0]][sub_plot[1]] = scene.Line(
+                antialias=True,
+                parent=self.views[_view_idx].scene,)
+            self.lines[sub_plot[0]][sub_plot[1]].set_data(
+                pos=self.connections_coords_mutable[sub_plot[0]][sub_plot[1]],
+                color=color, width=4)
+
+            # Plot color bar (In process)
+            if cbar:
+                cbar_widget = scene.ColorBarWidget(clim=clim, cmap=cmap,
+                                                   orientation='bottom',)
+
+                self.grid.add_widget(cbar_widget, row=sub_plot[0]+2,
+                                     col=sub_plot[1])
+
+        except Exception as ex:
+            print(ex)
+
+    def update_connections(self, adj_mat, sub_plot, threshold):
+        try:
+            if sub_plot is None:
+                sub_plot = (0, 0)
+            if threshold is None:
+                threshold = 0.5
+            # Extract connectivity values
+            self.connections_values[sub_plot[0]][
+                sub_plot[1]] = self.__extract_conn_values(adj_mat)
+            color = self.__set_conn_color(sub_plot, threshold)
+            _view_idx = self.__calculate_subplot_idx(sub_plot)
+
+            self.lines[sub_plot[0]][sub_plot[1]].parent = None
+
+            self.lines[sub_plot[0]][sub_plot[1]] = scene.Line(
+                antialias=True, parent=self.views[_view_idx].scene)
+            self.lines[sub_plot[0]][sub_plot[1]].set_data(
+                pos=self.connections_coords_mutable[sub_plot[0]][sub_plot[1]],
+                color=color, width=4,)
+            self.canvas.update()
+        except Exception as ex:
+            print(ex)
+
+    def set_activation_map(self, adj_mat, locs, sub_plot=None, threshold=0.5,
+                           plot_markers=True, labels=None, plot_labels=False,
+                           cmap='seismic', clim=None, cbar=False):
+        """Use this function to plot an activation map over the brain's
+        surface
+        """
+
+        pass
 
 
 if __name__ == '__main__':
+
     from vispy.app import use_app
 
     app = use_app("pyqt5")
     app.create()
     # Set canvas
+    
     triplot = TridimentionalBrain( bg_color='black',
                                   text_color='white',translucent=[True,True],subplots=(1,2), names=['Prueba1','Prueba2'])
 
@@ -436,11 +440,13 @@ if __name__ == '__main__':
         channel_coord[ch_idx, 2] = 0.85 * (channel['z'])
     adj_mat = np.random.rand(len(channel_set.channels),
                               len(channel_set.channels))
+
     # adj_mat = 2 * adj_mat - 1
     triplot.set_connections(adj_mat, channel_coord, threshold=[0.85], plot_labels=True,
                             labels=channel_set.l_cha, plot_markers=True,cmap='Spectral',sub_plot=(0,0))
     triplot.set_connections(adj_mat, channel_coord, threshold=[0.6], plot_labels=False,
                             labels=channel_set.l_cha, plot_markers=True,cmap='Spectral',sub_plot=(0,1))
     triplot.add_brains()
+
     triplot.canvas.show()
     app.run()

@@ -183,7 +183,6 @@ class MIDataset(components.Dataset):
                                  '{train|test|guided test|None}')
 
         # Default track attributes
-        # TODO: esto no va a funcionar con MIDataOld
         default_track_attributes = {
             'subject_id': {
                 'track_mode': 'append',

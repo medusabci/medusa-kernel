@@ -8,7 +8,7 @@ and topographic plots over a 2D head model. Enjoy!
 # External imports
 import warnings
 import scipy.interpolate as sp
-import matplotlib.pyplot as plt
+import matplotlib
 from matplotlib.collections import LineCollection
 from matplotlib import cm, colors
 import numpy as np
@@ -17,66 +17,40 @@ import numpy as np
 from medusa.meeg import UnlocatedChannel
 
 
-warnings.warn('Module topographic_plots is deprecated and will be removed in '
-              'following versions of MEDUSA Kernel. Use head_plots instead!')
+def plot_connectivity(axes, channel_set, adj_mat, cmap='seismic', clim=None):
 
+    """This function depicts a connectivity map over the desired channel
+    locations.
 
-def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
-                      plot_channels=True, plot_skin_in_color=True,
-                      plot_clabels=True,plot_contour_ch=False,
-                      chcontour_radius=None,interp_points=500,
-                      cmap='seismic', show=True, clim=None):
+    Parameters
+    ----------
+    axes : matplotlib.pyplot.axes
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new axes.
+    channel_set : eeg_standards.EEGChannelSet
+        EEG channel set
+    adj_mat: numpy.ndarray
+        Numpy array with the connectivity values. It must be one of the
+        following dimensions [n_channels, n_channels]
+    cmap : str
+        Matplotlib colormap
+    clim : list or None
+        Color bar limits. Index 0 contain the lower limit, whereas index 1 must
+        contain the upper limit. if none, min and max values are used
 
-    """ This function depicts a connectivity map over the
-        desired channel locations.
-
-        Parameters
-        ----------
-        channel_set : eeg_standards.EEGChannelSet
-            EEG channel set according of class eeg_standards.EEGChannelSet
-        adj_mat: numpy.ndarray
-            Numpy array with the connectivity values. It must be of the must
-            have the following dimensions [n_channels, n_channels]
-        head_radius : float
-            Head radius. Default is 0.7266, coinciding with FPz. The nasion and
-            inion are located at r=1.0
-        plot_channels: bool
-            Boolean that controls if the channel points should be plotted (default:
-            True)
-        plot_skin_in_color: bool
-            Boolean that controls if the skin of the head should be coloured (default:
-            False)
-        plot_clabels: bool (Optional)
-            Boolean that controls if the channel labels should be plotted (default:
-            False)
-        plot_contour_ch: bool (Optional)
-            Boolean that controls if a contour around each channel should be plotted
-            (default: False)
-        chcontour_radius: float or None
-            Radius of the channel contour if plot_contour_ch is set True. If None
-            value, an automatic value is computed, considering the minimum distance
-            between channels (default: None)
-        interp_points: int (Optional)
-            No. interpolation points. The lower N, the lower resolution and faster
-            computation (default: 500)
-        cmap : str
-            Matplotlib colormap
-        show : bool
-            Show matplotlib figure
-        clim : list or None
-            Color bar limits. Index 0 contain the lower limit, whereas index 1 must
-            contain the upper limit. if none, min and max values are used
-
-        Returns
-        -------
-        figure : plt.figure
-            Figure with the connectivity plot
-        """
+    Returns
+    -------
+    handles : dict
+        Dict with all the handles that have been added to the axes
+    """
 
     # Check adjacency matrix  dimensions
     if adj_mat.shape[0] != len(channel_set.channels):
         raise Exception('Adjacency matrix must have the shape '
                         '[n_channels, n_channels]')
+
+    # Init handles
+    handles = dict()
 
     # Get connectivity values
     values_indx = np.tril_indices(adj_mat.shape[0],1)
@@ -84,8 +58,8 @@ def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
 
     # Map connectivity values to colors
     if clim is None:
-        clim = [conn_values.min(),conn_values.max()]
-    norm = colors.Normalize(vmin=clim[0],vmax=clim[1],clip=True)
+        clim = [conn_values.min(), conn_values.max()]
+    norm = colors.Normalize(vmin=clim[0], vmax=clim[1], clip=True)
     mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     conn_colors = mapper.to_rgba(conn_values)
 
@@ -95,54 +69,36 @@ def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
 
     ch_x, ch_y = get_cartesian_coordinates(channel_set)
 
-    fig, axes = plot_head(channel_set=channel_set, head_radius=head_radius,
-                          plot_channels=plot_channels,
-                          plot_skin_in_color=plot_skin_in_color,
-                          plot_clabels=plot_clabels,
-                          plot_contour_ch=plot_contour_ch,
-                          chcontour_radius=chcontour_radius,
-                          interp_points=interp_points,
-                          show=False)
-
     edges = []
     for indx, chx in enumerate(ch_x):
         for second_indx in range(indx + 1, len(ch_x)):
             edges.append(
                 [[chx, ch_y[indx]], [ch_x[second_indx], ch_y[second_indx]]])
 
-    edges_collection = LineCollection(edges,colors=conn_colors,linewidths=widths)
-    axes.add_collection(edges_collection)
+    edges_collection = LineCollection(edges, colors=conn_colors,
+                                      linewidths=widths)
+    handles['lines'] = axes.add_collection(edges_collection)
 
-    # Depict color bar
-    cbar = plt.colorbar(mapper)
-
-    fig.patch.set_alpha(0.0)
-    if show is True:
-        plt.show(dpi=400)
-    return fig, axes
+    return handles
 
 
-def plot_topography(channel_set, values, head_radius=0.7266,
-                    plot_extra=0.29, k=3, make_contour=True, plot_channels=True,
-                    plot_skin_in_color=False, plot_clabels=False,
-                    plot_contour_ch=False, chcontour_radius=None,
-                    interp_points=500, cmap='YlGnBu_r', show=True, clim=None,
-                    axes=None, fig=None, show_colorbar=True, linewidth=4.0,
-                    background=False):
+def plot_topography(axes, channel_set, values, plot_extra=0.29, k=3,
+                    make_contour=True, contour_linewidth=0.8, interp_points=500,
+                    cmap='YlGnBu_r', clim=None, show_colorbar=True):
 
     """ This function depicts a topographic map of the scalp
     over the desired channel locations.
 
     Parameters
     ----------
+    axes : matplotlib.pyplot.axes
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new axes.
     channel_set : eeg_standards.EEGChannelSet
-        EEG channel set according of class eeg_standards.EEGChannelSet
+        EEG channel set
     values: list or numpy.ndarray
         Numpy array with the channel values. It must be of the same size as
         channels.
-    head_radius : float
-        Head radius. Default is 0.7266, coinciding with FPz. The nasion and
-        inion are located at r=1.0
     plot_extra : float
         Extra radius of the plot surface
     k : int
@@ -150,42 +106,21 @@ def plot_topography(channel_set, values, head_radius=0.7266,
     make_contour: bool
         Boolean that controls if the contour lines should be plotted (default:
         True)
-    plot_channels: bool
-        Boolean that controls if the channel points should be plotted (default:
-        True)
-    plot_skin_in_color: bool (Optional)
-        Boolean that controls if the skin of the head should be coloured (default:
-        False)
-    plot_clabels: bool (Optional)
-        Boolean that controls if the channel labels should be plotted (default:
-        False)
-    plot_contour_ch: bool (Optional)
-        Boolean that controls if a contour around each channel should be plotted
-        (default: False)
-    chcontour_radius: float or None
-        Radius of the channel contour if plot_contour_ch is set True. If None
-        value, an automatic value is computed, considering the minimum distance
-        between channels (default: None)
+    contour_linewidth: float
+        Linewidth of the contour
     interp_points: int (Optional)
         No. interpolation points. The lower N, the lower resolution and faster
         computation (default: 500)
     cmap : str
         Matplotlib colormap
-    background: bool (Optional)
-        Set background
-    show : bool
-        Show matplotlib figure
-    axes : matplotlib.pyplot.axes
-        If a matplotlib axes are specified, the plot is displayed inside it.
-        Otherwise, the plot will generate a new axes.
     clim : list or None
         Color bar limits. Index 0 contain the lower limit, whereas index 1 must
         contain the upper limit. if none, min and max values are used
 
     Returns
     -------
-    figure : plt.figure
-        Figure with the topography plot
+    handles : dict
+        Dict with all the handles that have been added to the axes
     """
     # Check values dimensions
     values = np.array(values)
@@ -201,16 +136,8 @@ def plot_topography(channel_set, values, head_radius=0.7266,
     else:
         raise Exception('The dimensions of the parameter are not correct')
 
-    # Plot head
-    fig, axes = plot_head(channel_set=channel_set,head_radius=head_radius,
-                          plot_channels=plot_channels,
-                          plot_skin_in_color=plot_skin_in_color,
-                          plot_clabels=plot_clabels,
-                          plot_contour_ch=plot_contour_ch,
-                          chcontour_radius=chcontour_radius,
-                          interp_points=interp_points,
-                          show=False, axes=axes, fig=fig, linewidth=linewidth,
-                          background=background)
+    # Init handles
+    handles = dict()
 
     # Create points out of the head to get a natural interpolation
     r_ext_points = 1.5  # Radius of the virtual electrodes
@@ -244,76 +171,71 @@ def plot_topography(channel_set, values, head_radius=0.7266,
     interp_z[~mask] = float('nan')
 
     # Plotting the final interpolation
-    p_interp = axes.pcolor(interp_x, interp_y, interp_z, cmap=cmap)
+    color_mesh = axes.pcolormesh(interp_x, interp_y, interp_z, cmap=cmap)
+    handles['color-mesh'] = color_mesh
+
     if clim is not None:
-        p_interp.set_clim(clim[0], clim[1])
-    if show_colorbar:
-        cbar = plt.colorbar(p_interp)
+        color_mesh.set_clim(clim[0], clim[1])
 
     # Plotting the contour
     if make_contour:
-        axes.contour(interp_x, interp_y, interp_z, alpha=1, colors='0.2',
-                     linewidths=linewidth/4.2)
+        contour = axes.contour(interp_x, interp_y, interp_z, alpha=1,
+                               colors='0.2', linewidths=contour_linewidth)
+        handles['contour'] = contour
 
-    if show is True:
-        plt.show(dpi=400)
-    return fig, axes, p_interp
+    return handles
 
 
-def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
-              plot_skin_in_color=False, plot_clabels=False,
-              plot_contour_ch=False, chcontour_radius=None,
-              interp_points=500, show=True, axes=None, fig=None,
-              linewidth=4.0, background=False):
+def plot_head(axes, channel_set, head_radius=0.7266, plot_ch_points=True,
+              plot_skin=False, skin_color='#E8BEAC', plot_ch_labels=False,
+              plot_ch_contours=False, ch_contour_radius=None,
+              interp_points=500, linewidth=4.0):
+
     """This function depicts a two-dimensional head diagram.
 
     Parameters
     ----------
+    axes : matplotlib.Axes.axes
+        If a matplotlib axes are specified, the plot is displayed inside it.
+        Otherwise, the plot will generate a new figure.
     channel_set : eeg_standards.EEGChannelSet
-        EEG channel set according of class eeg_standards.EEGChannelSet
+        EEG channel set
     head_radius : float
         Head radius. Default is 0.7266, coinciding with FPz. The nasion and
         inion are located at r=1.0
-    plot_channels: bool
+    plot_ch_points: bool
         Boolean that controls if the channel points should be plotted (default:
         True)
-    plot_skin_in_color: bool (Optional)
-        Boolean that controls if the skin of the head should be coloured (default:
-        False)
-    plot_clabels: bool (Optional)
+    plot_skin: bool (Optional)
+        Boolean that controls if the skin of the head should be coloured
+        (default: False)
+    skin_color: string
+        Skin color in hexadecimal notation or matplotlib color (e.g. yellow)
+    plot_ch_labels: bool (Optional)
         Boolean that controls if the channel labels should be plotted (default:
         False)
-    plot_contour_ch: bool (Optional)
+    plot_ch_contours: bool (Optional)
         Boolean that controls if a contour around each channel should be plotted
         (default: False)
-    chcontour_radius: float or None
+    ch_contour_radius: float or None
         Radius of the channel contour if plot_contour_ch is set True. If None
         value, an automatic value is computed, considering the minimum distance
         between channels (default: None)
     interp_points: int (Optional)
         No. interpolation points. The lower N, the lower resolution and faster
         computation (default: 500)
-    background: bool (Optional)
-        Set background
-    show : bool
-        Show matplotlib figure
-    axes : matplotlib.pyplot.axes
-        If a matplotlib axes are specified, the plot is displayed inside it.
-        Otherwise, the plot will generate a new figure.
+
     Returns
     -------
-    figure : plt.figure
-        Figure with the head plot
+    handles : dict
+        Dict with all the handles that have been added to the axes
     """
     # Check channels errors
     if channel_set.dim != '2D':
         raise ValueError('The channel set must have 2 dimensions')
 
-    # Initialize figure and axis
-    if fig is None:
-        fig = plt.figure()
-    if axes is None:
-        axes = fig.add_subplot(111)
+    # Init handles
+    handles = dict()
 
     # Compute the cartesian coordinates of each channel
     ch_x, ch_y = get_cartesian_coordinates(channel_set)
@@ -327,10 +249,12 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                   (np.pi / 2) - (nt * np.pi / 2)]
     nose_x = nose_rho * np.cos(nose_theta)
     nose_y = nose_rho * np.sin(nose_theta)
-    axes.plot(nose_x, nose_y, 'k', linewidth=linewidth)
-    if plot_skin_in_color:
-        axes.fill(nose_x, nose_y, 'k',
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
+    handle = axes.plot(nose_x, nose_y, 'k', linewidth=linewidth)
+    handles['nose-line'] = handle[0]
+    if plot_skin:
+        handle = axes.fill(nose_x, nose_y, 'k', facecolor=skin_color,
+                           edgecolor='k', linewidth=linewidth)
+        handles['nose-fill'] = handle[0]
 
     # Plotting the ears as ellipses
     ellipse_a = 0.08  # Horizontal eccentricity
@@ -349,26 +273,36 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
                  np.cos(ear_theta_left)
     ear_y_left = ear_rho(ear_theta_left, ellipse_a, ellipse_b) * \
                  np.sin(ear_theta_left)
-    axes.plot(ear_x_right + head_rho + offset, ear_y_right, 'k', linewidth=linewidth)
-    axes.plot(ear_x_left - head_rho - offset, ear_y_left, 'k', linewidth=linewidth)
+    handle = axes.plot(ear_x_right + head_rho + offset,
+                       ear_y_right, 'k', linewidth=linewidth)
+    handles['right-ear-line'] = handle[0]
+    handle = axes.plot(ear_x_left - head_rho - offset,
+                       ear_y_left, 'k', linewidth=linewidth)
+    handles['left-ear-line'] = handle[0]
 
     # Plotting the head limits as a circle
     head_theta = np.linspace(0, 2 * np.pi, interp_points)
     head_x = head_rho * np.cos(head_theta)
     head_y = head_rho * np.sin(head_theta)
-    axes.plot(head_x, head_y, 'k', linewidth=linewidth)
-    if plot_skin_in_color:
-        axes.fill(head_x, head_y, facecolor='#E8BEAC',
-                  edgecolor='k', linewidth=4)
+    handle = axes.plot(head_x, head_y, 'k', linewidth=linewidth)
+    handles['head-line'] = handle[0]
+    if plot_skin:
+        handle = axes.fill(head_x, head_y, facecolor=skin_color,
+                           edgecolor='k', linewidth=4)
+        handles['head-fill'] = handle[0]
 
-    if plot_skin_in_color:
-        axes.fill(ear_x_right + head_rho + offset, ear_y_right,
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
-        axes.fill(ear_x_left - head_rho - offset, ear_y_left,
-                  facecolor='#E8BEAC', edgecolor='k', linewidth=linewidth)
+    if plot_skin:
+        handle = axes.fill(ear_x_right + head_rho + offset, ear_y_right,
+                           facecolor=skin_color, edgecolor='k',
+                           linewidth=linewidth)
+        handles['right-ear-fill'] = handle[0]
+        handle = axes.fill(ear_x_left - head_rho - offset, ear_y_left,
+                           facecolor=skin_color, edgecolor='k',
+                           linewidth=linewidth)
+        handles['left-ear-fill'] = handle[0]
 
     # Compute optimal minimum distance between channels
-    if chcontour_radius is None:
+    if ch_contour_radius is None:
         dist_matrix = channel_set.compute_dist_matrix()
         dist_matrix.sort()
         min_dist = dist_matrix[:, 1].min()
@@ -389,26 +323,32 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
         min_dist = min_dist * percentage
 
     else:
-        min_dist = chcontour_radius
+        min_dist = ch_contour_radius
 
-    # Plot a contour around electrodes
-    if plot_contour_ch:
+    # Plot channels contour
+    if plot_ch_contours:
+        handles['ch-contours'] = list()
         for ch_idx in range(len(channel_set.channels)):
-            axes.add_patch(plt.Circle(
+            patch = matplotlib.patches.Circle(
                 (ch_x[ch_idx], ch_y[ch_idx]), radius=min_dist,
-                facecolor='#ffffff', edgecolor=None, alpha=0.4, zorder=10))
+                facecolor='#ffffff', edgecolor=None, alpha=0.4, zorder=10)
+            handle = axes.add_patch(patch)
+            handles['ch-contours'].append(handle)
 
-    # Plotting the electrodes
-    if plot_channels:
-        axes.scatter(ch_x, ch_y, linewidth*3.5, facecolors='w', edgecolors='k',
-                     zorder=10)
+    # Plot channels points
+    if plot_ch_points:
+        handle = axes.scatter(ch_x, ch_y, linewidth*3.5, facecolors='w',
+                              edgecolors='k', zorder=10)
+        handles['ch-points'] = handle
 
-    if plot_clabels:
+    # Plot channels labels
+    if plot_ch_labels:
+        handles['ch-labels'] = list()
         for t in range(len(channel_set.channels)):
-            axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * min_dist,
-                      channel_set.channels[t]['label'], fontsize=linewidth*2,
-                      color='w',
-                      zorder=11)
+            handle = axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * min_dist,
+                               channel_set.channels[t]['label'],
+                               fontsize=linewidth*2, color='w', zorder=11)
+            handles['ch-labels'].append(handle)
 
     # Last considerations
     plot_lim = max(head_radius + 0.2, np.max(np.sqrt(ch_x**2 + ch_y**2)) + 0.2)
@@ -416,14 +356,8 @@ def plot_head(channel_set, head_radius=0.7266, plot_channels=True,
     axes.set_ylim([-plot_lim, plot_lim])
     axes.set_aspect('equal', 'box')
     axes.axis('off')
-    if fig is not None:
-        # fig = plt.gcf()
-        fig.patch.set_alpha(background)  # Set transparent background
-        fig.tight_layout()
-    if show is True:
-        plt.show(dpi=400)
 
-    return fig, axes
+    return handles
 
 
 def ear_rho(ear_theta, ellipse_a, ellipse_b):
@@ -473,6 +407,7 @@ def compute_nearest_values(coor_add, coor_neigh, val_neigh, k):
         add_val[i] = np.mean(val_neigh[0, sel_idx])
     return add_val
 
+
 def get_cartesian_coordinates(channel_set):
     # Restructure the channels list to treat it more easily
     if channel_set.coord_system == 'spherical':
@@ -497,25 +432,49 @@ def get_cartesian_coordinates(channel_set):
         ch_x,ch_y = np.array(ch_x),np.array(ch_y)
     return ch_x, ch_y
 
+
+def remove_handles(handles):
+    for h in handles.values():
+        if isinstance(h, list):
+            for h2 in h:
+                h2.remove()
+        else:
+            if isinstance(h, matplotlib.contour.QuadContourSet):
+                for h2 in h.collections:
+                    h2.remove()
+            else:
+                h.remove()
+
+
 if __name__ == "__main__":
     """ Example of use: """
+    from matplotlib import pyplot as plt
     from medusa.meeg.meeg import EEGChannelSet
 
     # Set channel set
     channel_set = EEGChannelSet()
-    channel_set.set_standard_montage(
-        l_cha=['F3','F7','FZ', 'F4','F8', 'FCZ','C3', 'CZ', 'C4','CPZ', 'P3',
-               'PZ', 'P4','PO7','POZ','PO8'],
-        standard='10-10')
+    channel_set.set_standard_montage(standard='10-10')
 
-    # Plot topographic plot
-    plt.figure()
-    dummy_values_topo = np.arange(len(channel_set.channels))
-    plot_topography(channel_set, dummy_values_topo, plot_clabels=True,
-                    plot_contour_ch=True, plot_extra=0.1,
-                    plot_skin_in_color=True,cmap='plasma')
+    # Initialize figure
+    fig = plt.figure()
+    fig.add_subplot(1, 1, 1)
+
+    # Plot head
+    plot_head(axes=fig.axes[0], channel_set=channel_set)
+
+    # Plot topography
+    # values = np.random.random(channel_set.n_cha)
+    # handles = plot_topography(axes=fig.axes[0],
+    #                           channel_set=channel_set,
+    #                           values=values)
 
     # Plot connectivity plot
-    plt.figure()
-    dummy_values_conn = np.random.randn(16,16)
-    plot_connectivity(channel_set,dummy_values_conn)
+    # values = np.random.randn(channel_set.n_cha, channel_set.n_cha)
+    # handles = plot_connectivity(axes=fig.axes[0],
+    #                             channel_set=channel_set,
+    #                             adj_mat=values)
+
+    # Show figure
+    fig.tight_layout()
+    fig.set_alpha(0)
+    fig.show()
