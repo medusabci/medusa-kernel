@@ -79,7 +79,7 @@ def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
                         '[n_channels, n_channels]')
 
     # Get connectivity values
-    values_indx = np.tril_indices(adj_mat.shape[0],1)
+    values_indx = np.triu_indices(adj_mat.shape[0],1)
     conn_values = adj_mat[values_indx]
 
     # Map connectivity values to colors
