@@ -101,7 +101,7 @@ class SignalPreprocessing(components.ProcessingMethod):
         # Define filters for filtering over epochs
         for filter in self.filter_dict:
             for f in filter['cutoff']:
-                iir = mds.IIRFilter(order=1,
+                iir = mds.IIRFilter(order=3,
                                     cutoff=f,
                                     btype='bandpass',
                                     filt_method='sosfiltfilt')
@@ -441,19 +441,13 @@ class ConnectivityExtraction(components.ProcessingMethod):
         -------
         baseline_value: float
         """
-        # Delete borders to avoid effect borders
-        dif_window = round((signal.shape[0] - self.w_signal_samples_calibration)/2)
-        if dif_window <= 0:
-            raise ValueError('The duration of the signal for the baseline '
-                             'calculation should be slightly longer than the '
-                             'window time taken for the baseline calculation. ')
-        epochs_original, index = make_windows(signal[dif_window:-dif_window, :]
-                                , self.fs, self.update_feature_window,
-                                self.update_rate)
+        epochs_original, index = make_windows(signal, self.fs,
+                                              self.update_feature_window,
+                                              self.update_rate)
         filtered_epochs = make_windows(
-                filtered_signal[dif_window:-dif_window, :], self.fs,
-                self.update_feature_window, self.update_rate,
-                reject=False)[~index, :, :]
+            filtered_signal, self.fs,
+            self.update_feature_window, self.update_rate,
+            reject=False)[~index, :, :]
 
         adj_mat = self.calculate_adj_mat(filtered_epochs)
 
@@ -495,20 +489,12 @@ class ConnectivityExtraction(components.ProcessingMethod):
         if self.baseline_value is None:
             raise ValueError(
                 '[ConnectivityExtraction] Calibration not performed.')
-        # Delete borders
-        dif_window = round((signal.shape[0] - self.w_signal_samples)/2)
-        if dif_window <= 0:
-            raise ValueError('The duration of the signal for feedback '
-                             'calculation should be slightly longer than the '
-                             'window time taken for the feedback calculation. ')
-
-        adj_mat = self.calculate_adj_mat(signal[dif_window:-dif_window, :])
+        adj_mat = self.calculate_adj_mat(signal)
         c_value = self.calculate_feature(np.squeeze(adj_mat)) \
                   - self.baseline_value
         # Check if artifact bands are defined
         if signal_artifacts is not None:
-            if ignore_noisy_windows(signal_artifacts[:,dif_window:-dif_window,
-                                    self.target_channels], self.thresholds,
+            if ignore_noisy_windows(signal_artifacts[:, :, self.target_channels], self.thresholds,
                                     self.pct_tol):
                 return c_value
             else:
@@ -639,15 +625,7 @@ class PowerExtraction(components.ProcessingMethod):
         ------
         baseline_power: float
         """
-        # Delete borders
-        dif_window = round(
-            (signal.shape[0] - self.w_signal_samples_calibration) / 2)
-        if dif_window <= 0:
-            raise ValueError('The duration of the signal for the baseline '
-                             'calculation should be slightly longer than the '
-                             'window time taken for the baseline calculation.')
-        epochs, _ = make_windows(signal[dif_window:-dif_window, :]
-                                 , self.fs, self.update_feature_window,
+        epochs, _ = make_windows(signal, self.fs, self.update_feature_window,
                                  self.update_rate)
         _, psd = scipy.signal.welch(epochs, self.fs, 'hamming',
                                     self.w_signal_samples,
@@ -689,15 +667,7 @@ class PowerExtraction(components.ProcessingMethod):
 
         if self.baseline_power is None:
             raise ValueError('[PowerExtraction] Calibration not performed.')
-
-        dif_window = round(
-            (signal.shape[0] - self.w_signal_samples) / 2)
-        if dif_window <= 0:
-            raise ValueError('The duration of the signal for the feedback '
-                             'calculation should be slightly longer than the '
-                             'window time taken for the feedback calculation. ')
-
-        _, psd = scipy.signal.welch(signal[dif_window:-dif_window], self.fs, 'hamming',
+        _, psd = scipy.signal.welch(signal, self.fs, 'hamming',
                                     self.w_signal_samples,
                                     axis=0,scaling='density')
         b_power_uncorrected = self.power(psd)
