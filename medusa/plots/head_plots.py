@@ -53,7 +53,7 @@ def plot_connectivity(axes, channel_set, adj_mat, cmap='seismic', clim=None):
     handles = dict()
 
     # Get connectivity values
-    values_indx = np.tril_indices(adj_mat.shape[0],1)
+    values_indx = np.triu_indices(adj_mat.shape[0],1)
     conn_values = adj_mat[values_indx]
 
     # Map connectivity values to colors
@@ -453,7 +453,7 @@ if __name__ == "__main__":
 
     # Set channel set
     channel_set = EEGChannelSet()
-    channel_set.set_standard_montage(standard='10-10')
+    channel_set.set_standard_montage(standard='10-20')
 
     # Initialize figure
     fig = plt.figure()
@@ -469,10 +469,10 @@ if __name__ == "__main__":
     #                           values=values)
 
     # Plot connectivity plot
-    # values = np.random.randn(channel_set.n_cha, channel_set.n_cha)
-    # handles = plot_connectivity(axes=fig.axes[0],
-    #                             channel_set=channel_set,
-    #                             adj_mat=values)
+    values = np.random.randn(channel_set.n_cha, channel_set.n_cha)
+    handles = plot_connectivity(axes=fig.axes[0],
+                                channel_set=channel_set,
+                                adj_mat=values)
 
     # Show figure
     fig.tight_layout()
