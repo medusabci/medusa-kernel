@@ -30,7 +30,7 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'tensorflow==2.11',
+        'tensorflow==2.10',
         'tensorflow-probability==0.16'
     ],
     classifiers=[

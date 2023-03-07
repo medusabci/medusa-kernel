@@ -316,14 +316,24 @@ class MIPlots():
 
         # Topoplot
         values = trials_r2.reshape(1, len(lcha))
-        _, ax_to_plot, p_interp = topographic_plots.plot_topography(
-            self.dataset.channel_set, values, clim=(-max_r2, max_r2),
-            cmap='RdBu_r', contour_linewidth=self.line_width * 2,
-            head_radius=1.0, axes=ax_to_plot, show_colorbar=False,
-            show=False, plot_skin_in_color=True)
+        topo_settings = {
+            "head_radius": 1.0,
+            "head_line_width": self.line_width * 2,
+            "interp_contour_width": self.line_width,
+            "interp_points": 500,
+            "cmap": "RdBu_r",
+            "clim": (-max_r2, max_r2)
+        }
+        topo = head_plots.TopographicPlot(
+            axes=ax_to_plot, channel_set=self.dataset.channel_set,
+            **topo_settings
+        )
+        topo.update(values=values)
         ax_to_plot.set_title("Signed $r^2$ (%s)" % ' vs. '.join(ch_to_plot),
                              fontsize=self.label_size)
-        return ax_to_plot, p_interp
+
+        # return ax_to_plot, handles["color-mesh"]
+        return ax_to_plot, topo.plot_handles["color-mesh"]
 
 
 def _extract_erd_ers_features(files, ch_to_plot, order=1000, cutoff=[5, 35],
