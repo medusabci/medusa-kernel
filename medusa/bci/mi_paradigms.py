@@ -1018,12 +1018,12 @@ class MIModelCSP(MIModel):
     def __init__(self):
         super().__init__()
 
-    def configure(self, p_filt_cutoff=(8, 30), f_w_epoch_t=(500, 4000),
-                  f_target_fs=60, **kwargs):
+    def configure(self, p_filt_cutoff=(8, 30), w_epoch_t=(500, 4000),
+                  target_fs=60, **kwargs):
         self.settings = {
             'p_filt_cutoff': p_filt_cutoff,
-            'f_w_epoch_t': f_w_epoch_t,
-            'f_target_fs': f_target_fs
+            'w_epoch_t': w_epoch_t,
+            'target_fs': target_fs
         }
         self.settings = dict(self.settings, **kwargs)
         # Update state
