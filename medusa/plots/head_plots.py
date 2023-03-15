@@ -440,7 +440,12 @@ def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
     axes.set_xlim([-plot_lim, plot_lim])
     axes.set_ylim([-plot_lim, plot_lim])
     axes.set_aspect('equal', 'box')
-    axes.axis('off')
+    axes.set_yticklabels([])
+    axes.set_xticklabels([])
+    for side in ['top', 'right', 'bottom', 'left']:
+        axes.spines[side].set_visible(False)
+    axes.tick_params(axis='both', which='both', bottom=False, left=False)
+    axes.set_facecolor('#00000000')         # Transparent
 
     return handles
 
