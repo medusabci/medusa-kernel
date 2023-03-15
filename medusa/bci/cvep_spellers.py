@@ -267,10 +267,6 @@ class CVEPSpellerDataset(components.Dataset):
 
         if experiment_mode == 'train':
             default_track_attributes_train = {
-                'cvep_labels': {
-                    'track_mode': 'concatenate',
-                    'parent': experiment_att_key
-                },
                 'spell_target': {
                     'track_mode': 'append',
                     'parent': experiment_att_key
