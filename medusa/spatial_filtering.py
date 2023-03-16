@@ -3,7 +3,7 @@ from medusa import components
 from numpy import linalg as nlinalg
 from scipy import linalg as slinalg
 import warnings
-
+from copy import copy
 
 class LaplacianFilter(components.ProcessingMethod):
     """
@@ -329,11 +329,15 @@ class CSP(components.ProcessingMethod):
                 self.sel_idxs = self.sel_idxs[:self.n_filters]
             if self.selection == "extremes":
                 # Automatic selection using extremes for both classes
-                self.sel_idxs = [i for i in range(0, self.n_filters//2)]
-                self.sel_idxs += \
-                    [i for i in range(len(self.eigenvalues) - 1,
-                                      len(self.eigenvalues) -
-                                      self.n_filters//2, -1)]
+                self.sel_idxs = list()
+                ids = np.arange(len(self.eigenvalues)).tolist()
+                start = True
+                while len(self.sel_idxs) < self.n_filters:
+                    if start:
+                        self.sel_idxs.append(ids.pop(0))
+                    else:
+                        self.sel_idxs.append((ids.pop(len(ids) - 1)))
+                    start = not start
 
         # Implementation for more than 2 classes
         elif len(n_classes) > 2:
@@ -373,7 +377,7 @@ class CSP(components.ProcessingMethod):
         # Get the selected spatial filters, patterns and eigenvalues
         if self.sel_idxs is not None:
             self.sel_filters = self.filters[self.sel_idxs, :]
-            self.sel_patterns = self.pattern[self.sel_patterns, :]
+            self.sel_patterns = self.patterns[self.sel_patterns, :]
             self.sel_eigenvalues = self.eigenvalues[self.sel_idxs]
         else:
             self.sel_filters = self.filters
@@ -390,7 +394,7 @@ class CSP(components.ProcessingMethod):
 
         Returns
         -------
-        numpy.ndarray (n_epochs, n_samples, n_channels)
+        numpy.ndarray (n_epochs, n_filters, n_channels)
             Array with the epochs of signal projected in the CSP space.
         """
         if self.filters is None:
@@ -481,7 +485,7 @@ class CSP(components.ProcessingMethod):
         return v, d
 
     def to_dict(self):
-        dict_ = self.__dict__
+        dict_ = copy(self.__dict__)
         for key, value in dict_.items():
             if isinstance(value, np.ndarray):
                 dict_[key] = value.tolist()
@@ -492,13 +496,13 @@ class CSP(components.ProcessingMethod):
         csp = CSP()
         csp.n_filters = dict_data['n_filters']
         csp.selection = dict_data['selection']
-        csp.filters = dict_data['filters']
-        csp.patterns = dict_data['patterns']
-        csp.eigenvalues = dict_data['eigenvalues']
-        csp.sel_idxs = dict_data['sel_idxs']
-        csp.sel_filters = dict_data['sel_filters']
-        csp.sel_patterns = dict_data['sel_patterns']
-        csp.sel_eigenvalues = dict_data['sel_eigenvalues']
+        csp.filters = np.array(dict_data['filters'])
+        csp.patterns = np.array(dict_data['patterns'])
+        csp.eigenvalues = np.array(dict_data['eigenvalues'])
+        csp.sel_idxs = np.array(dict_data['sel_idxs'])
+        csp.sel_filters = np.array(dict_data['sel_filters'])
+        csp.sel_patterns = np.array(dict_data['sel_patterns'])
+        csp.sel_eigenvalues = np.array(dict_data['sel_eigenvalues'])
         return csp
 
 
