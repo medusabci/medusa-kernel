@@ -32,7 +32,7 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'DL': [
+        'GPU-TF': [
             'tensorflow<2.11',
             'tensorflow-probability==0.16'
         ],

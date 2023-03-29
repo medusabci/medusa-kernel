@@ -1,16 +1,8 @@
 # Built-in imports
 import warnings
 import os
+
 # External imports
-import tensorflow as tf
-from tensorflow.keras.layers import Activation, Input, Flatten
-from tensorflow.keras.layers import Dropout, BatchNormalization
-from tensorflow.keras.layers import Conv2D, AveragePooling2D, DepthwiseConv2D
-from tensorflow.keras.layers import Dense, SpatialDropout2D, SeparableConv2D
-from tensorflow.keras.layers import Conv3D, AveragePooling3D, Add
-from tensorflow.keras.constraints import max_norm
-from tensorflow.keras.callbacks import EarlyStopping
-import tensorflow.keras as keras
 import sklearn.utils as sk_utils
 import numpy as np
 
@@ -18,6 +10,21 @@ import numpy as np
 from medusa import components
 from medusa import classification_utils
 from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
+    import tensorflow.keras as keras
+    from tensorflow.keras.layers import Activation, Input, Flatten
+    from tensorflow.keras.layers import Dropout, BatchNormalization
+    from tensorflow.keras.layers import Conv2D, AveragePooling2D
+    from tensorflow.keras.layers import DepthwiseConv2D, Dense
+    from tensorflow.keras.layers import SpatialDropout2D, SeparableConv2D
+    from tensorflow.keras.layers import Conv3D, AveragePooling3D, Add
+    from tensorflow.keras.constraints import max_norm
+    from tensorflow.keras.callbacks import EarlyStopping
+else:
+    raise tensorflow_integration.TFExtrasNotInstalled()
 
 
 class EEGInceptionv1(components.ProcessingMethod):

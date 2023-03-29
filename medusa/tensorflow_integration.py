@@ -5,9 +5,22 @@ This module provides
 @author: Eduardo Santamaría-Vázquez
 """
 
-import tensorflow as tf
-import os
-import warnings
+import os, warnings
+
+try:
+    import tensorflow as tf
+    import tensorflow_probability as tfp
+    os.environ["MEDUSA_EXTRAS_GPU_TF"] = "1"
+except:
+    os.environ["MEDUSA_EXTRAS_GPU_TF"] = "0"
+
+
+class TFExtrasNotInstalled(Exception):
+    def __init__(self):
+        super().__init__(
+            'This functionality requires GPU-TF extras. Install '
+            'medusa-kernel with GPU-TF extras with "pip install '
+            'medusa-kernel[GPU-TF]')
 
 
 class NoGPU(Exception):
@@ -41,6 +54,9 @@ def config_tensorflow(gpu_acceleration=True, device=None):
         list the current available devices.
     """
     try:
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") != 1:
+            raise TFExtrasNotInstalled()
+
         if int(tf.__version__.split('.')[0]) < 2:
             raise ImportError('Tensorflow >= 2.0.0 is required for GPU '
                               'acceleration')
@@ -93,7 +109,7 @@ def config_tensorflow(gpu_acceleration=True, device=None):
 
 
 def check_tf_config(autoconfig=False):
-    """Checks if tensorflow has been configured
+    """Checks if tensorflow has been configured.
 
      Parameters
     ----------
@@ -101,12 +117,15 @@ def check_tf_config(autoconfig=False):
         If tensorflow has not been configured and autoconfig is True,
         tensorflow is configured automatically, trying GPU first.
     """
-    check = True if os.environ.get("MEDUSA_TF_GPU_ACCELERATION") is not None \
-        else False
-    if not check and autoconfig:
-        __auto_config_tensorflow()
-        check = True if os.environ.get("MEDUSA_TF_GPU_ACCELERATION") is not \
-                        None else False
+    if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == 1:
+        check = 1 if os.environ.get("MEDUSA_TF_GPU_ACCELERATION") \
+                     is not None else 0
+        if not check and autoconfig:
+            __auto_config_tensorflow()
+            check = 1 if os.environ.get("MEDUSA_TF_GPU_ACCELERATION") \
+                         is not None else 0
+    else:
+        check = -1
     return check
 
 
