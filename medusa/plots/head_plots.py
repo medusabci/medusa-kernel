@@ -237,7 +237,7 @@ def plot_topography(values, axes, channel_set, extra_radius=0.29,
     r_ext_points = 1.5  # Radius of the virtual electrodes
     no_ve = 16  # No. virtual electrodes
     add_x, add_y = __pol2cart(r_ext_points * np.ones((1, no_ve)),
-                            np.arange(0, 2 * np.pi, 2 * np.pi / no_ve))
+                              np.arange(0, 2 * np.pi, 2 * np.pi / no_ve))
     linear_grid = np.linspace(-r_ext_points, r_ext_points, interp_points)
     interp_x, interp_y = np.meshgrid(linear_grid, linear_grid)
 
