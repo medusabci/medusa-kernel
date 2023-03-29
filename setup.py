@@ -30,9 +30,15 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'tensorflow==2.10',
+        'tensorflow<2.11',
         'tensorflow-probability==0.16'
     ],
+    extras_require={
+        'DL': [
+            'tensorflow<2.11',
+            'tensorflow-probability==0.16'
+        ],
+    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
