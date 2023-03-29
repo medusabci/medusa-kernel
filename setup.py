@@ -30,8 +30,6 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'tensorflow<2.11',
-        'tensorflow-probability==0.16'
     ],
     extras_require={
         'DL': [
