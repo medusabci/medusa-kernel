@@ -1,6 +1,15 @@
-import tensorflow as tf
+# Built-in imports
+import warning, os
+
+# External imports
 import numpy as np
 
+# Medusa imports
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 def __aux_symm_triu_gpu(W):
     N = tf.shape(W)
@@ -99,11 +108,10 @@ def __degree_cpu(W):
         nodal_degree =  __aux_symm_triu_cpu(W)
     elif check_symmetry == 2:
         nodal_degree = -np.sum(W,axis=0)
-          
     return nodal_degree
 
 
-def degree(W,mode):
+def degree(W, mode):
     """
     Calculates the graph degree.
 
@@ -111,9 +119,6 @@ def degree(W,mode):
     ----------
     W : numpy 2D matrix
         Graph matrix. ChannelsXChannels.
-    mode : string
-        GPU or CPU
-        
     Returns
     -------
     nodal_degree : numpy array
@@ -124,13 +129,11 @@ def degree(W,mode):
         raise ValueError('W matrix must be square')
         
     if not np.issubdtype(W.dtype, np.number):
-        raise ValueError('W matrix contains non-numeric values')        
-      
-    if mode == 'CPU':
-        nodal_degree = __degree_cpu(W)
-    elif mode == 'GPU':
+        raise ValueError('W matrix contains non-numeric values')
+
+    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         nodal_degree = __degree_gpu(W)
     else:
-        raise ValueError('Unknown mode')
-
+        nodal_degree = __degree_cpu(W)
     return nodal_degree

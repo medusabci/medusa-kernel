@@ -1,5 +1,15 @@
-import tensorflow as tf
+# Built-in imports
+import warnings, os
+
+# External imports
 import numpy as np
+
+# Medusa imports
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 def __clustering_gpu(W):
     """
@@ -89,7 +99,7 @@ def clustering_coefficient(W,mode):
         Graph matrix. ChannelsXChannels.
     mode : string
         GPU or CPU
-        
+
     Returns
     -------
     nodal_clc : numpy array
@@ -102,7 +112,9 @@ def clustering_coefficient(W,mode):
     if mode == 'CPU':
         nodal_clc = __clustering_cpu(W)
     elif mode == 'GPU':
-        nodal_clc = __clustering_gpu(W)
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+                tensorflow_integration.check_tf_config(autoconfig=True):
+            nodal_clc = __clustering_gpu(W)
     else:
         raise ValueError('Unknown mode')
         
