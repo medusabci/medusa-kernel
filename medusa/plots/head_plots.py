@@ -61,8 +61,9 @@ class TopographicPlot:
         """ This method clears all the handles. """
         if self.plot_handles is not None:
             _remove_handles(self.plot_handles)
-        if self.head_handles is not None:
-            _remove_handles(self.head_handles)
+        self.plot_handles = None
+        # if self.head_handles is not None:
+        #     _remove_handles(self.head_handles)
 
 
 class ConnectivityPlot:
@@ -109,8 +110,9 @@ class ConnectivityPlot:
         """ This method clears all the handles. """
         if self.plot_handles is not None:
             _remove_handles(self.plot_handles)
-        if self.head_handles is not None:
-            _remove_handles(self.head_handles)
+        self.plot_handles = None
+        # if self.head_handles is not None:
+        #     _remove_handles(self.head_handles)
 
 
 def plot_connectivity(adj_mat, axes, channel_set, cmap="bwr", clim=None,
