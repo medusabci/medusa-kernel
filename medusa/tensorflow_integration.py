@@ -54,7 +54,7 @@ def config_tensorflow(gpu_acceleration=True, device=None):
         list the current available devices.
     """
     try:
-        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") != 1:
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") != '1':
             raise TFExtrasNotInstalled()
 
         if int(tf.__version__.split('.')[0]) < 2:
@@ -117,7 +117,7 @@ def check_tf_config(autoconfig=False):
         If tensorflow has not been configured and autoconfig is True,
         tensorflow is configured automatically, trying GPU first.
     """
-    if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == 1:
+    if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == '1':
         check = 1 if os.environ.get("MEDUSA_TF_GPU_ACCELERATION") \
                      is not None else 0
         if not check and autoconfig:
