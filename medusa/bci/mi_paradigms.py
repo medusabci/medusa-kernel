@@ -4,7 +4,7 @@ In this module you will find useful functions and classes to operate with data
 recorded using motor imagery paradigms, which are widely used by the BCI
 community. Enjoy!
 
-@author: Sergio Pérez-Velasco
+@author: Sergio Pérez-Velasco & Víctor Martínez-Cagigal
 """
 # Built-in imports
 import copy, warnings
@@ -23,7 +23,7 @@ from medusa import get_epochs_of_events, resample_epochs
 from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import CSP, LaplacianFilter
-
+from medusa import classification_utils as cu
 
 class MIData(components.ExperimentData):
     # TODO: Check everything
@@ -337,7 +337,7 @@ class StandardPreprocessing(components.ProcessingMethod):
     reference (CAR) spatial filter.
     """
 
-    def __init__(self, order=5, cutoff=[0.05, 63], btype='bandpass',
+    def __init__(self, order=5, cutoff=[8, 30], btype='bandpass',
                  temp_filt_method='sosfiltfilt'):
         super().__init__(fit_transform_signal=['signal'],
                          fit_transform_dataset=['dataset'])
@@ -379,6 +379,28 @@ class StandardPreprocessing(components.ProcessingMethod):
         signal = self.iir_filter.transform(signal)
         signal = car(signal)
         return signal
+
+    def transform_dataset(self, dataset: MIDataset, show_progress_bar=True):
+        """Transforms an MIDataset applying IIR filtering and CAR sequentially
+
+        Parameters
+        ----------
+        signal: np.array or list
+            Signal to transform. Shape [n_samples x n_channels]
+        """
+        pbar = None
+        if show_progress_bar:
+            pbar = tqdm(total=len(dataset.recordings),
+                        desc='Preprocessing')
+        for rec in dataset.recordings:
+            eeg = getattr(rec, dataset.biosignal_att_key)
+            eeg.signal = self.transform_signal(eeg.signal)
+            setattr(rec, dataset.biosignal_att_key, eeg)
+            if show_progress_bar:
+                pbar.update(1)
+        if show_progress_bar:
+            pbar.close()
+        return dataset
 
     def fit_transform_signal(self, signal, fs):
         """Fits the IIR filter and transforms an EEG signal applying IIR
@@ -431,10 +453,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
     it gets the raw epoch for each MI event.
     """
 
-    def __init__(self, w_epoch_t=(0, 3000), target_fs=128,
-                 baseline_mode='trial',
-                 w_baseline_t=(-1500, -500), norm='z',
-                 concatenate_channels=False, safe_copy=True):
+    def __init__(self, safe_copy=True):
         """Class constructor
 
         w_epoch_t : list
@@ -478,95 +497,56 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         """
         super().__init__(transform_signal=['x'],
                          transform_dataset=['x', 'x_info'])
-        self.w_epoch_t = w_epoch_t
-        self.target_fs = target_fs
-        self.baseline_mode = baseline_mode
-        self.w_baseline_t = w_baseline_t
-        self.norm = norm
-        self.concatenate_channels = concatenate_channels
         self.safe_copy = safe_copy
 
-    def transform_signal(self, times, signal, fs, onsets,
-                         w_epoch_t = None):
-        """Function to extract MI features from raw signal. It returns a 3D
-        feature array with shape [n_events x n_samples x n_channels]. This
-        function does not track any other attributes. Use for online processing
-        and custom higher level functions.
-
-        Parameters
-        ----------
-        times : list or numpy.ndarray
-                1D numpy array [n_samples]. Timestamps of each sample. If they
-                are not available, generate them artificially. Nevertheless,
-                all signals and events must have the same temporal origin
-        signal : list or numpy.ndarray
-            2D numpy array [n_samples x n_channels]. EEG samples (the units
-            should be defined using kwargs)
-        fs : int or float
-            Sample rate of the recording.
-        onsets : list or numpy.ndarray [n_events x 1]
-                Timestamp of each event
-
-        Returns
-        -------
-        features : np.ndarray [n_events x n_samples x n_channels]
-            Feature array with the epochs of signal
-        """
-        if w_epoch_t is None:
-            w_epoch_t = self.w_epoch_t
+    def transform_signal(self, times, signal, fs, onsets, w_epoch_t=(0, 3000),
+                         baseline_mode="trial", w_baseline_t=(-1500, -500),
+                         norm='z', target_fs=128, concatenate_channels=False,
+                         **kwargs):
         # Avoid changes in the original signal (this may not be necessary)
         if self.safe_copy:
             signal = signal.copy()
+
         # Baseline options
-        norm = self.norm
-        assert self.baseline_mode in ('run', 'trial', None), \
+        assert baseline_mode in ('run', 'trial', None), \
             ValueError('Parameter baseline_mode must be {"run", "trial", None}')
-        if self.baseline_mode is None:
-            assert self.w_baseline_t is None, 'If baseline_mode is None, ' \
-                                              'parameter w_baseline_t must be ' \
-                                              'None'
-            w_baseline_trial_t = None
-        elif self.baseline_mode == 'trial':
-            if self.w_baseline_t == 'auto':
-                w_baseline_trial_t = w_epoch_t
-            else:
-                w_baseline_trial_t = self.w_baseline_t
-        elif self.baseline_mode == 'run':
+        if baseline_mode in ('run', None):
+            w_baseline_t = None
             norm = None
-            w_baseline_trial_t = None
+        if baseline_mode == 'trial' and w_baseline_t == 'auto':
+            w_baseline_t = w_epoch_t
 
         # Extract features
-        features = get_epochs_of_events(timestamps=times, signal=signal,
-                                        onsets=onsets, fs=fs,
-                                        w_epoch_t=w_epoch_t,
-                                        w_baseline_t=w_baseline_trial_t,
-                                        norm=norm)
+        features = get_epochs_of_events(
+            timestamps=times, signal=signal, onsets=onsets, fs=fs,
+            w_epoch_t=w_epoch_t,
+            w_baseline_t=w_baseline_t, norm=norm
+        )
 
-        if self.baseline_mode == "run":
-            if self.w_baseline_t == 'auto':
-                norm_epoch_t = [0, 5000]
-            else:
-                norm_epoch_t = self.w_baseline_t
-            norm_epoch_s = np.array(norm_epoch_t * fs / 1000, dtype=int)
-            norm_epoch = np.expand_dims(signal[norm_epoch_s], axis=0)
+        # TODO: Check these modes
+        if baseline_mode == "run":
+            # Here baseline is taken relative to the start of the signal
+            norm_epoch_s = np.array(w_baseline_t * fs / 1000, dtype=int)
+            norm_epoch = np.expand_dims(signal[norm_epoch_s, :], axis=0)
             features = normalize_epochs(features, norm_epochs=norm_epoch,
                                         norm=self.norm)
         # Resample each epoch to the target frequency
-        if self.target_fs is not None:
-            if self.target_fs > fs:
+        if target_fs is not None:
+            if target_fs > fs:
                 raise warnings.warn('Target fs is greater than data fs')
-            features = resample_epochs(features,
-                                       self.w_epoch_t,
-                                       self.target_fs)
+            features = resample_epochs(features, w_epoch_t, target_fs)
         # Reshape epochs and concatenate the channels
-        if self.concatenate_channels:
-            features = np.squeeze(features.reshape((features.shape[0],
-                                                    features.shape[1] *
-                                                    features.shape[2], 1)))
+        if concatenate_channels:
+            features = np.squeeze(features.reshape(
+                (features.shape[0], features.shape[1] * features.shape[2], 1)))
         return features
 
     def transform_dataset(self, dataset, show_progress_bar=True,
-                          continuous=False):
+                          w_epoch_t=(0, 3000), baseline_mode="trial",
+                          w_baseline_t=(-1500, -500), norm='z',
+                          target_fs=128, concatenate_channels=False,
+                          sliding_w_lims_t=None, sliding_t_step=None,
+                          **kwargs):
         #TODO: Review with modifications of Eduardo in erp_spellers (SERGIO)
         """High level function to easily extract features from EEG recordings
         and save useful info for later processing. Nevertheless, the provided
@@ -595,21 +575,32 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             Dictionary with tracked information across all recordings
 
         """
+
+        # Continuous settings
+        use_continuous = False
+        if sliding_w_lims_t is not None:
+            assert sliding_t_step is not None, \
+                ValueError("Parameter 'sliding_t_step' is required to perform "
+                           "the continuous sliding window and it is not found")
+        if sliding_t_step is not None:
+            assert sliding_w_lims_t is not None, \
+                ValueError("Parameter 'sliding_w_lims_t' is required to perform"
+                        " the continuous sliding window and it is not found")
+        if sliding_t_step is not None and sliding_w_lims_t is not None:
+            use_continuous = True
+
         # Avoid changes in the original recordings (this may not be necessary)
         if self.safe_copy:
             dataset = copy.deepcopy(dataset)
+
         # Avoid consistency problems
-        if dataset.fs is None and self.target_fs is None:
+        if dataset.fs is None and target_fs is None:
             raise ValueError('The consistency of the features is not assured '
                              'since dataset.fs and target_fs are both None. '
                              'Specify one of these parameters')
 
-        # Additional track attributes
+        # Additional track attributes TODO: is this necessary?
         track_attributes = dataset.track_attributes
-        # track_attributes['run_idx'] = {
-        #     'track_mode': 'concatenate',
-        #     'parent': dataset.experiment_att_key
-        # }
 
         # Initialization
         features = None
@@ -634,59 +625,67 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             rec_exp = getattr(rec, dataset.experiment_att_key)
             rec_sig = getattr(rec, dataset.biosignal_att_key)
 
-            # Get features
-            # Get features
-            list_w_epoch_t = list()
-            if not continuous:
-                list_w_epoch_t.append(self.w_epoch_t)
-            if continuous:
-                start = self.w_epoch_t - np.diff(self.w_epoch_t) / 2
-                stop = rec_exp.w_trial_t[1] - self.w_epoch_t[1]
-                steps_0 = np.arange(start=start[0], stop=stop + 1, step=250,
-                                    dtype=int)
-                steps_1 = np.arange(start=start[1], stop=rec_exp.w_trial_t[
-                                                             1] + 1, step=250,
-                                    dtype=int)
-                for i in range(len(steps_0)):
-                    list_w_epoch_t.append([steps_0[i], steps_1[i]])
+            # If continuous: get different windows relative to the onsets
+            if use_continuous:
+                start, stop = sliding_w_lims_t      # respect to each onset
+                win_len = w_epoch_t[1] - w_epoch_t[0]
+                step_array = np.arange(0, (stop - start - win_len) //
+                                       sliding_t_step + 1)
+                win_0 = start + step_array * sliding_t_step
+                win_1 = win_0 + win_len
+                list_w_epoch_t = [(w0, w1) for w0, w1 in zip(win_0, win_1)
+                                  if w1 <= stop]
+                if baseline_mode == "trial":
+                    bas_0 = start + w_baseline_t[0] + step_array * sliding_t_step
+                    bas_1 = start + w_baseline_t[1] + step_array * sliding_t_step
+                    list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
 
-            for w_epoch_t in list_w_epoch_t:
+                # Modify the mi_labels
+                if hasattr(rec.midata, "mi_labels"):
+                    rec.midata.mi_labels = \
+                        np.tile(rec.midata.mi_labels,
+                                (len(list_w_epoch_t), 1)).T.flatten()
 
+            else:
+                list_w_epoch_t = [w_epoch_t]
+                list_w_bas_t = [w_baseline_t]
+
+            # For each window
+            for i, w_epoch_t in enumerate(list_w_epoch_t):
+
+                # Get features
                 rec_feat = self.transform_signal(
                     times=rec_sig.times,
                     signal=rec_sig.signal,
                     fs=rec_sig.fs,
                     onsets=rec_exp.onsets,
-                    w_epoch_t=w_epoch_t
-                    # ,
-                    # calibration_t=rec_exp.calibration_t
+                    w_epoch_t=w_epoch_t,
+                    w_baseline_t=list_w_bas_t[i],
+                    baseline_mode=baseline_mode,
+                    norm=norm,
+                    target_fs=target_fs,
+                    concatenate_channels=concatenate_channels
                 )
-
                 features = np.concatenate((features, rec_feat), axis=0) \
                     if features is not None else rec_feat
 
-                # Special attributes that need tracking across runs to assure the
-                # consistency of the dataset
-                # rec_exp.run_idx = run_counter * np.ones_like(rec_exp.trial_idx)
-
-                # Track experiment info
-                for key, value in track_attributes.items():
-                    if value['parent'] is None:
-                        parent = rec
-                    else:
-                        parent = rec
-                        for p in value['parent'].split('.'):
-                            parent = getattr(parent, p)
-                    att = getattr(parent, key)
-                    if value['track_mode'] == 'append':
-                        track_info[key].append(att)
-                    elif value['track_mode'] == 'concatenate':
-                        track_info[key] = np.concatenate(
-                            (track_info[key], att), axis=0
-                        ) if track_info[key] is not None else att
-                    else:
-                        raise ValueError('Unknown track mode')
-
+            # Track experiment info
+            for key, value in track_attributes.items():
+                if value['parent'] is None:
+                    parent = rec
+                else:
+                    parent = rec
+                    for p in value['parent'].split('.'):
+                        parent = getattr(parent, p)
+                att = getattr(parent, key)
+                if value['track_mode'] == 'append':
+                    track_info[key].append(att)
+                elif value['track_mode'] == 'concatenate':
+                    track_info[key] = np.concatenate(
+                        (track_info[key], att), axis=0
+                    ) if track_info[key] is not None else att
+                else:
+                    raise ValueError('Unknown track mode')
             if show_progress_bar:
                 pbar.update(1)
         if show_progress_bar:
@@ -695,19 +694,17 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         return features, track_info
 
 
-class CSPFeatureExtraction(StandardFeatureExtraction):
+class CSPFeatureExtraction(components.ProcessingMethod):
     """Common Spatial Patterns (CSP) feature extraction method for MI-based
     spellers.
 
     Processing pipeline:
     - Use of StandardFeatureExtraction to get the raw epoch of each MI event.
     - Extract CSP features of those MI events.
+    - Log-var features
     """
 
-    def __init__(self, n_filters=4, w_epoch_t=(500, 4000), target_fs=None,
-                 baseline_mode='trial',
-                 w_baseline_t=(-1500, -500), norm='z',
-                 concatenate_channels=False, safe_copy=True, **kwargs):
+    def __init__(self, n_filters=4, safe_copy=True, **kwargs):
         """Class constructor
 
         n_filter : int or None
@@ -769,98 +766,85 @@ class CSPFeatureExtraction(StandardFeatureExtraction):
             patterns : numpy.ndarray
                 De-mixing matrix (activation patterns are stored in columns).
         """
-        super().__init__(w_epoch_t=w_epoch_t, target_fs=target_fs,
-                         baseline_mode=baseline_mode,
-                         w_baseline_t=w_baseline_t, norm=norm,
-                         concatenate_channels=concatenate_channels,
-                         safe_copy=safe_copy)
-        self.CSP = CSP(n_filters=n_filters)
+        self.feature_extractor = StandardFeatureExtraction(safe_copy=safe_copy)
+        self.CSP = CSP(n_filters=n_filters, selection="extremes")
 
-    def fit(self, X, y):
-        """Train Common Spatial Patterns (CSP) filters
+    # TODO: CONTINUOUS Y W_EPOCH_T PARA FIT Y PREDICT??
+    def fit_signal(self, labels, times, signal, fs, onsets, **kwargs):
+        # Standard extraction: just epoching (epochs x samples x channels)
+        features = self.feature_extractor.transform_signal(
+            times=times, signal=signal, fs=fs, onsets=onsets, **kwargs
+        )
 
-        Train Common Spatial Patterns (CSP) filters with support to >2
-        classes based on support multiclass CSP by means of approximate
-        joint diagonalization. In this case, the spatial filter selection
-        is achieved according to [1].
-
-        Adapted from http://github.com/alexandrebarachant/pyRiemann
-
-        Parameters
-        ----------
-        X : numpy.ndarray, [n_trials, samples, channels]
-            Epoched data of shape (n_trials, samples, channels)
-
-        y : numpy.ndarray, [n_trials,]
-            Labels for epoched data of shape (n_trials,)
-
-        References
-        ----------
-        [1] Grosse-Wentrup, Moritz, and Martin Buss. "Multiclass common
-        spatial patterns and information theoretic feature extraction."
-        Biomedical Engineering, IEEE Transactions on 55, no. 8 (2008):
-        1991-2000.
-        """
-        self.CSP.fit(X=X, y=y)
-
-    def project(self, times, signal, fs, onsets):
-        """Function to extract MI features from raw signal. It returns a 3D
-        feature array with shape [n_events x n_samples x n_channels]. This
-        function does not track any other attributes. Use for online processing
-        and custom higher level functions.
-
-        Parameters
-        ----------
-        times : list or numpy.ndarray
-                1D numpy array [n_samples]. Timestamps of each sample. If they
-                are not available, generate them artificially. Nevertheless,
-                all signals and events must have the same temporal origin
-        signal : list or numpy.ndarray
-            2D numpy array [n_samples x n_channels]. EEG samples (the units
-            should be defined using kwargs)
-        fs : int or float
-            Sample rate of the recording.
-        onsets : list or numpy.ndarray [n_events x 1]
-                Timestamp of each event
-
-        Returns
-        -------
-        features : numpy.ndarray [n_events x n_samples x n_channels]
-            Feature array with the epochs of signal projected in the CSP space
-        """
-        features = super().transform_signal(times, signal, fs, onsets)
-
-        features = self.CSP.project(X=features)
+        # Fit the CSP filter
+        self.CSP.fit(X=features, y=labels)
         return features
 
-    def extract_log_var_features(self, X):
-        """This method computes the standard motor imagery log-variance features
-        given the CSP .
+    def fit_dataset(self, dataset, show_progress_bar=True, **kwargs):
+        # Standard extraction: just epoching (epochs x samples x channels)
+        features, track_info = self.feature_extractor.transform_dataset(
+            dataset=dataset, show_progress_bar=show_progress_bar, **kwargs
+        )
 
-        Parameters
-        ----------
-        X : numpy.ndarray, [n_trials, samples, channels]
-            Epoched data of shape (n_trials, samples, channels)
-        Returns
-        -------
-        features : numpy.ndarray [n_events x n_channels]
-            Feature array with the epochs of signal projected in the CSP space
-        """
-        features = self.CSP.project(X=X)
-        # Obtain log-variance features given the CSP features
-        features = np.log(np.var(features, axis=-1))
-        return features
-
-    def transform_dataset(self, dataset, show_progress_bar=True):
-        features, track_info = super().transform_dataset(
-            dataset=dataset, show_progress_bar=show_progress_bar)
-        # Fit CSP filter
-        self.fit(X=features, y=track_info['mi_labels'])
-        # Project features into CSP space and obtain log-variance features given
-        # the CSP features
-        features = self.extract_log_var_features(X=features)
-
+        # Fit the CSP filter
+        self.CSP.fit(X=features, y=track_info['mi_labels'])
         return features, track_info
+
+    def transform_signal(self, times, signal, fs, onsets, **kwargs):
+        if not self.CSP.is_fitted:
+            raise ValueError('CSPFeatureExtraction must be fitted before '
+                             'predict!')
+
+        # Standard extraction: just epoching (epochs x samples x channels)
+        features = self.feature_extractor.transform_signal(
+            times=times, signal=signal, fs=fs, onsets=onsets, **kwargs
+        )
+
+        # Project using CSP
+        projection = self.CSP.project(X=features) # trials x samples x projects
+
+        # Log-variance features across samples
+        log_var = np.log(np.var(projection, axis=1))
+        n_log_var = np.log(
+            np.var(projection, axis=1) /
+            np.tile(np.sum(np.var(projection, axis=1), axis=1),
+                    (projection.shape[2], 1)).T
+        )
+        return log_var
+
+    def transform_dataset(self, dataset, show_progress_bar=True, **kwargs):
+        if not self.CSP.is_fitted:
+            raise ValueError('CSPFeatureExtraction must be fitted before '
+                             'predict!')
+
+        # Standard extraction: just epoching (epochs x samples x channels)
+        # TODO: w_epoch_t
+        features, track_info = self.feature_extractor.transform_dataset(
+            dataset=dataset, show_progress_bar=show_progress_bar, **kwargs
+        )
+
+        # Project using CSP
+        projection = self.CSP.project(X=features)
+
+        # Log-variance features
+        log_var = np.log(np.var(projection, axis=1))
+        n_log_var = np.log(
+            np.var(projection, axis=1) /
+            np.tile(np.sum(np.var(projection, axis=1), axis=1),
+                    (projection.shape[2], 1)).T
+        )
+        return log_var, track_info
+
+    def fit_transform_signal(self, labels, times, signal, fs, onsets, **kwargs):
+        self.fit_signal(labels, times, signal, fs, onsets, **kwargs)
+        log_var = self.transform_signal(times, signal, fs, onsets, **kwargs)
+        return log_var
+
+    def fit_transform_dataset(self, dataset, show_progress_bar=True, **kwargs):
+        self.fit_dataset(dataset, show_progress_bar=show_progress_bar, **kwargs)
+        log_var, track_info = self.transform_dataset(
+            dataset, show_progress_bar=show_progress_bar, **kwargs)
+        return log_var, track_info
 
 
 class MIModel(components.Algorithm):
@@ -1018,12 +1002,19 @@ class MIModelCSP(MIModel):
     def __init__(self):
         super().__init__()
 
-    def configure(self, p_filt_cutoff=(8, 30), w_epoch_t=(500, 4000),
-                  target_fs=60, **kwargs):
+    def configure(self, p_filt_cutoff=(8, 30), w_epoch_t=(0, 2000),
+                  w_baseline_t=(-1000, 0), target_fs=60, **kwargs):
         self.settings = {
             'p_filt_cutoff': p_filt_cutoff,
             'w_epoch_t': w_epoch_t,
-            'target_fs': target_fs
+            'baseline_mode': 'trial',
+            'w_baseline_t': w_baseline_t,
+            'norm': 'z',
+            'target_fs': target_fs,
+            'concatenate_channels': False,
+            'sliding_w_lims_t': None,
+            'sliding_t_step': None,
+            'n_filters': 4
         }
         self.settings = dict(self.settings, **kwargs)
         # Update state
@@ -1052,34 +1043,60 @@ class MIModelCSP(MIModel):
         self.is_built = True
         self.is_fit = False
 
-    def fit_dataset(self, dataset, **kwargs):
+    def fit_dataset(self, dataset, get_training_accuracy=True,
+                    k_fold=5, continuous_settings=None, **kwargs):
         # Check errors
         if not self.is_built:
             raise ValueError('Function build must be called first!')
+
+        # Merge settings
+        settings = dict(self.settings, **kwargs)
+        if continuous_settings is not None:
+            settings = dict(settings, **continuous_settings)
+
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
+
         # Extract CSP features
-        x, x_info = self.get_inst('ext_method').transform_dataset(dataset)
+        x, x_info = self.get_inst('ext_method').fit_transform_dataset(
+            dataset, **settings)
 
-        # Classification
+        # Training accuracy using a k-fold cross-validation
+        assessment = None
+        if get_training_accuracy:
+            folds_decoding = list()
+            k_fold_iter = cu.k_fold_split(x, x_info['mi_labels'], k_fold)
+            k_fold_acc = 0
+            for iter in k_fold_iter:
+                self.get_inst('clf_method').fit(
+                    iter["x_train"], iter["y_train"])
+                y_test_pred = self.get_inst('clf_method').predict(
+                    iter["x_test"])
+                y_test_prob = self.get_inst('clf_method').predict_proba(
+                    iter["x_test"])
+                fold_acc = np.sum(y_test_pred == iter["y_test"]) / \
+                           len(iter["y_test"])
+                k_fold_acc += fold_acc
+                folds_decoding.append({
+                    "y_pred": y_test_pred,
+                    "y_prob": y_test_prob,
+                    "accuracy": k_fold_acc,
+                })
+            k_fold_acc /= len(k_fold_iter)
+
+            assessment = {
+                'x': x,
+                'x_info': x_info,
+                'k-fold': folds_decoding,
+                'accuracy': k_fold_acc
+            }
+
+        # Fit classifier with all the data
         self.get_inst('clf_method').fit(x, x_info['mi_labels'])
-        y_prob = self.get_inst('clf_method').predict_proba(x)
-        y_pred = self.get_inst('clf_method').predict(x)
 
-        # Accuracy
-        accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
-        clf_report = classification_report(x_info['mi_labels'], y_pred,
-                                           output_dict=True)
-        assessment = {
-            'x': x,
-            'x_info': x_info,
-            'y_prob': y_prob,
-            'y_pred': y_pred,
-            'accuracy': accuracy,
-            'report': clf_report
-        }
         # Save info
         self.channel_set = dataset.channel_set
+
         # Update state
         self.is_fit = True
         return assessment
@@ -1088,17 +1105,58 @@ class MIModelCSP(MIModel):
         # Check errors
         if not self.is_fit:
             raise ValueError('Function fit_dataset must be called first!')
+        # Merge settings
+        settings = dict(self.settings, **kwargs)
         # Check channel set
-        if self.channel_set.channels != channel_set.channels:
+        if self.channel_set.l_cha != channel_set.l_cha:
             warnings.warn('The channel set is not the same that was used to '
                           'fit the model. Be careful!')
         # Preprocessing
-        signal = self.get_inst('prep_method').fit_transform_signal(signal, fs)
+        signal = self.get_inst('prep_method').transform_signal(signal)
 
         # Extract features
-        x = self.get_inst('ext_method').transform_signal(times, signal, fs,
-                                                         x_info['onsets'])
-        x = self.get_inst('ext_method').extract_log_var_features(x)
+        x = self.get_inst('ext_method').transform_signal(
+            times, signal, fs, x_info['onsets'], **settings)
+
+        # Classification
+        y_prob = self.get_inst('clf_method').predict_proba(x)
+        y_pred = self.get_inst('clf_method').predict(x)
+
+        # Decoding
+        accuracy = None
+        clf_report = None
+        if x_info['mi_labels'] is not None:
+            accuracy = np.sum((y_pred == x_info['mi_labels'])) / len(y_pred)
+            clf_report = classification_report(x_info['mi_labels'], y_pred,
+                                               output_dict=True)
+        decoding = {
+            'x': x,
+            'x_info': x_info,
+            'y_prob': y_prob,
+            'y_pred': y_pred,
+            'accuracy': accuracy,
+            'report': clf_report
+        }
+        return decoding
+
+    def predict_dataset(self, dataset, **kwargs):
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('Function fit_dataset must be called first!')
+        # Check channel set
+        if self.channel_set.l_cha != dataset.channel_set.l_cha:
+            warnings.warn('The channel set is not the same that was used to '
+                          'fit the model. Be careful!')
+        # Merge settings
+        settings = dict(self.settings, **kwargs)
+
+        # Preprocessing
+        dataset = self.get_inst('prep_method').transform_dataset(dataset)
+
+        # Extract features
+        x, x_info = self.get_inst('ext_method').transform_dataset(
+            dataset, **settings)
+
         # Classification
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = self.get_inst('clf_method').predict(x)
