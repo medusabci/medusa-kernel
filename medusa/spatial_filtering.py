@@ -284,6 +284,7 @@ class CSP(components.ProcessingMethod):
         self.sel_filters = None         # Selected spatial filters
         self.sel_patterns = None        # Selected patterns
         self.sel_eigenvalues = None     # Selected eigenvalues
+        self.is_fitted = False
 
     def fit(self, X, y):
         """ Method to train the CSP.
@@ -383,6 +384,7 @@ class CSP(components.ProcessingMethod):
             self.sel_filters = self.filters
             self.sel_patterns = self.patterns
             self.sel_eigenvalues = self.eigenvalues
+        self.is_fitted = True
 
     def project(self, X):
         """ Projects the input data X with the selected spatial filters.
@@ -397,9 +399,21 @@ class CSP(components.ProcessingMethod):
         numpy.ndarray (n_epochs, n_filters, n_channels)
             Array with the epochs of signal projected in the CSP space.
         """
-        if self.filters is None:
+        if len(X.shape) != 3:
+            raise Exception("X must be 3-dimensional (n_epochs x n_samples x "
+                            "n_channels!")
+        if not self.is_fitted:
             raise Exception("CSP must be fitted first")
-        return np.matmul(self.sel_filters, X.transpose((0, 2, 1)))
+
+        # TODO: Vectorization
+        projection = np.empty((X.shape[0], X.shape[1], self.n_filters))
+        for i in range(X.shape[0]):
+            # Get the trial projection (samples x projections)
+            trial = np.squeeze(X[i, :, :])  # samples x channels
+            trial_proj = np.matmul(self.sel_filters, trial.T).T
+            # Store in the big matrix (epochs x samples x projections)
+            projection[i, :, :] = np.expand_dims(trial_proj, axis=0)
+        return projection
 
     @staticmethod
     def _adj_pham(x, eps=1e-6, n_iter_max=15):
