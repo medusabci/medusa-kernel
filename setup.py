@@ -31,7 +31,8 @@ setup(
         'dill',
         'tqdm',
         'tensorflow==2.10',
-        'tensorflow-probability==0.16'
+        'tensorflow-probability==0.16',
+        'statsmodels'
     ],
     classifiers=[
         'Development Status :: 4 - Beta',

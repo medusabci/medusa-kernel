@@ -60,14 +60,14 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
     fs : float
         Sample rate
     w_epoch_t : list or numpy.ndarray
-        Temporal window in ms of the epoch. For example, t_baseline = [0, 1000]
+        Temporal window in ms of the epoch. For example, w_epoch_t = [0, 1000]
         takes the epoch form 0 ms to 1000 ms after each onset (0 ms represents
         the onset).
     w_baseline_t : list or numpy.ndarray, optional
-        Temporal window in ms of the baseline. For example, t_baseline =
-        [-500, 100] takes the baseline form -500 ms before each onset to 100
+        Temporal window in ms of the baseline. For example, w_baseline_t =
+        [-500, 100] takes the baseline from -500 ms before each onset to 100
         ms after each onset (0 ms represents the onset). This chunk of signal is
-        used to normalize the epoch, if aplicable
+        used to normalize the epoch, if applicable.
     norm : str, optional
        Set to 'z' for Z-score normalization or 'dc' for DC normalization.
        Statistical parameters are computed using the whole epoch.
