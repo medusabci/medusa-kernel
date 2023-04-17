@@ -312,6 +312,7 @@ class EEGInceptionv1(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
@@ -641,6 +642,7 @@ class EEGNet(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
@@ -1455,7 +1457,8 @@ class EEGSym(components.ProcessingMethod):
         ordered_channels = left + middle + right
         index_channels = [channels.index(channel) for channel in
                           ordered_channels]
-        return X[:, :, index_channels]
+        return np.array(X)[:, :, index_channels], list(np.array(channels)[
+            index_channels])
 
     def predict_proba(self, X):
         """Model prediction scores for the given features.
@@ -1497,6 +1500,7 @@ class EEGSym(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
