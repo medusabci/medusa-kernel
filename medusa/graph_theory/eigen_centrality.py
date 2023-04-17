@@ -35,10 +35,3 @@ def eigen_centrality(W):
     
         
     return nodal_eig
-
-# import scipy.io as rmat
-
-# data = rmat.loadmat('D:/OneDrive - Universidad de Valladolid/Scripts/testPython/graphTest.mat')
-# W = data['W']
-# W = np.squeeze(W)
-# aa = eigen_centrality(W)

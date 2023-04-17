@@ -6,16 +6,20 @@ connectivity metrics. Enjoy!
 """
 
 # Built-in imports
-import warnings
+import warnings, os
 
 # External imports
 import scipy.signal as sp_signal
 import numpy as np
-import tensorflow as tf
 
 # Medusa imports
 from medusa import transforms
 from medusa.utils import check_dimensions
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 
 def __phase_connectivity_cpu(data, measure=None):
@@ -235,7 +239,6 @@ def phase_connectivity(data, measure=None):
         wpli-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
-    from medusa import tensorflow_integration
     # Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
@@ -244,7 +247,8 @@ def phase_connectivity(data, measure=None):
         raise ValueError('Unknown measure key. Available are: "plv", "pli" or'
                          '"wpli".')
 
-    if tensorflow_integration.check_tf_config(autoconfig=True):
+    if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         if measure is None:
             plv, pli, wpli, = __phase_connectivity_gpu(data, measure)
             return np.asarray(plv), np.asarray(pli), np.asarray(wpli)

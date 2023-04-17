@@ -6,20 +6,23 @@ connectivity metrics. Enjoy!
 """
 
 # Built-in imports
-import warnings
+import warnings, os
 
 # External imports
 import numpy as np
 from scipy import stats as sp_stats
-import tensorflow as tf
-from tensorflow_probability import stats as tfp_stats
 
 # Medusa imports
 import medusa.components
 from medusa import signal_orthogonalization as orthogonalizate
 from medusa.transforms import hilbert
-from medusa import pearson_corr_matrix as corr
 from medusa.utils import check_dimensions
+from medusa import tensorflow_integration
+
+
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
+    import tensorflow_probability as tfp
 
 
 def __aec_gpu(data):
@@ -48,7 +51,7 @@ def __aec_gpu(data):
     envelope = tf.math.abs(hilb) 
     env = tf.math.log(tf.math.square(envelope))
 
-    aec = tfp_stats.correlation(env,sample_axis=1)
+    aec = tfp.stats.correlation(env,sample_axis=1)
 
     return aec.numpy()
 
@@ -98,6 +101,7 @@ def __aec_cpu(data):
         aec[epoch_idx, :, :] = thread.join()
 
     return aec
+
 
 def __aec_ort_gpu(data):
     """ This method implements the orthogonalized version of the amplitude
@@ -204,6 +208,7 @@ def __aec_ort_cpu(data):
 
     return aec_ort
 
+
 def __aec_ort_comp_aux(env, n_cha, ctype='cpu'):
     """
     Auxiliary method that implements a function to compute the orthogonalized AEC.
@@ -239,7 +244,7 @@ def __aec_ort_comp_aux(env, n_cha, ctype='cpu'):
         return aec_ort
 
     elif ctype == 'gpu':
-        aec_tmp = tfp_stats.correlation(env)
+        aec_tmp = tfp.stats.correlation(env)
         aec_tmp2 = tf.transpose(
             tf.reshape(
                 tf.transpose(aec_tmp),
@@ -256,6 +261,7 @@ def __aec_ort_comp_aux(env, n_cha, ctype='cpu'):
             aec_ort, 0, 0)
         aec_ort = tf.math.abs(tf.math.add(aux, tf.transpose(aec_ort)))
         return aec_ort
+
 
 def aec(data, ort=True):
     """ This method implements the amplitude envelope correlation (using GPU if
@@ -291,19 +297,20 @@ def aec(data, ort=True):
         aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
-    from medusa import tensorflow_integration
     #  Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values') 
 
     if not ort:
-        if tensorflow_integration.check_tf_config(autoconfig=True):
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+                tensorflow_integration.check_tf_config(autoconfig=True):
             aec = __aec_gpu(data)
         else:
             aec = __aec_cpu(data)
 
     else:
-        if tensorflow_integration.check_tf_config(autoconfig=True):
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+                tensorflow_integration.check_tf_config(autoconfig=True):
             aec = __aec_ort_gpu(data)
         else:
             aec = __aec_ort_cpu(data)
@@ -368,6 +375,7 @@ def __iac_gpu(data):
                                      axis=-1), n_epo,axis=0))
 
     return iac.numpy()
+
 
 def __iac_cpu(data):
     """ This method implements the instantaneous amplitude correlation using
@@ -494,6 +502,7 @@ def __iac_ort_gpu(data):
 
     return tf.transpose(iac_ort, (0, 2, 3, 1)).numpy()
 
+
 def __iac_ort_cpu(data):
     """ This method implements the orthogonalized version of the instantaneous
     amplitude correlation using CPU. This orthogonalized version minimizes the
@@ -591,20 +600,20 @@ def iac(data, ort=True):
         [n_epochs, n_channels, n_channels, n_samples].
 
     """
-    from medusa import tensorflow_integration
-
     #  Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
 
     if not ort:
-        if tensorflow_integration.check_tf_config(autoconfig=True):
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+                tensorflow_integration.check_tf_config(autoconfig=True):
             iac = __iac_gpu(data)
         else:
             iac = __iac_cpu(data)
 
     else:
-        if tensorflow_integration.check_tf_config(autoconfig=True):
+        if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+                tensorflow_integration.check_tf_config(autoconfig=True):
             iac = __iac_ort_gpu(data)
         else:
             iac = __iac_ort_cpu(data)

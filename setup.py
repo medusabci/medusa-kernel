@@ -30,10 +30,14 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'tensorflow==2.10',
-        'tensorflow-probability==0.16',
         'statsmodels'
     ],
+    extras_require={
+        'GPU-TF': [
+            'tensorflow<2.11',
+            'tensorflow-probability==0.16'
+        ],
+    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
