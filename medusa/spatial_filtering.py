@@ -310,18 +310,23 @@ class CSP(components.ProcessingMethod):
         Biomedical Engineering, IEEE Transactions on 55, no. 8 (2008):
         1991-2000.
         """
+        # Error detection
         n_classes = np.unique(y)
+        if len(n_classes) > 2 and self.selection == "extremes":
+            raise ValueError("Cannot use 'extremes' selection if the data has "
+                             "more than 2 classes (%i classess found)!"
+                             % len(n_classes))
 
         # Covariance matrices
         cov = []
         for c in n_classes:
             cov.append(np.cov(X[y == c].reshape(-1, X.shape[-1]).T))
-        cov = np.array(cov)     # dimensions [n_classes x n_cha x n_cha]
+        cov = np.array(cov)  # dimensions [n_classes x n_cha x n_cha]
 
         # Classic implementation for 2 classes
         if len(n_classes) == 2:
             # Solve the eigenvalue problem
-            self.eigenvalues, filters = slinalg.eigh(cov[0], cov[0] + cov[1])
+            self.eigenvalues, eigenvectors = slinalg.eigh(cov[0], cov.sum(0))
 
             # Indexes for sorting eigenvectors (w)
             if self.selection == "eigenvalues":
@@ -332,7 +337,7 @@ class CSP(components.ProcessingMethod):
                 # Automatic selection using extremes for both classes
                 self.sel_idxs = list()
                 ids = np.arange(len(self.eigenvalues)).tolist()
-                start = True
+                start = False
                 while len(self.sel_idxs) < self.n_filters:
                     if start:
                         self.sel_idxs.append(ids.pop(0))
@@ -357,7 +362,8 @@ class CSP(components.ProcessingMethod):
             for j in range(filters.shape[1]):
                 patterns, b = 0, 0
                 for i, c in enumerate(n_classes):
-                    temp = np.dot(np.dot(filters[:, j].T, cov[i]), filters[:, j])
+                    temp = np.dot(np.dot(filters[:, j].T, cov[i]),
+                                  filters[:, j])
                     patterns += prob_class[i] * np.log(np.sqrt(temp))
                     b += prob_class[i] * (temp ** 2 - 1)
                 mutual_info = - (patterns + (3.0 / 16) * (b ** 2))
@@ -371,14 +377,14 @@ class CSP(components.ProcessingMethod):
             raise ValueError("Number of classes must be  >= 2")
 
         # Get all the spatial filters, patterns and eigenvalues (non-sorted)
-        self.filters = filters.T
-        self.patterns = slinalg.pinv(filters).T
+        self.filters = eigenvectors.T
+        self.patterns = slinalg.pinv(eigenvectors)
         self.eigenvalues = np.array(self.eigenvalues)
 
         # Get the selected spatial filters, patterns and eigenvalues
         if self.sel_idxs is not None:
             self.sel_filters = self.filters[self.sel_idxs, :]
-            self.sel_patterns = self.patterns[self.sel_patterns, :]
+            self.sel_patterns = self.patterns[self.sel_idxs, :]
             self.sel_eigenvalues = self.eigenvalues[self.sel_idxs]
         else:
             self.sel_filters = self.filters
