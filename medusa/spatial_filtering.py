@@ -411,14 +411,9 @@ class CSP(components.ProcessingMethod):
         if not self.is_fitted:
             raise Exception("CSP must be fitted first")
 
-        # TODO: Vectorization
-        projection = np.empty((X.shape[0], X.shape[1], self.n_filters))
-        for i in range(X.shape[0]):
-            # Get the trial projection (samples x projections)
-            trial = np.squeeze(X[i, :, :])  # samples x channels
-            trial_proj = np.matmul(self.sel_filters, trial.T).T
-            # Store in the big matrix (epochs x samples x projections)
-            projection[i, :, :] = np.expand_dims(trial_proj, axis=0)
+        # Project each trial separately
+        projection = [np.dot(self.sel_filters, trial.T) for trial in X]
+        projection = np.transpose(np.array(projection), (0, 2, 1))
         return projection
 
     @staticmethod
