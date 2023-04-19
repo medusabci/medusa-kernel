@@ -635,9 +635,13 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 win_1 = win_0 + win_len
                 list_w_epoch_t = [(w0, w1) for w0, w1 in zip(win_0, win_1)
                                   if w1 <= stop]
-                if baseline_mode == "trial":
+                if ((baseline_mode == "trial") and (w_epoch_t == w_baseline_t)):
                     bas_0 = start + w_baseline_t[0] + step_array * sliding_t_step
                     bas_1 = start + w_baseline_t[1] + step_array * sliding_t_step
+                    list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
+                elif baseline_mode == "trial":
+                    bas_0 = start + w_baseline_t[0] + step_array * 0
+                    bas_1 = start + w_baseline_t[1] + step_array * 0
                     list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
 
                 # Modify the mi_labels
