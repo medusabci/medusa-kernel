@@ -113,9 +113,9 @@ class MIData(components.ExperimentData):
                 rec_dict[key] = rec_dict[key].tolist()
         return rec_dict
 
-    @staticmethod
-    def from_serializable_obj(dict_data):
-        return MIData(**dict_data)
+    @classmethod
+    def from_serializable_obj(cls, dict_data):
+        return cls(**dict_data)
 
 
 class MIDataset(components.Dataset):
