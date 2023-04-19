@@ -1080,7 +1080,7 @@ class MIModelCSP(MIModel):
                 folds_decoding.append({
                     "y_pred": y_test_pred,
                     "y_prob": y_test_prob,
-                    "accuracy": k_fold_acc,
+                    "accuracy": fold_acc,
                 })
             k_fold_acc /= len(k_fold_iter)
 
