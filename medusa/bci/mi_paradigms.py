@@ -1246,8 +1246,9 @@ class MIModelEEGSym(MIModel):
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=49, btype='lowpass'))
         # Feature extraction (epochs [0, 2000] ms + resampling to 128 Hz)
-        self.add_method('ext_method', StandardFeatureExtraction(w_epoch_t=(
-            0, 2000), target_fs=128, w_baseline_t=(0, 2000),))
+        self.add_method('ext_method', StandardFeatureExtraction())
+        # w_epoch_t=(
+        #     0, 2000), target_fs=128, w_baseline_t=(0, 2000),))
         # Feature classification
         clf = EEGSym(
             input_time=2000,
@@ -1279,10 +1280,14 @@ class MIModelEEGSym(MIModel):
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
         # Extract features
-        x, x_info = self.get_inst('ext_method').transform_dataset(dataset,
-                                                                  continuous=continuous)
+        x, x_info = self.get_inst('ext_method'
+                                  ).transform_dataset(dataset,
+                                                      w_epoch_t=(0, 2000),
+                                                      target_fs=128,
+                                                      w_baseline_t=(0, 2000),
+                                                      continuous=continuous)
         # Put channels in symmetric order
-        x = self.get_inst('clf_method').symmetric_channels(x,
+        x, _ = self.get_inst('clf_method').symmetric_channels(x,
                                                            dataset.channel_set.l_cha)
 
         # Classification
@@ -1325,10 +1330,15 @@ class MIModelEEGSym(MIModel):
         signal = self.get_inst('prep_method').fit_transform_signal(signal, fs)
 
         # Extract features
-        x = self.get_inst('ext_method').transform_signal(times, signal, fs,
-                                                         x_info['onsets'])
+        x = self.get_inst('ext_method').transform_signal(times=times,
+                                                         signal=signal, fs=fs,
+                                                         onsets=x_info['onsets'],
+                                                         w_epoch_t=(0, 2000),
+                                                         target_fs=128,
+                                                         w_baseline_t=(0, 2000)
+                                                         )
         # Put channels in symmetric order
-        x = self.get_inst('clf_method').symmetric_channels(x,
+        x, _ = self.get_inst('clf_method').symmetric_channels(x,
                                                            self.channel_set.l_cha)
         # Classification
         y_prob = self.get_inst('clf_method').predict_proba(x)
