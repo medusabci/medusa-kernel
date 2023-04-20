@@ -449,51 +449,21 @@ class StandardPreprocessing(components.ProcessingMethod):
 
 
 class StandardFeatureExtraction(components.ProcessingMethod):
-    """Standard feature extraction method for MI-based spellers. Basically,
+    """
+    Standard feature extraction method for MI-based spellers. Basically,
     it gets the raw epoch for each MI event.
     """
 
     def __init__(self, safe_copy=True):
-        """Class constructor
+        """
+        Class constructor. All parameters except "safe_copy" must be specified
+        in each method.
 
-        w_epoch_t : list
-            Temporal window in ms for each epoch relative to the event onset
-            (e.g., [0, 3000])
-        target_fs : float of None
-            Target sample rate of each epoch. If None, all the recordings must
-            have the same sample rate, so it is strongly recommended to set this
-            parameter to a suitable value to avoid problems and save time
-        baseline_mode : {'run', 'trial', None}
-            If "run" selected it will use the w_baseline_t of the beginning of
-            each run.
-            If "trial" selected it will use the w_baseline_t previous to each
-            epoch extracted.
-            If None it will not perform the baseline extraction.
-        w_baseline_t : list, np.ndarray or "auto"
-            Temporal window in ms to be used for baseline normalization.
-            If baseline_mode = "run" it will use the temporal window since start
-            of trial.
-            If baseline_mode = "trial", for each epoch it will use the time
-            relative to the event onset (e.g., [-1500, -500]).
-            If "auto" selected:
-                If baseline_mode = "run" will use the time between the
-                MedusaData.experiment.start and MedusaData.experiment.calibration
-                information stored in the run.
-                If baseline_mode = "trial" will use the time between
-                [-1500,-500]ms takes the baseline from -1500ms to -500ms before
-                each onset (0 ms represents the onset).
-                If baseline_mode = None it will not be used.
-        norm : str {'z'|'dc'}
-            Type of baseline normalization. Set to 'z' for Z-score normalization
-            or 'dc' for DC normalization
-        concatenate_channels : bool
-            This parameter controls the shape of the feature array. If True, all
-            channels will be concatenated, returning an array of shape [n_events
-            x (samples x channels)]. If false, the array will have shape
-            [n_events x samples x channels]
+        Parameters
+        -----------
         safe_copy : bool
             Makes a safe copy of the signal to avoid changing the original
-            samples due to references
+            samples due to references.
         """
         super().__init__(transform_signal=['x'],
                          transform_dataset=['x', 'x_info'])
@@ -503,18 +473,66 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                          baseline_mode="trial", w_baseline_t=(-1500, -500),
                          norm='z', target_fs=128, concatenate_channels=False,
                          **kwargs):
+        """
+        Method to extract epochs from an individual signal.
+
+        Parameters
+        -----------------
+        times : ndarray (n_samples,)
+            Timestamp array
+        signal: ndarray (n_samples x n_channels)
+            Signal data.
+        fs : int
+            Sampling frequency.
+        onsets: ndarray (n_trials,)
+            Timestamps for the MI event onsets.
+        w_epoch_t : list, tuple, or ndarray
+            Temporal window in ms for each epoch relative to the event onset
+            (e.g., [0, 3000])
+        baseline_mode : basestring {'run', 'trial', None}
+            If "run", the baseline will be extracted from the very beginning
+            of the run (i.e., the first samples of the signal).
+            If "trial" (default), the baseline will be extracted for each
+            trial relative to the onset.
+            If None, no baseline extraction will be performed.
+        w_baseline_t : list, tuple, or ndarray
+            Temporal window in ms to be used for baseline normalization.
+            If baseline_mode = "run", the window is relative to the start of
+            the signal.
+            If baseline_mode = "trial", the window is relative to each trial
+            onset (e.g., [-1500, -500]).
+        norm : str {'z'|'dc'}
+            Type of baseline normalization. Set to 'z' for Z-score
+            normalization (subtract the mean and divide by the std),
+            or 'dc' for DC normalization (subtract the mean).
+        target_fs : float of None
+            Target sample rate of each epoch. If None, no resampling will be
+            applied. Please note that, in this case, all the recordings must
+            have the same sample rate.
+        concatenate_channels : bool
+            This parameter controls the shape of the feature array. If True, all
+            channels will be concatenated, returning an array of shape [n_events
+            x (samples x channels)]. If false, the array will have shape
+            [n_events x samples x channels].
+
+        Returns
+        -----------
+        features : ndarray
+            MI epochs extracted with shape [n_events x samples x channels], or
+            [n_events x (samples x channels)] if concatenate_channels == True.
+        """
         # Avoid changes in the original signal (this may not be necessary)
         if self.safe_copy:
             signal = signal.copy()
 
         # Baseline options
+        if baseline_mode == "sliding":
+            baseline_mode = "trial"
         assert baseline_mode in ('run', 'trial', None), \
             ValueError('Parameter baseline_mode must be {"run", "trial", None}')
         if baseline_mode in ('run', None):
             w_baseline_t = None
             norm = None
-        if baseline_mode == 'trial' and w_baseline_t == 'auto':
-            w_baseline_t = w_epoch_t
 
         # Extract features
         features = get_epochs_of_events(
@@ -523,22 +541,25 @@ class StandardFeatureExtraction(components.ProcessingMethod):
             w_baseline_t=w_baseline_t, norm=norm
         )
 
-        # TODO: Check these modes
+        # Common baseline for the entire run
         if baseline_mode == "run":
             # Here baseline is taken relative to the start of the signal
             norm_epoch_s = np.array(w_baseline_t * fs / 1000, dtype=int)
             norm_epoch = np.expand_dims(signal[norm_epoch_s, :], axis=0)
             features = normalize_epochs(features, norm_epochs=norm_epoch,
                                         norm=self.norm)
-        # Resample each epoch to the target frequency
+
+        # Apply resampling if required
         if target_fs is not None:
             if target_fs > fs:
                 raise warnings.warn('Target fs is greater than data fs')
             features = resample_epochs(features, w_epoch_t, target_fs)
-        # Reshape epochs and concatenate the channels
+
+        # Channel concatenation if desired
         if concatenate_channels:
             features = np.squeeze(features.reshape(
                 (features.shape[0], features.shape[1] * features.shape[2], 1)))
+
         return features
 
     def transform_dataset(self, dataset, show_progress_bar=True,
@@ -546,47 +567,74 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                           w_baseline_t=(-1500, -500), norm='z',
                           target_fs=128, concatenate_channels=False,
                           sliding_w_lims_t=None, sliding_t_step=None,
-                          **kwargs):
-        #TODO: Review with modifications of Eduardo in erp_spellers (SERGIO)
-        """High level function to easily extract features from EEG recordings
+                          sliding_win_len=None, **kwargs):
+        """
+        Method to extract epochs from an entire MIDataset
+
+        High level function to easily extract features from EEG recordings
         and save useful info for later processing. Nevertheless, the provided
         functionality has several limitations and it will not be suitable for
         all cases and processing pipelines. If it does not fit your needs,
         create a custom function iterating the recordings and using
         extract_erp_features, a much more low-level and general function. This
         function does not apply any preprocessing to the signals, this must
-        be done before
+        be done before.
+
+        Most parameters are shared with
+        StandardFeatureExtraction.transform_signal() method, check it for
+        more information. Only the new parameters or those that behave
+        differently than the aforementioned method are detailed below. These
+        new parameters are related to a continuous extraction of epochs using a
+        sliding window between a desired epoch range, instead of extracting only
+        one epoch for each onset.
 
         Parameters
         ----------
         dataset: MIDataset
-            List of data_structures.Recordings or data_structures.Dataset. If this
-            parameter is a list of recordings, the consistency of the dataset will
-            be checked. Otherwise, if the parameter is a dataset, this function
-            assumes that the consistency is already checked
+            MIDataset instance containing the MIData recordings.
         show_progress_bar: bool
-            Show progress bar
+            Boolean to show (or not) the progress bar info.
+        sliding_w_lims_t: list, tuple, ndarray, or None
+            2D window that indicates the range (start, end) for the sliding
+            window approach. If None, no sliding window would be applied.
+            This parameter delimits the number of windows to be extracted for
+            each onset, so none of them can fall outside the range (excluding
+            baseline).
+        sliding_t_step: int, None
+            Step in samples that is used to separate the sliding windows. If
+            None, no sliding window would be applied.
+        sliding_win_len: int, None
+            Length in samples of the sliding windows. Please note that the
+            w_epoch_t parameter would not be used if the sliding window approach
+            is used. If None, no sliding window would be applied.
+        baseline_mode : {'run', 'trial', None, 'sliding'}
+            The baseline_mode has an additional feature when sliding window is
+            used:
+                - "run": common baseline extracted from the start of the run.
+                - "trial": common baseline for the trial, i.e., all the windows
+                that belongs to an onset; extracted relative to the onset.
+                - None: no baseline.
+                - "sliding": baseline is applied to each sliding window,
+                and it is relative to the start of each sliding window.
 
         Returns
         -------
         features : numpy.ndarray
-            Array with the biosignal samples arranged in epochs
+            Array with the biosignal samples arranged in epochs.
         track_info : dict
-            Dictionary with tracked information across all recordings
-
+            Dictionary with tracked information across all recordings.
         """
 
         # Continuous settings
         use_continuous = False
-        if sliding_w_lims_t is not None:
-            assert sliding_t_step is not None, \
-                ValueError("Parameter 'sliding_t_step' is required to perform "
-                           "the continuous sliding window and it is not found")
-        if sliding_t_step is not None:
-            assert sliding_w_lims_t is not None, \
-                ValueError("Parameter 'sliding_w_lims_t' is required to perform"
-                        " the continuous sliding window and it is not found")
-        if sliding_t_step is not None and sliding_w_lims_t is not None:
+        if sliding_w_lims_t is not None or sliding_t_step is not None or \
+                sliding_win_len is not None:
+            assert sliding_w_lims_t is not None and sliding_t_step is not \
+                   None and sliding_win_len is not None, \
+                ValueError("All these three parameters {sliding_w_lims_t, "
+                           "sliding_t_step, sliding_win_len} must be "
+                           "specified to use sliding windows. If not desired, "
+                           "then put all three to None. Aborting.")
             use_continuous = True
 
         # Avoid changes in the original recordings (this may not be necessary)
@@ -599,11 +647,10 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                              'since dataset.fs and target_fs are both None. '
                              'Specify one of these parameters')
 
-        # Additional track attributes TODO: is this necessary?
+        # Additional track attributes
         track_attributes = dataset.track_attributes
 
         # Initialization
-        features = None
         track_info = dict()
         for key, value in track_attributes.items():
             if value['track_mode'] == 'append':
@@ -620,6 +667,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                         desc='Extracting features')
 
         # Compute features
+        features = None
         for run_counter, rec in enumerate(dataset.recordings):
             # Extract recording experiment and biosignal
             rec_exp = getattr(rec, dataset.experiment_att_key)
@@ -627,35 +675,41 @@ class StandardFeatureExtraction(components.ProcessingMethod):
 
             # If continuous: get different windows relative to the onsets
             if use_continuous:
+                # Get windows
                 start, stop = sliding_w_lims_t      # respect to each onset
-                win_len = w_epoch_t[1] - w_epoch_t[0]
-                step_array = np.arange(0, (stop - start - win_len) //
+                step_array = np.arange(0, (stop - start - sliding_win_len) //
                                        sliding_t_step + 1)
                 win_0 = start + step_array * sliding_t_step
-                win_1 = win_0 + win_len
+                win_1 = win_0 + sliding_win_len
                 list_w_epoch_t = [(w0, w1) for w0, w1 in zip(win_0, win_1)
                                   if w1 <= stop]
-                if ((baseline_mode == "trial") and (w_epoch_t == w_baseline_t)):
+
+                # Get baselines
+                if baseline_mode == "sliding":
                     bas_0 = start + w_baseline_t[0] + step_array * sliding_t_step
                     bas_1 = start + w_baseline_t[1] + step_array * sliding_t_step
                     list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
                 elif baseline_mode == "trial":
-                    bas_0 = start + w_baseline_t[0] + step_array * 0
-                    bas_1 = start + w_baseline_t[1] + step_array * 0
+                    bas_0 = start + w_baseline_t[0]
+                    bas_1 = start + w_baseline_t[1]
                     list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
+                elif baseline_mode == "run":
+                    list_w_bas_t = [w_baseline_t for _ in range(len(
+                        list_w_epoch_t))]
+                else:
+                    list_w_bas_t = [None for _ in range(len(list_w_epoch_t))]
 
                 # Modify the mi_labels
                 if hasattr(rec.midata, "mi_labels"):
                     rec.midata.mi_labels = \
                         np.tile(rec.midata.mi_labels,
                                 (len(list_w_epoch_t), 1)).T.flatten()
-
             else:
                 list_w_epoch_t = [w_epoch_t]
                 list_w_bas_t = [w_baseline_t]
 
             # For each window
-            for i, w_epoch_t in enumerate(list_w_epoch_t):
+            for i in range(len(list_w_epoch_t)):
 
                 # Get features
                 rec_feat = self.transform_signal(
@@ -663,7 +717,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                     signal=rec_sig.signal,
                     fs=rec_sig.fs,
                     onsets=rec_exp.onsets,
-                    w_epoch_t=w_epoch_t,
+                    w_epoch_t=list_w_epoch_t[i],
                     w_baseline_t=list_w_bas_t[i],
                     baseline_mode=baseline_mode,
                     norm=norm,
@@ -708,53 +762,23 @@ class CSPFeatureExtraction(components.ProcessingMethod):
     - Log-var features
     """
 
-    def __init__(self, n_filters=4, safe_copy=True, **kwargs):
-        """Class constructor
+    def __init__(self, n_filters=4, safe_copy=True,
+                 normalize_log_vars=True, **kwargs):
+        """Class constructor.
 
-        n_filter : int or None
+        n_filters : int or None
             Number of most discriminant CSP filters to decompose the signal
             into (must be less or equal to the number of channels in your
-            signal).
-            If int it will return that number of filters.
-            If None it will return the all calculated filters.
-        w_epoch_t : list
-            Temporal window in ms for each epoch relative to the event onset
-            (e.g., [0, 3000])
-        target_fs : float of None
-            Target sample rate of each epoch. If None, all the recordings must
-            have the same sample rate, so it is strongly recommended to set this
-            parameter to a suitable value to avoid problems and save time
-        baseline_mode : {'run', 'trial', None}
-            If "run" selected it will use the w_baseline_t of the beginning of
-            each run.
-            If "trial" selected it will use the w_baseline_t previous to each
-            epoch extracted.
-            If None it will not perform the baseline extraction.
-        w_baseline_t : list, np.ndarray or "auto"
-            Temporal window in ms to be used for baseline normalization.
-            If baseline_mode = "run" it will use the temporal window since start
-            of trial.
-            If baseline_mode = "trial", for each epoch it will use the time
-            relative to the event onset (e.g., [0, 3000]).
-            If "auto" selected:
-                If baseline_mode = "run" will use the time between the
-                MedusaData.experiment.start and MedusaData.experiment.calibration
-                information stored in the run.
-                If baseline_mode = "trial" will use the time between
-                [-1500,-500]ms takes the baseline from -1500ms to -500ms before
-                each onset (0 ms represents the onset).
-                If baseline_mode = None it will not be used.
-        norm : str {'z'|'dc'}
-            Type of baseline normalization. Set to 'z' for Z-score normalization
-            or 'dc' for DC normalization
-        concatenate_channels : bool
-            This parameter controls the shape of the feature array. If True, all
-            channels will be concatenated, returning an array of shape [n_events
-            x (samples x channels)]. If false, the array will have shape
-            [n_events x samples x channels]
+            signal). If None, all filters will be used.
         safe_copy : bool
             Makes a safe copy of the signal to avoid changing the original
             samples due to references
+        normalize_log_vars : bool
+            If true, log-var features are normalized.
+        **kwargs : dict()
+            Parameters from StandardFeatureExtraction are not detailed here.
+            Please refer to the StandardFeatureExtraction documentation to know
+            more, as they are passed through kwargs.
 
         After using the function self.fit(), the attributes are computed:
 
@@ -770,10 +794,10 @@ class CSPFeatureExtraction(components.ProcessingMethod):
             patterns : numpy.ndarray
                 De-mixing matrix (activation patterns are stored in columns).
         """
+        self.normalize_log_vars = normalize_log_vars
         self.feature_extractor = StandardFeatureExtraction(safe_copy=safe_copy)
         self.CSP = CSP(n_filters=n_filters, selection="extremes")
 
-    # TODO: CONTINUOUS Y W_EPOCH_T PARA FIT Y PREDICT??
     def fit_signal(self, labels, times, signal, fs, onsets, **kwargs):
         # Standard extraction: just epoching (epochs x samples x channels)
         features = self.feature_extractor.transform_signal(
@@ -808,12 +832,7 @@ class CSPFeatureExtraction(components.ProcessingMethod):
         projection = self.CSP.project(X=features) # trials x samples x projects
 
         # Log-variance features across samples
-        log_var = np.log(np.var(projection, axis=1))
-        n_log_var = np.log(
-            np.var(projection, axis=1) /
-            np.tile(np.sum(np.var(projection, axis=1), axis=1),
-                    (projection.shape[2], 1)).T
-        )
+        log_var = self._get_log_vars(projection, self.normalize_log_vars)
         return log_var
 
     def transform_dataset(self, dataset, show_progress_bar=True, **kwargs):
@@ -822,7 +841,6 @@ class CSPFeatureExtraction(components.ProcessingMethod):
                              'predict!')
 
         # Standard extraction: just epoching (epochs x samples x channels)
-        # TODO: w_epoch_t
         features, track_info = self.feature_extractor.transform_dataset(
             dataset=dataset, show_progress_bar=show_progress_bar, **kwargs
         )
@@ -831,24 +849,42 @@ class CSPFeatureExtraction(components.ProcessingMethod):
         projection = self.CSP.project(X=features)
 
         # Log-variance features
-        log_var = np.log(np.var(projection, axis=1))
-        n_log_var = np.log(
-            np.var(projection, axis=1) /
-            np.tile(np.sum(np.var(projection, axis=1), axis=1),
-                    (projection.shape[2], 1)).T
-        )
+        log_var = self._get_log_vars(projection, self.normalize_log_vars)
         return log_var, track_info
 
     def fit_transform_signal(self, labels, times, signal, fs, onsets, **kwargs):
-        self.fit_signal(labels, times, signal, fs, onsets, **kwargs)
-        log_var = self.transform_signal(times, signal, fs, onsets, **kwargs)
+        # Fit
+        features = self.fit_signal(labels, times, signal, fs, onsets, **kwargs)
+
+        # Project using CSP
+        projection = self.CSP.project(X=features)  # trials x samples x projects
+
+        # Log-variance features across samples
+        log_var = self._get_log_vars(projection, self.normalize_log_vars)
         return log_var
 
     def fit_transform_dataset(self, dataset, show_progress_bar=True, **kwargs):
-        self.fit_dataset(dataset, show_progress_bar=show_progress_bar, **kwargs)
-        log_var, track_info = self.transform_dataset(
+        # Fit
+        features, track_info = self.fit_dataset(
             dataset, show_progress_bar=show_progress_bar, **kwargs)
+
+        # Project using CSP
+        projection = self.CSP.project(X=features)
+
+        # Log-variance features
+        log_var = self._get_log_vars(projection, self.normalize_log_vars)
         return log_var, track_info
+
+    @staticmethod
+    def _get_log_vars(projection, normalize):
+        if normalize:
+            return np.log(
+                np.var(projection, axis=1) /
+                np.tile(np.sum(np.var(projection, axis=1), axis=1),
+                        (projection.shape[2], 1)).T
+            )
+        else:
+            return np.log(np.var(projection, axis=1))
 
 
 class MIModel(components.Algorithm):
@@ -971,15 +1007,18 @@ class MIModelCSP(MIModel):
     """Decoding model for MI-based BCI applications based on
     Common Spatial Patterns (CSP).
 
-    Dataset features:
+    It is strongly recommended to update the default settings by passing
+    arguments through **kwargs. See the different algorithms to know more
+    about the possible parameters: StandardPreprocessing,
+    CSPFeatureExtraction and StandardFeatureExtraction.
 
+    Dataset features:
     - Sample rate of the signals > 60 Hz. The model can handle recordings
         with different sample rates.
-    - Recommended channels: ['C3', 'C4'].
+    - Recommended channels to be present: ['C3', 'C4'].
 
     Processing pipeline:
     - Preprocessing (medusa.bci.erp_spellers.StandardPreprocessing):
-
         - IIR Filter (order=5, cutoff=(8, 30) Hz: unlike FIR filters, IIR
             filters are quick and can be applied in small signal chunks. Thus,
             they are the preferred method for frequency filter in online
@@ -987,17 +1026,16 @@ class MIModelCSP(MIModel):
         - Common average reference (CAR): widely used spatial filter that
             increases the signal-to-noise ratio of the MI control signals.
     - Feature extraction (medusa.bci.mi_paradigms.CSPFeatureExtraction):
-
-        - Epochs (window=(500, 4000) ms, resampling to 60 HZ): the epochs of
+        - Epochs (window=(0, 2000) ms, resampling to 60 HZ): the epochs of
             signal are extracted for each stimulation. Baseline normalization
-            is also applied, taking the window (-1500, -500) ms relative to the
+            is also applied, taking the window (-1000, 0) ms relative to the
             stimulus onset.
         - CSP projection: Epochs are then projected according to a CSP filter
             previously trained.
-
+        - Log variance: Log variance features are extracted from the CSP
+            projection.
     - Feature classification (
     sklearn.discriminant_analysis.LinearDiscriminantAnalysis)
-
         - Regularized linear discriminant analysis (rLDA): we use the sklearn
             implementation, with eigen solver and auto shrinkage paramers. See
             reference in sklearn doc.
@@ -1008,8 +1046,14 @@ class MIModelCSP(MIModel):
 
     def configure(self, p_filt_cutoff=(8, 30), w_epoch_t=(0, 2000),
                   w_baseline_t=(-1000, 0), target_fs=60, **kwargs):
+        """ Configures the default settings. """
         self.settings = {
+            # StandardPreprocessing
             'p_filt_cutoff': p_filt_cutoff,
+            # CSPFeatureExtraction
+            'n_filters': 4,
+            'normalize_log_vars': False,
+            # StandardFeatureExtraction
             'w_epoch_t': w_epoch_t,
             'baseline_mode': 'trial',
             'w_baseline_t': w_baseline_t,
@@ -1018,7 +1062,7 @@ class MIModelCSP(MIModel):
             'concatenate_channels': False,
             'sliding_w_lims_t': None,
             'sliding_t_step': None,
-            'n_filters': 4
+            'sliding_win_len': None
         }
         self.settings = dict(self.settings, **kwargs)
         # Update state
@@ -1027,6 +1071,9 @@ class MIModelCSP(MIModel):
         self.is_fit = False
 
     def build(self):
+        """ Initializes the different methods that comprise the MIModelCSP
+        pipeline.
+        """
         # Check errors
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
@@ -1048,15 +1095,33 @@ class MIModelCSP(MIModel):
         self.is_fit = False
 
     def fit_dataset(self, dataset, get_training_accuracy=True,
-                    k_fold=5, continuous_settings=None, **kwargs):
+                    k_fold=5, **kwargs):
+        """ Function to fit a dataset using MIModelCSP.
+
+        Parameters
+        -------------
+        dataset : MIDataset
+            MI dataset used for training.
+        get_training_accuracy : bool
+            Whether to perform an estimation on training accuracy after fitting.
+        k_fold : int
+            Number of k-folds used in the k-fold cross-validation procedure
+            to estimate the training accuracy.
+        **kwargs : dict
+            These parameters will be overwritten over self.settings.
+
+        Returns
+        -------------
+        assessment : dict
+            Dictionary containing the details of the training accuracy
+            estimation.
+        """
         # Check errors
         if not self.is_built:
             raise ValueError('Function build must be called first!')
 
         # Merge settings
         settings = dict(self.settings, **kwargs)
-        if continuous_settings is not None:
-            settings = dict(settings, **continuous_settings)
 
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
@@ -1106,6 +1171,29 @@ class MIModelCSP(MIModel):
         return assessment
 
     def predict(self, times, signal, fs, channel_set, x_info, **kwargs):
+        """ Function to predict an individual signal in MIModelCSP.
+
+        Parameters
+        --------------
+        times : ndarray (n_samples,)
+            Timestamp array
+        signal: ndarray (n_samples x n_channels)
+            Signal data.
+        fs : int
+            Sampling frequency.
+        channel_set : EEGChannelSet or similar
+            Channel montage.
+        x_info : dict
+            Dictionary containing the trial "onsets" and "mi_labels". If the
+            latter is not specified, accuracy is not calculated.
+        **kwargs : dict
+            These parameters will be overwritten over self.settings.
+
+        Returns
+        -------------
+        decoding : dict
+            Dictionary containing the decoding.
+        """
         # Check errors
         if not self.is_fit:
             raise ValueError('Function fit_dataset must be called first!')
@@ -1144,6 +1232,20 @@ class MIModelCSP(MIModel):
         return decoding
 
     def predict_dataset(self, dataset, **kwargs):
+        """ Function to predict a dataset using MIModelCSP.
+
+        Parameters
+        -------------
+        dataset : MIDataset
+            Test dataset.
+        **kwargs : dict
+            These parameters will be overwritten over self.settings.
+
+        Returns
+        -------------
+        decoding : dict
+            Dictionary containing the decoding.
+        """
         # Check errors
         if not self.is_fit:
             raise ValueError('Function fit_dataset must be called first!')
@@ -1250,9 +1352,7 @@ class MIModelEEGSym(MIModel):
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=49, btype='lowpass'))
         # Feature extraction (epochs [0, 2000] ms + resampling to 128 Hz)
-        self.add_method('ext_method', StandardFeatureExtraction())
-        # w_epoch_t=(
-        #     0, 2000), target_fs=128, w_baseline_t=(0, 2000),))
+        self.add_method('ext_method', StandardFeatureExtraction(safe_copy=True))
         # Feature classification
         clf = EEGSym(
             input_time=2000,
@@ -1284,23 +1384,25 @@ class MIModelEEGSym(MIModel):
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
         # Extract features
-        x, x_info = self.get_inst('ext_method'
-                                  ).transform_dataset(dataset,
-                                                      w_epoch_t=(0, 2000),
-                                                      target_fs=128,
-                                                      w_baseline_t=(0, 2000),
-                                                      continuous=continuous)
+        # TODO: perform sliding window? if so, we need the lims
+        # TODO: hardcoded?
+        x, x_info = self.get_inst('ext_method').transform_dataset(
+            dataset, w_epoch_t=(0, 2000), baseline_mode="trial",
+            w_baseline_t=(0, 2000), norm="z", target_fs=128,
+            sliding_w_lims_t=None, sliding_t_step=None, sliding_win_len=None
+        )
         # Put channels in symmetric order
-        x, _ = self.get_inst('clf_method').symmetric_channels(x,
-                                                           dataset.channel_set.l_cha)
+        x, _ = self.get_inst('clf_method').symmetric_channels(
+            x, dataset.channel_set.l_cha)
 
         # Classification
-        self.get_inst('clf_method').fit(x, x_info['mi_labels'],
-                                        fine_tuning=self.settings['fine_tuning'],
-                                        shuffle_before_fit=self.settings['shuffle_before_fit'],
-                                        validation_split=self.settings['validation_split'],
-                                        augmentation=self.settings['augmentation'],
-                                        **kwargs)
+        self.get_inst('clf_method').fit(
+            x, x_info['mi_labels'],
+            fine_tuning=self.settings['fine_tuning'],
+            shuffle_before_fit=self.settings['shuffle_before_fit'],
+            validation_split=self.settings['validation_split'],
+            augmentation=self.settings['augmentation'],
+            **kwargs)
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = y_prob.argmax(axis=-1)
 
@@ -1334,16 +1436,17 @@ class MIModelEEGSym(MIModel):
         signal = self.get_inst('prep_method').fit_transform_signal(signal, fs)
 
         # Extract features
-        x = self.get_inst('ext_method').transform_signal(times=times,
-                                                         signal=signal, fs=fs,
-                                                         onsets=x_info['onsets'],
-                                                         w_epoch_t=(0, 2000),
-                                                         target_fs=128,
-                                                         w_baseline_t=(0, 2000)
-                                                         )
+        # TODO: hardcoded?
+        x = self.get_inst('ext_method').transform_signal(
+            times=times, signal=signal, fs=fs, onsets=x_info['onsets'],
+            w_epoch_t=(0, 2000), baseline_mode="trial", w_baseline_t=(0, 2000),
+            norm="z", target_fs=128
+        )
+
         # Put channels in symmetric order
-        x, _ = self.get_inst('clf_method').symmetric_channels(x,
-                                                           self.channel_set.l_cha)
+        x, _ = self.get_inst('clf_method').symmetric_channels(
+            x, self.channel_set.l_cha)
+
         # Classification
         y_prob = self.get_inst('clf_method').predict_proba(x)
         y_pred = y_prob.argmax(axis=-1)
