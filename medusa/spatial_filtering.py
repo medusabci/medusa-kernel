@@ -593,11 +593,11 @@ class CSP(components.ProcessingMethod):
                     cbar = figure.colorbar(
                         topo.plot_handles["color-mesh"], cax=cax,
                         orientation='vertical')
+        plt.suptitle("CSP")
+
         # Show?
         if show:
             plt.show()
-
-        plt.suptitle("CSP")
         return figure
 
 class CCA(components.ProcessingMethod):
