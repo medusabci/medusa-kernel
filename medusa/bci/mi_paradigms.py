@@ -380,7 +380,8 @@ class StandardPreprocessing(components.ProcessingMethod):
         signal = car(signal)
         return signal
 
-    def transform_dataset(self, dataset: MIDataset, show_progress_bar=True):
+    def transform_dataset(self, dataset: MIDataset, show_progress_bar=True,
+                          **kwargs):
         """Transforms an MIDataset applying IIR filtering and CAR sequentially
 
         Parameters
@@ -703,7 +704,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                 if hasattr(rec.midata, "mi_labels"):
                     rec.midata.mi_labels = \
                         np.tile(rec.midata.mi_labels,
-                                (len(list_w_epoch_t), 1)).T.flatten()
+                                (len(list_w_epoch_t), 1)).flatten()
             else:
                 list_w_epoch_t = [w_epoch_t]
                 list_w_bas_t = [w_baseline_t]
@@ -1122,6 +1123,7 @@ class MIModelCSP(MIModel):
 
         # Merge settings
         settings = dict(self.settings, **kwargs)
+        self.channel_set = dataset.channel_set
 
         # Preprocessing
         dataset = self.get_inst('prep_method').fit_transform_dataset(dataset)
@@ -1257,7 +1259,8 @@ class MIModelCSP(MIModel):
         settings = dict(self.settings, **kwargs)
 
         # Preprocessing
-        dataset = self.get_inst('prep_method').transform_dataset(dataset)
+        dataset = self.get_inst('prep_method').transform_dataset(dataset,
+                                                                 **settings)
 
         # Extract features
         x, x_info = self.get_inst('ext_method').transform_dataset(
