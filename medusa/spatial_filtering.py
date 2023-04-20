@@ -1,9 +1,12 @@
-import numpy as np
-from medusa import components
-from numpy import linalg as nlinalg
-from scipy import linalg as slinalg
 import warnings
 from copy import copy
+import numpy as np
+from numpy import linalg as nlinalg
+from scipy import linalg as slinalg
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from medusa import components
+from medusa.plots.head_plots import TopographicPlot
 
 class LaplacianFilter(components.ProcessingMethod):
     """
@@ -520,6 +523,82 @@ class CSP(components.ProcessingMethod):
         csp.sel_eigenvalues = np.array(dict_data['sel_eigenvalues'])
         return csp
 
+    def plot(self, channel_set, figure=None, plot_filters=False,
+             plot_patterns=True, topo_settings=None, show=False):
+        # Error detection and initialization
+        if not plot_patterns and not plot_filters:
+            raise Exception("Cannot plot CSP if plot_filters and "
+                            "plot_patterns are both None")
+        if figure is None:
+            figure = plt.figure(figsize=(7.5, 3), dpi=300)
+        if len(channel_set.l_cha) != self.sel_filters.shape[1]:
+            raise Exception("The number of channels (%i) must be the same as "
+                            "the number of channels used to train the CSP ("
+                            "%i)" % (len(channel_set.l_cha),
+                                     self.sel_filters.shape[1]))
+        if topo_settings is None:
+            topo_settings = {
+                "head_radius": 1.0,
+                "head_line_width": 2,
+                "interp_contour_width": 1,
+                "interp_points": 500,
+            }
+
+        # Parameters
+        n_row = 2 if plot_patterns and plot_filters else 1
+        max_f = 0
+        max_p = 0
+        for i in range(self.n_filters):
+            if np.max(np.abs(self.sel_patterns[i, :])) > max_p:
+                max_p = np.max(np.abs(self.sel_patterns[i, :]))
+            if np.max(np.abs(self.sel_filters[i, :])) > max_f:
+                max_f = np.max(np.abs(self.sel_filters[i, :]))
+
+        # Plot filters
+        j = 0
+        if plot_filters:
+            for j in range(self.n_filters):
+                ax = figure.add_subplot(n_row, self.n_filters, j + 1)
+                topo_settings["clim"] = (-max_f, max_f)
+                topo_settings["cmap"] = "RdBu"
+                topo = TopographicPlot(axes=ax, channel_set=channel_set,
+                                       **topo_settings)
+                topo.update(values=self.sel_filters[j, :])
+                ax.set_title("Filter %i" % j)
+                ax.set_ylabel('Eig: %.3f' % self.sel_eigenvalues[j])
+                # Colorbar
+                if j == self.n_filters - 1:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes('right', size='5%', pad=0.05)
+                    cbar = figure.colorbar(
+                        topo.plot_handles["color-mesh"], cax=cax,
+                        orientation='vertical')
+            j += 1
+
+        # Plot patterns
+        if plot_patterns:
+            for i in range(self.n_filters):
+                ax = figure.add_subplot(n_row, self.n_filters, j + i + 1)
+                topo_settings["clim"] = (-max_p, max_p)
+                topo_settings["cmap"] = "PiYG"
+                topo = TopographicPlot(axes=ax, channel_set=channel_set,
+                                       **topo_settings)
+                topo.update(values=self.sel_patterns[i, :])
+                ax.set_title("Pattern %i" % i)
+                ax.set_ylabel('Eig: %.3f' % self.sel_eigenvalues[i])
+                # Colorbar
+                if i == self.n_filters - 1:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes('right', size='5%', pad=0.05)
+                    cbar = figure.colorbar(
+                        topo.plot_handles["color-mesh"], cax=cax,
+                        orientation='vertical')
+        # Show?
+        if show:
+            plt.show()
+
+        plt.suptitle("CSP")
+        return figure
 
 class CCA(components.ProcessingMethod):
     """
