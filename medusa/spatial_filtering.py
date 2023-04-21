@@ -524,7 +524,7 @@ class CSP(components.ProcessingMethod):
         return csp
 
     def plot(self, channel_set, figure=None, plot_filters=False,
-             plot_patterns=True, topo_settings=None, show=False):
+             plot_patterns=True, topo_settings=None, show=False, plot_eig=True):
         # Error detection and initialization
         if not plot_patterns and not plot_filters:
             raise Exception("Cannot plot CSP if plot_filters and "
@@ -565,7 +565,8 @@ class CSP(components.ProcessingMethod):
                                        **topo_settings)
                 topo.update(values=self.sel_filters[j, :])
                 ax.set_title("Filter %i" % j)
-                ax.set_ylabel('Eig: %.3f' % self.sel_eigenvalues[j])
+                if plot_eig and not plot_patterns:
+                    ax.set_xlabel('Eig: %.3f' % self.sel_eigenvalues[j])
                 # Colorbar
                 if j == self.n_filters - 1:
                     divider = make_axes_locatable(ax)
@@ -585,7 +586,8 @@ class CSP(components.ProcessingMethod):
                                        **topo_settings)
                 topo.update(values=self.sel_patterns[i, :])
                 ax.set_title("Pattern %i" % i)
-                ax.set_ylabel('Eig: %.3f' % self.sel_eigenvalues[i])
+                if plot_eig:
+                    ax.set_xlabel('Eig: %.3f' % self.sel_eigenvalues[i])
                 # Colorbar
                 if i == self.n_filters - 1:
                     divider = make_axes_locatable(ax)
