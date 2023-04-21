@@ -4,10 +4,11 @@
 # External imports
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from scipy.signal import welch
 
 # Medusa imports
-from medusa.plots.topographic_plots import plot_topography
+from medusa.plots.head_plots import plot_head,plot_topography
 from medusa.meeg.meeg import EEGChannelSet
 from medusa import epoching
 from medusa.plots.timeplot import time_plot
@@ -88,6 +89,7 @@ class ICA:
         self.l_cha = None
         self.channel_set = None
         self.fs = None
+
 
     def fit(self, signal, l_cha, fs, n_components):
         from sklearn.decomposition import FastICA
@@ -334,19 +336,18 @@ class ICA:
         for r in axes:
             for c in r:
                 if ic_c < n_components:
-                    plot_topography(self.channel_set, values=components[:, ic_c],
-                                    cmap=cmap,
-                                    axes=c, fig=fig, show=False,
-                                    interp_points=300,
-                                    linewidth=1.5, show_colorbar=False,
-                                    plot_extra=0)
+                    plot_head(axes=c, channel_set=self.channel_set,
+                              interp_points=300,linewidth=1.5)
+                    plot_topography(axes=c,channel_set=self.channel_set,
+                                    values=components[:, ic_c],
+                                    interp_points=300,cmap=cmap,
+                                    show_colorbar=False,plot_extra=0)
                     c.set_title(self.ica_labels[ic_c])
                     ic_c += 1
                 else:
                     c.set_axis_off()
-        plt.subplots_adjust(wspace=0, hspace=0.2)
-        plt.show()
-        return (fig, axes)
+        fig.show()
+        return fig
 
     def plot_sources(self, signal, sources_to_show=None, time_to_show=None,
                      ch_offset=None):
@@ -354,11 +355,12 @@ class ICA:
 
         if ch_offset is None:
             ch_offset = np.max(np.abs(sources[:, 0]))
-        fig, ax = time_plot(sources, self.fs, self.ica_labels,
+        fig, ax = plt.subplots(1,1)
+        time_plot(sources, self.fs, self.ica_labels,
                             ch_to_show=sources_to_show,
                             time_to_show=time_to_show,
-                            channel_offset=ch_offset,show=True)
-        return (fig, ax)
+                            channel_offset=ch_offset,show=False,fig=fig,
+                  axes=ax)
 
     def plot_summary(self, signal, component, psd_freq_range=[1,70],
                      psd_window='hamming', time_to_show=2,cmap='bwr'):
@@ -390,23 +392,23 @@ class ICA:
 
         for ii in range(len(component)):
             fig = plt.figure()
-            ax_1 = plt.subplot(3,4,(1,6))
-            ax_2 = plt.subplot(3, 4, (3,4))
-            ax_3 = plt.subplot(3, 4, (7,8))
-            ax_4 = plt.subplot(3, 1, 3)
+            ax_1 = fig.add_subplot(3,4,(1,6))
+            ax_2 = fig.add_subplot(3, 4, (3,4))
+            ax_3 = fig.add_subplot(3, 4, (7,8))
+            ax_4 =fig.add_subplot(3, 1, 3)
 
             # Topoplot
-            plot_topography(self.channel_set, values=components[:, component[ii]],
-                            cmap=cmap,
-                            axes=ax_1, fig=fig, show=False,
-                            interp_points=300,
-                            linewidth=1.5, show_colorbar=False,
-                            plot_extra=0)
+            plot_head(axes=ax_1, channel_set=self.channel_set,
+                      interp_points=300, linewidth=1.5)
+            plot_topography(axes=ax_1, channel_set=self.channel_set,
+                            values=components[:, component[ii]],
+                            interp_points=300, cmap=cmap,
+                            show_colorbar=False, plot_extra=0)
             ax_1.set_title(self.ica_labels[component[ii]])
 
             stacked_source = np.reshape(
                 sources[:(n_stacks * n_samples_epoch), ii],
-                (n_stacks, n_samples_epoch))[::-1]
+                (n_stacks, n_samples_epoch))
 
             # PSD
             f, psd = welch(stacked_source, self.fs, window=psd_window, )
@@ -423,7 +425,6 @@ class ICA:
             ax_2.set_title('Power spectral density')
 
             # Stacked data image
-            # TODO Creo que va de arriba a abajo y está mal
             ax_3.pcolormesh(np.linspace(0,time_to_show,n_samples_epoch),
                                np.arange(n_stacks),stacked_source,cmap=cmap,
                                shading='gouraud')
@@ -437,7 +438,7 @@ class ICA:
             ax_4.set_title('Source time plot')
 
             fig.tight_layout(pad=1)
-        plt.show()
+        return fig
 
     def show_exclusion(self, signal, exclude=None, ch_to_show=None,
                        time_to_show=None, ch_offset=None):
@@ -450,20 +451,19 @@ class ICA:
             n_epochs = signal.shape[0]
         else:
             n_epochs = 1
-
-        fig,axes = time_plot(signal,self.fs,self.l_cha,time_to_show,
-                             ch_to_show,ch_offset)
+        fig, ax = plt.subplots(1,1)
+        time_plot(signal,self.fs,self.l_cha,time_to_show,
+                             ch_to_show,ch_offset,axes=ax,fig=fig)
         signal_rebuilt = self.rebuild(signal,exclude)
-        fig, axes = time_plot(signal_rebuilt,self.fs,self.l_cha,time_to_show,
-                             ch_to_show,ch_offset,fig=fig,axes=axes,color='b',
+        time_plot(signal_rebuilt,self.fs,self.l_cha,time_to_show,
+                             ch_to_show,ch_offset,fig=fig,axes=ax,color='b',
                               show_epoch_lines=False)
-        # Create legend
-        handles = [axes.lines[0],axes.lines[signal.shape[-1] + n_epochs -1]]
-        axes.legend(handles=handles,labels=['Pre-ICA','Post-ICA'],
+        #Create legend
+        handles = [fig.axes[0].lines[0],fig.axes[0].lines[signal.shape[-1]
+                                                             + n_epochs -1]]
+        fig.axes[0].legend(handles=handles,labels=['Pre-ICA','Post-ICA'],
                     loc='upper center', bbox_to_anchor=(0.5, 1.15),
                     ncol=3, fancybox=True, shadow=True)
-
-        plt.show()
 
 class ICAData(SerializableComponent):
     def __init__(self, pre_whitener=None, unmixing_matrix=None,
