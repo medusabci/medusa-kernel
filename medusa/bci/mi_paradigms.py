@@ -691,8 +691,8 @@ class StandardFeatureExtraction(components.ProcessingMethod):
                     bas_1 = start + w_baseline_t[1] + step_array * sliding_t_step
                     list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
                 elif baseline_mode == "trial":
-                    bas_0 = start + w_baseline_t[0]
-                    bas_1 = start + w_baseline_t[1]
+                    bas_0 = start + w_baseline_t[0] + step_array * 0
+                    bas_1 = start + w_baseline_t[1] + step_array * 0
                     list_w_bas_t = [(w0, w1) for w0, w1 in zip(bas_0, bas_1)]
                 elif baseline_mode == "run":
                     list_w_bas_t = [w_baseline_t for _ in range(len(
