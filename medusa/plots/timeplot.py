@@ -1,7 +1,6 @@
 """
 Created on Thu Aug 25 17:09:18 2022
 Edited on Mon Jan 09 14:00:00 2023
-
 @author: Diego Marcos-Martínez
 """
 # External imports
@@ -11,6 +10,7 @@ import matplotlib
 
 matplotlib.use('Qt5Agg')
 from matplotlib.widgets import Slider
+from matplotlib.widgets import Button
 
 # Medusa imports
 from medusa.utils import check_dimensions
@@ -52,7 +52,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
     events_names = []
     for key_event in list(events_dict['events'].keys()):
         events_names.append(events_dict['events'][key_event][
-                                    'desc_name'])
+                                'desc_name'])
 
     events_order = events_dict['event_labels']
     events_timestamps = events_dict['event_times']
@@ -71,12 +71,12 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
 
     for event_idx in range(len(events_timestamps)):
         l = ax.plot(np.ones(50) * events_timestamps[event_idx],
-                np.linspace(min_val, 2 * max_val, 50),
-                '--', color=cmap.colors[events_order[event_idx]],
-                linewidth=1.5, label= np.array(events_names)[np.array(
+                    np.linspace(min_val, 2 * max_val, 50),
+                    '--', color=cmap.colors[events_order[event_idx]],
+                    linewidth=1.5, label=np.array(events_names)[np.array(
                 events_order[event_idx])])
         if str(events_order[event_idx]) not in legend_lines.keys():
-            legend_lines.update({str(events_order[event_idx]):l[0]})
+            legend_lines.update({str(events_order[event_idx]): l[0]})
 
     # Create legend above the plot
     if previous_conditions is not None:
@@ -84,12 +84,13 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
         for legend_line in list(legend_lines.values()):
             previous_handles.append(legend_line)
             previous_conditions.append(legend_line._label)
-        ax.legend(handles=previous_handles,labels=previous_conditions,
-                  loc='upper center',bbox_to_anchor=(0.5, 1.15),
+        ax.legend(handles=previous_handles, labels=previous_conditions,
+                  loc='upper center', bbox_to_anchor=(0.5, 1.15),
                   ncol=3, fancybox=True, shadow=True)
     else:
-        ax.legend(handles = list(legend_lines.values()),loc='upper center',
-                  bbox_to_anchor=(0.5, 1.15),ncol=3, fancybox=True, shadow=True)
+        ax.legend(handles=list(legend_lines.values()), loc='upper center',
+                  bbox_to_anchor=(0.5, 1.15), ncol=3, fancybox=True,
+                  shadow=True)
 
 
 def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
@@ -116,38 +117,43 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
     conditions_names = []
     for key_condition in list(conditions_dict['conditions'].keys()):
         conditions_names.append(conditions_dict['conditions'][key_condition][
-            'desc_name'])
+                                    'desc_name'])
 
     labels_order = conditions_dict['condition_labels']
     condition_timestamps = conditions_dict['condition_times']
-    legend_patches= {}
+    legend_patches = {}
 
     if len(list(set(labels_order))) > 8:
         cmap = matplotlib.cm.get_cmap('Set2')
     else:
         cmap = matplotlib.cm.get_cmap('Set3')
         if len(list(set(labels_order))) > 12:
-            raise Warning("Attention! The maximum number of different conditions"
-                          "is 12. If you have entered more than 12 different "
-                          "conditions, there will be conditions whose color "
-                          "matches. ")
+            raise Warning(
+                "Attention! The maximum number of different conditions"
+                "is 12. If you have entered more than 12 different "
+                "conditions, there will be conditions whose color "
+                "matches. ")
 
-    for condition_margin_idx in range(1,len(condition_timestamps)):
-        if condition_timestamps[condition_margin_idx-1] !=\
+    for condition_margin_idx in range(1, len(condition_timestamps)):
+        if condition_timestamps[condition_margin_idx - 1] != \
                 condition_timestamps[condition_margin_idx]:
-            l = ax.fill_betweenx(np.linspace(min_val,2*max_val,50),
-                              np.ones(50)*condition_timestamps
-                              [condition_margin_idx-1],
-                              np.ones(50) * condition_timestamps
-                              [condition_margin_idx],color=
-                             cmap.colors[labels_order[condition_margin_idx]],
-                             alpha = 0.3, label=np.array(conditions_names)[np.array(
-                labels_order[condition_margin_idx])])
-            if str(labels_order[condition_margin_idx]) not in legend_patches.keys():
-                legend_patches.update({str(labels_order[condition_margin_idx]): l})
+            l = ax.fill_betweenx(np.linspace(min_val, 2 * max_val, 50),
+                                 np.ones(50) * condition_timestamps
+                                 [condition_margin_idx - 1],
+                                 np.ones(50) * condition_timestamps
+                                 [condition_margin_idx], color=
+                                 cmap.colors[
+                                     labels_order[condition_margin_idx]],
+                                 alpha=0.3,
+                                 label=np.array(conditions_names)[np.array(
+                                     labels_order[condition_margin_idx])])
+            if str(labels_order[
+                       condition_margin_idx]) not in legend_patches.keys():
+                legend_patches.update(
+                    {str(labels_order[condition_margin_idx]): l})
 
     # Create legend above the plot
-    ax.legend(handles = list(legend_patches.values()),
+    ax.legend(handles=list(legend_patches.values()),
               loc='upper center', bbox_to_anchor=(0.5, 1.15),
               ncol=3, fancybox=True, shadow=True)
 
@@ -168,7 +174,7 @@ def __reshape_signal(epochs):
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
               ch_to_show=None, channel_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
-              show=False, fig=None,axes =None):
+              show=False, fig=None, axes=None):
     """
     Parameters
     ---------
@@ -199,7 +205,6 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
                        'con_2':{'desc_name':'Condition 2','label':1}},
          'condition_labels': [0,0,1,1,0,0],
          'condition_times': [0,14,14,28,28,35]}
-
          In this example, the sub-dictionary 'conditions' include each condition
          with a descriptor name ('desc_name') which will be show in the time-plot
          legend, and the label to identify the condition. For its part,
@@ -219,7 +224,6 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
                    'event_2':{'desc_name':'Event 2','label':1}},
          'event_labels': [0,1,1,1,0,1],
          'event_times': [0,14,15.4,28,2,35]}
-
          In this example, the sub-dictionary 'events' include each event with a
          descriptor name ('desc_name') which will be show in the time-plot
          legend, and the label to identify the event. For its part,
@@ -241,7 +245,6 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     axes: matplotlib.pyplot.axes or None
         If a matplotlib axes are specified, the plot is displayed inside it.
         Otherwise, the plot will generate a new figure.
-
     Notes
     ---------
     If time_to_show or ch_to_show parameters are defined and the signal is
@@ -272,16 +275,19 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
         # Set offset between channels
         if channel_offset is None:
-            channel_offset = np.zeros(epoch_c.shape[1])
-            if len(channel_offset) > 1:
-                channel_offset[1:] = np.max(np.max(epoch_c[:, 1:], axis=0) -
-                                            np.min(epoch_c[:, :-1], axis=0))
+            channel_offset = time_to_show * 2 * np.std(np.abs(
+                epoch_c.copy().ravel()))
+        offset_values = np.arange(channels) * channel_offset
+        if len(offset_values)>1:
+            max_val = -offset_values[0] + offset_values[1]
+            min_val = -offset_values[-1] - offset_values[1]
         else:
-            channel_offset = np.ones(epoch_c.shape[1]) * channel_offset
-        channel_offset = np.cumsum(channel_offset)
-        epoch_c = epoch_c - channel_offset
-        ch_off = channel_offset
-        del channel_offset
+            max_val = 2 * np.max(epoch_c)
+            min_val = 2 * np.min(epoch_c)
+
+        epoch_c = epoch_c - offset_values
+        ch_off = offset_values
+        del channel_offset, offset_values
 
         max_val, min_val = epoch_c.max(), epoch_c.min()
 
@@ -407,18 +413,18 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
         #  Call the aux function to plot conditions
         if conditions_dict is not None:
-            __plot_condition_shades(ax, conditions_dict, fs, min_val, max_val)
+            __plot_condition_shades(axes, conditions_dict, min_val, max_val)
 
         #  Call the aux function to plot vertical lines to mark the events
         if events_dict is not None:
-            __plot_events_lines(axes, events_dict, fs, min_val, max_val)
+            __plot_events_lines(axes, events_dict, min_val, max_val)
 
         # Plot the signal
         axes.plot(display_times, epoch_c, color, linewidth=0.5)
         axes.set_yticks(-ch_off, labels=ch_labels)
         if len(ch_off) > 1:
             axes.set_ylim(-ch_off[max_y - 1] - 0.5 * ch_off[1],
-                        -ch_off[0] + 0.5 * ch_off[1])
+                          -ch_off[0] + 0.5 * ch_off[1])
         axes.set_xlim(0, display_times[max_x])
         axes.set_xlabel('Time (s)')
 
@@ -432,3 +438,41 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         return fig, axes
     except Exception as e:
         print(e)
+
+if __name__ == "__main__":
+    """ Example of use: """
+    fs = 256
+    T = 60
+    t = np.arange(0, T, 1 / fs)
+    l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
+             'PZ', 'P4',
+             'PO7', 'POZ', 'PO8']
+    A = 1  # noise amplitude
+    sigma = 0.5  # Gaussian noise variance
+    f = 5  # frequency of sinusoids (Hz)
+    ps = np.linspace(0, -np.pi / 2, len(l_cha))  # Phase differences
+    np.random.seed(0)
+
+    # Define signal
+    signal = np.empty((len(t), len(l_cha)))
+    for c in range(len(l_cha)):
+        signal[:, c] = np.sin(2 * np.pi * f * t - ps[c]) + A * np.random.normal(
+            0, sigma, size=t.shape)
+
+    signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
+
+    # Define events and conditions dicts
+    e_dict = {'events': {'event_1': {'desc_name': 'Event 1', 'label': 0},
+                         'event_2': {'desc_name': 'Event 2', 'label': 1}},
+              'event_labels': [0, 1, 1, 1, 0, 1, 0, 0, 1, 0],
+              'event_times': [0, 14, 15.4, 28, 2, 35, 42, 49, 53, 58.5]}
+
+    c_dict = {'conditions': {'con_1': {'desc_name': 'Condition 1', 'label': 0},
+                             'con_2': {'desc_name': 'Condition 2', 'label': 1}},
+              'condition_labels': [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
+              'condition_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
+
+    # # Initialize TimePlot instance
+    time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=5,
+              ch_to_show=8,channel_offset=None,conditions_dict=c_dict,
+              events_dict=e_dict,show_epoch_lines=True,show=True)
