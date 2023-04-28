@@ -184,7 +184,8 @@ def __wpli(angles_1, angles_2, n_epochs, n_chan, ctype='CPU'):
                 abs(np.mean(np.multiply(abs(imz), np.sign(imz)), axis=1)),
                 np.mean(abs(imz), axis=1)
             )
-        wpli = np.reshape(wpli_vector, (n_epochs, n_chan, n_chan), order='F')
+        wpli = np.nan_to_num(
+            np.reshape(wpli_vector, (n_epochs, n_chan, n_chan), order='F'))
     elif ctype == 'GPU':
         imz = tf.math.sin(tf.math.subtract(angles_1, angles_2))
         wpli_vector = tf.math.divide(
@@ -195,8 +196,8 @@ def __wpli(angles_1, angles_2, n_epochs, n_chan, ctype='CPU'):
                 axis=1)),
             tf.math.reduce_mean(tf.math.abs(imz), axis=1))
         wpli = tf.reshape(wpli_vector, (n_epochs, n_chan, n_chan))
-
-    wpli = tf.linalg.set_diag(wpli, np.zeros((wpli.shape[0], wpli.shape[1])))
+        wpli = tf.linalg.set_diag(wpli, np.zeros((wpli.shape[0],
+                                                  wpli.shape[1])))
     return wpli
 
 
