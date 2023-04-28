@@ -92,12 +92,14 @@ class MIPlots:
                 if self.apply_car:
                     eeg.signal = sf.car(signal=eeg.signal)
                 setattr(rec, dataset.biosignal_att_key, eeg)
-            feature_extractor = StandardFeatureExtraction(
-                w_epoch_t=full_window, target_fs=None, baseline_mode=None,
-                safe_copy=False, w_baseline_t=None, norm=None)
-            trials, track_info = \
-                feature_extractor.transform_dataset(dataset=dataset)
-            return trials, track_info
+            feature_extractor = StandardFeatureExtraction()
+            trials, track_info = feature_extractor.transform_dataset(
+                dataset=dataset,
+                w_epoch_t=full_window,
+                target_fs=None, baseline_mode=None,
+                safe_copy=False, w_baseline_t=None, norm=None
+            )
+        return trials, track_info
 
         if self.raw_dataset is None:
             raise Exception("Call MiPlots._extract_features() before plotting!")
@@ -266,11 +268,13 @@ class MIPlots:
                 if self.apply_car:
                     eeg.signal = sf.car(signal=eeg.signal)
                 setattr(rec, dataset.biosignal_att_key, eeg)
-            feature_extractor = StandardFeatureExtraction(
-                w_epoch_t=t_trial_window, target_fs=None, baseline_mode=None,
-                safe_copy=False, w_baseline_t=None, norm=None)
-            features, track_info = \
-                feature_extractor.transform_dataset(dataset=dataset)
+            feature_extractor = StandardFeatureExtraction()
+            features, track_info = feature_extractor.transform_dataset(
+                dataset=dataset,
+                w_epoch_t=t_trial_window,
+                target_fs=None, baseline_mode=None,
+                safe_copy=False, w_baseline_t=None, norm=None
+            )
             return features, track_info
 
         if self.raw_dataset is None:
@@ -461,11 +465,14 @@ class MIPlots:
                 if self.apply_car:
                     eeg.signal = sf.car(signal=eeg.signal)
                 setattr(rec, dataset.biosignal_att_key, eeg)
-            trial_extractor = StandardFeatureExtraction(
-                w_epoch_t=full_window, target_fs=None, baseline_mode=None,
-                safe_copy=False, w_baseline_t=None, norm=None)
-            all_trials, track_info = \
-                trial_extractor.transform_dataset(dataset=dataset)
+            feature_extractor = StandardFeatureExtraction()
+            all_trials, track_info = feature_extractor.transform_dataset(
+                dataset=dataset,
+                w_epoch_t=full_window,
+                target_fs=None, baseline_mode=None,
+                safe_copy=False, w_baseline_t=None, norm=None
+            )
+
             return all_trials, track_info
 
         if self.raw_dataset is None:
