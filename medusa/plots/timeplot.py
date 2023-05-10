@@ -161,14 +161,11 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
 def __reshape_signal(epochs):
     """Aux function than reshapes the signal if it is divided in
     epochs in order to plot it in a row"""
-    try:
-        epoch_c = epochs.copy()
-        blocks, samples_per_block, channels = epoch_c.shape
-        epoch_c = np.reshape(epoch_c,
-                             (int(blocks * samples_per_block), channels))
-        return epoch_c
-    except Exception as e:
-        print(e)
+    epoch_c = epochs.copy()
+    blocks, samples_per_block, channels = epoch_c.shape
+    epoch_c = np.reshape(epoch_c,
+                         (int(blocks * samples_per_block), channels))
+    return epoch_c
 
 
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
@@ -255,189 +252,187 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     right or left arrow, and by dragging the marker.
     """
 
-    try:
-        # Check signal dimensions
-        signal = check_dimensions(signal)
 
-        # Get signal dimensions
-        blocks, samples_per_block, channels = signal.shape
+    # Check signal dimensions
+    signal = check_dimensions(signal)
 
-        # Check if there are channel labels
-        if ch_labels is None:
-            ch_labels = [f"Channel {idx}" for idx in range(channels)]
-        else:
-            if not isinstance(ch_labels, list):
-                raise ValueError("Channel labels ('ch_labels') must be entered"
-                                 "as a list.")
+    # Get signal dimensions
+    blocks, samples_per_block, channels = signal.shape
 
-        epoch_c = __reshape_signal(signal)
-        del signal
+    # Check if there are channel labels
+    if ch_labels is None:
+        ch_labels = [f"Channel {idx}" for idx in range(channels)]
+    else:
+        if not isinstance(ch_labels, list):
+            raise ValueError("Channel labels ('ch_labels') must be entered"
+                             "as a list.")
 
-        # Set offset between channels
-        if channel_offset is None:
-            channel_offset = time_to_show * 2 * np.std(np.abs(
-                epoch_c.copy().ravel()))
-        offset_values = np.arange(channels) * channel_offset
-        if len(offset_values)>1:
-            max_val = -offset_values[0] + offset_values[1]
-            min_val = -offset_values[-1] - offset_values[1]
-        else:
-            max_val = 2 * np.max(epoch_c)
-            min_val = 2 * np.min(epoch_c)
+    epoch_c = __reshape_signal(signal)
+    del signal
 
-        epoch_c = epoch_c - offset_values
-        ch_off = offset_values
-        del channel_offset, offset_values
+    # Set maximum length of x-axis to be displayed
+    if time_to_show is None:
+        # The default time window is 5 seconds
+        time_to_show = min(5, epoch_c.shape[0] / fs)
 
-        max_val, min_val = epoch_c.max(), epoch_c.min()
+    # Set offset between channels
+    if channel_offset is None:
+        channel_offset = time_to_show * 2 * np.std(np.abs(
+            epoch_c.copy().ravel()))
+    offset_values = np.arange(channels) * channel_offset
+    if len(offset_values)>1:
+        max_val = -offset_values[0] + offset_values[1]
+        min_val = -offset_values[-1] - offset_values[1]
+    else:
+        max_val = 2 * np.max(epoch_c)
+        min_val = 2 * np.min(epoch_c)
 
-        # Define times vector
-        display_times = np.linspace(0, int(epoch_c.shape[0] / fs),
-                                    epoch_c.shape[0])
+    epoch_c = epoch_c - offset_values
+    ch_off = offset_values
+    del channel_offset, offset_values
 
-        # Initialize plot
-        if fig is None:
-            fig = plt.figure()
-        if axes is None:
-            axes = fig.add_subplot(111)
+    max_val, min_val = epoch_c.max(), epoch_c.min()
 
-        fig.patch.set_alpha(0)
-        axes.set_alpha(0)
-        fig.subplots_adjust(left=0.15, bottom=0.15, right=0.85)
-        ch_slider, time_slider = None, None
+    # Define times vector
+    display_times = np.linspace(0, int(epoch_c.shape[0] / fs),
+                                epoch_c.shape[0])
 
-        # Set maximum length of x-axis to be displayed
-        if ch_to_show is None:
-            # The default time window is 5 seconds
+    # Initialize plot
+    if fig is None:
+        fig = plt.figure()
+    if axes is None:
+        axes = fig.add_subplot(111)
+
+    fig.patch.set_alpha(0)
+    axes.set_alpha(0)
+    fig.subplots_adjust(left=0.15, bottom=0.15, right=0.85)
+    ch_slider, time_slider = None, None
+
+    # Set maximum length of x-axis to be displayed
+    if ch_to_show is None:
+        # The default time window is 5 seconds
+        ch_to_show = len(ch_labels)
+    else:
+        if not isinstance(ch_to_show, int):
+            raise ValueError("Channel to show ('ch_to_show') must be an "
+                             "integer value.")
+        if ch_to_show > len(ch_labels):
             ch_to_show = len(ch_labels)
-        else:
-            if not isinstance(ch_to_show, int):
-                raise ValueError("Channel to show ('ch_to_show') must be an "
-                                 "integer value.")
-            if ch_to_show > len(ch_labels):
-                ch_to_show = len(ch_labels)
-                raise Warning("Entered a channel to show ('ch_to_show') value "
-                              "greater than the number of channels in recording."
-                              "This parameter will be set equal to the number of "
-                              "channels.")
+            raise Warning("Entered a channel to show ('ch_to_show') value "
+                          "greater than the number of channels in recording."
+                          "This parameter will be set equal to the number of "
+                          "channels.")
 
-        # Set maximum length of x-axis to be displayed
-        if time_to_show is None:
-            # The default time window is 5 seconds
-            time_to_show = min(5, epoch_c.shape[0] / fs)
+    # Create a time slider only if the time window to show is less than the
+    # signal duration
+    if time_to_show < epoch_c.shape[0] / fs:
+        max_x = int(time_to_show * fs)
+        # Adjust the main plot to make room for the sliders
+        ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
+        # Define the max value of slider
+        max_val_time_slider = display_times[-1] - max_x / fs
+        # Define slider
+        time_slider = Slider(ax=ax_time, label='', valmin=0,
+                             valmax=max_val_time_slider, valinit=0,
+                             color='k')
+        time_slider.valtext.set_visible(False)
 
-        # Create a time slider only if the time window to show is less than the
-        # signal duration
-        if time_to_show < epoch_c.shape[0] / fs:
-            max_x = int(time_to_show * fs)
-            # Adjust the main plot to make room for the sliders
-            ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
-            # Define the max value of slider
-            max_val_time_slider = display_times[-1] - max_x / fs
-            # Define slider
-            time_slider = Slider(ax=ax_time, label='', valmin=0,
-                                 valmax=max_val_time_slider, valinit=0,
-                                 color='k')
-            time_slider.valtext.set_visible(False)
+        # Function to be call everytime the slider is moved
+        def __update_time(val):
+            # Update x-axis
+            axes.set_xlim(val, max_x / fs + val)
+            # Update canvas
+            fig.canvas.draw()
 
-            # Function to be call everytime the slider is moved
-            def __update_time(val):
-                # Update x-axis
-                axes.set_xlim(val, max_x / fs + val)
-                # Update canvas
-                fig.canvas.draw()
+        # Assign the update function to the slider
+        time_slider.on_changed(__update_time)
 
-            # Assign the update function to the slider
-            time_slider.on_changed(__update_time)
+    else:
+        # The time window to show is the whole signal
+        max_x = epoch_c.shape[0]
 
-        else:
-            # The time window to show is the whole signal
-            max_x = epoch_c.shape[0]
+    # Create a channel slider only if the channel window to show is less
+    # than the total number of channels
+    if ch_to_show < epoch_c.shape[1]:
+        max_y = ch_to_show
+        # Adjust the main plot to make room for the sliders
+        ax_ch = fig.add_axes([0.86, 0.15, 0.02, 0.73])
+        # Define the max value of slider
+        max_val_ch_slider = epoch_c.shape[1] - ch_to_show
+        # Define slider
+        ch_slider = Slider(ax=ax_ch, label='', valmin=-max_val_ch_slider,
+                           valmax=0, valinit=0, valstep=1,
+                           color='k', orientation='vertical')
+        ch_slider.valtext.set_visible(False)
 
-        # Create a channel slider only if the channel window to show is less
-        # than the total number of channels
-        if ch_to_show < epoch_c.shape[1]:
-            max_y = ch_to_show
-            # Adjust the main plot to make room for the sliders
-            ax_ch = fig.add_axes([0.86, 0.15, 0.02, 0.73])
-            # Define the max value of slider
-            max_val_ch_slider = epoch_c.shape[1] - ch_to_show
-            # Define slider
-            ch_slider = Slider(ax=ax_ch, label='', valmin=-max_val_ch_slider,
-                               valmax=0, valinit=0, valstep=1,
-                               color='k', orientation='vertical')
-            ch_slider.valtext.set_visible(False)
+        # Function to be call everytime the slider is moved
+        def __update_ch(val):
+            # Update y-axis
+            axes.set_ylim(
+                -ch_off[max_y - val - 1] - 0.5 * ch_off[1],
+                -ch_off[-val] + 0.5 * ch_off[1])
+            # Update canvas
+            fig.canvas.draw()
 
-            # Function to be call everytime the slider is moved
-            def __update_ch(val):
-                # Update y-axis
-                axes.set_ylim(
-                    -ch_off[max_y - val - 1] - 0.5 * ch_off[1],
-                    -ch_off[-val] + 0.5 * ch_off[1])
-                # Update canvas
-                fig.canvas.draw()
+        # Assign the update function to the slider
+        ch_slider.on_changed(__update_ch)
 
-            # Assign the update function to the slider
-            ch_slider.on_changed(__update_ch)
+    else:
+        # The time window to show is the whole signal
+        max_y = epoch_c.shape[1]
 
-        else:
-            # The time window to show is the whole signal
-            max_y = epoch_c.shape[1]
+    # Allow sliders to be controlled by arrow keys
+    def on_key(event):
+        if event.key == 'up':
+            if ch_slider is not None:
+                if ch_slider.val != 0:
+                    ch_slider.set_val(ch_slider.val + 1)
+        elif event.key == 'down':
+            if ch_slider is not None:
+                if ch_slider.val != -max_val_ch_slider:
+                    ch_slider.set_val(ch_slider.val - 1)
+        elif event.key == 'right':
+            if time_slider is not None:
+                if time_slider.val < max_val_time_slider:
+                    if time_slider.val + 1 > max_val_time_slider:
+                        time_slider.set_val(max_val_time_slider)
+                    else:
+                        time_slider.set_val(time_slider.val + 1)
+        elif event.key == 'left':
+            if time_slider is not None:
+                if time_slider.val > 0:
+                    if time_slider.val - 1 < 0:
+                        time_slider.set_val(0)
+                    else:
+                        time_slider.set_val(time_slider.val - 1)
 
-        # Allow sliders to be controlled by arrow keys
-        def on_key(event):
-            if event.key == 'up':
-                if ch_slider is not None:
-                    if ch_slider.val != 0:
-                        ch_slider.set_val(ch_slider.val + 1)
-            elif event.key == 'down':
-                if ch_slider is not None:
-                    if ch_slider.val != -max_val_ch_slider:
-                        ch_slider.set_val(ch_slider.val - 1)
-            elif event.key == 'right':
-                if time_slider is not None:
-                    if time_slider.val < max_val_time_slider:
-                        if time_slider.val + 1 > max_val_time_slider:
-                            time_slider.set_val(max_val_time_slider)
-                        else:
-                            time_slider.set_val(time_slider.val + 1)
-            elif event.key == 'left':
-                if time_slider is not None:
-                    if time_slider.val > 0:
-                        if time_slider.val - 1 < 0:
-                            time_slider.set_val(0)
-                        else:
-                            time_slider.set_val(time_slider.val - 1)
+    fig.canvas.mpl_connect('key_press_event', on_key)
 
-        fig.canvas.mpl_connect('key_press_event', on_key)
+    #  Call the aux function to plot conditions
+    if conditions_dict is not None:
+        __plot_condition_shades(axes, conditions_dict, min_val, max_val)
 
-        #  Call the aux function to plot conditions
-        if conditions_dict is not None:
-            __plot_condition_shades(axes, conditions_dict, min_val, max_val)
+    #  Call the aux function to plot vertical lines to mark the events
+    if events_dict is not None:
+        __plot_events_lines(axes, events_dict, min_val, max_val)
 
-        #  Call the aux function to plot vertical lines to mark the events
-        if events_dict is not None:
-            __plot_events_lines(axes, events_dict, min_val, max_val)
+    # Plot the signal
+    axes.plot(display_times, epoch_c, color, linewidth=0.5)
+    axes.set_yticks(-ch_off, labels=ch_labels)
+    if len(ch_off) > 1:
+        axes.set_ylim(-ch_off[max_y - 1] - 0.5 * ch_off[1],
+                      -ch_off[0] + 0.5 * ch_off[1])
+    axes.set_xlim(0, display_times[max_x])
+    axes.set_xlabel('Time (s)')
 
-        # Plot the signal
-        axes.plot(display_times, epoch_c, color, linewidth=0.5)
-        axes.set_yticks(-ch_off, labels=ch_labels)
-        if len(ch_off) > 1:
-            axes.set_ylim(-ch_off[max_y - 1] - 0.5 * ch_off[1],
-                          -ch_off[0] + 0.5 * ch_off[1])
-        axes.set_xlim(0, display_times[max_x])
-        axes.set_xlabel('Time (s)')
+    # Call the aux function to plot vertical lines to split signal in epochs
+    if show_epoch_lines:
+        __plot_epochs_lines(axes, blocks, samples_per_block, fs,
+                            min_val, max_val)
 
-        # Call the aux function to plot vertical lines to split signal in epochs
-        if show_epoch_lines:
-            __plot_epochs_lines(axes, blocks, samples_per_block, fs,
-                                min_val, max_val)
-
-        if show:
-            plt.show()
-        return fig, axes
-    except Exception as e:
-        print(e)
+    if show:
+        plt.show()
+    return fig, axes
 
 if __name__ == "__main__":
     """ Example of use: """
@@ -472,7 +467,7 @@ if __name__ == "__main__":
               'condition_labels': [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
               'condition_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
 
-    # # Initialize TimePlot instance
-    time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=5,
-              ch_to_show=8,channel_offset=None,conditions_dict=c_dict,
-              events_dict=e_dict,show_epoch_lines=True,show=True)
+    # Initialize TimePlot instance
+    time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
+              ch_to_show=None,channel_offset=None,conditions_dict=None,
+              events_dict=None,show_epoch_lines=True,show=True)
