@@ -336,6 +336,11 @@ class CSP(components.ProcessingMethod):
                 # Automatic sorting using eigenvalues
                 self.sel_idxs = np.argsort(np.abs(self.eigenvalues - 0.5))[::-1]
                 self.sel_idxs = self.sel_idxs[:self.n_filters]
+            # if self.selection == "ratio-of-means":
+            #     proj0 = [np.dot(eigenvectors.T, trial.T) for trial in X[
+            #         y == n_classes[0]]]
+            #     proj0 = np.transpose(np.array(proj0), (0, 2, 1))
+            #     # epochs x filters x channels
             if self.selection == "extremes":
                 # Automatic selection using extremes for both classes
                 self.sel_idxs = list()
