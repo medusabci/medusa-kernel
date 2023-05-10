@@ -20,6 +20,7 @@ def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val,
                         color='red'):
     """Aux function to plot vertical lines in case of signal is divided in two
         or more epochs"""
+    # todo: lo mismo de las vlines, no uses 50 puntos
     vertical_lines = np.empty((blocks - 1, 2, 50))
     for block in range(blocks - 1):
         vertical_lines[block, :, :] = np.asarray(
@@ -53,30 +54,29 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
     for key_event in list(events_dict['events'].keys()):
         events_names.append(events_dict['events'][key_event][
                                 'desc_name'])
-
-    events_order = events_dict['event_labels']
-    events_timestamps = events_dict['event_times']
     legend_lines = {}
     previous_conditions = None
     cmap = matplotlib.cm.get_cmap('tab10')
-    if len(list(set(events_order))) > 10:
+    events_order = np.array(events_dict['event_labels'])
+    if len(np.unique(events_order)) > 10:
+        # todo: usar un cmap que saque X colores
         raise Warning("Attention! The maximum number of different events"
                       "is 10. If you have entered more than 10 different "
                       "events, there will be events whose color "
-                      "matches. ")
+                      "matches.")
 
     if ax.legend_ is not None:
         handles, labels = ax.get_legend_handles_labels()
         previous_conditions = list(set(labels))
 
-    for event_idx in range(len(events_timestamps)):
-        l = ax.plot(np.ones(50) * events_timestamps[event_idx],
-                    np.linspace(min_val, 2 * max_val, 50),
-                    '--', color=cmap.colors[events_order[event_idx]],
-                    linewidth=1.5, label=np.array(events_names)[np.array(
-                events_order[event_idx])])
-        if str(events_order[event_idx]) not in legend_lines.keys():
-            legend_lines.update({str(events_order[event_idx]): l[0]})
+    events_timestamps = np.array(events_dict['event_times'])
+    for event_idx, event_type in enumerate(set(events_order)):
+        t_ = events_timestamps[events_order == event_type]
+        l = ax.vlines(t_, min_val, max_val, colors=cmap.colors[event_idx],
+                      linewidth=1.5, linestyles='dashed',
+                      label=events_names[event_idx])
+        if event_type not in legend_lines.keys():
+            legend_lines[event_type] = l
 
     # Create legend above the plot
     if previous_conditions is not None:
@@ -118,22 +118,25 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
     for key_condition in list(conditions_dict['conditions'].keys()):
         conditions_names.append(conditions_dict['conditions'][key_condition][
                                     'desc_name'])
-
-    labels_order = conditions_dict['condition_labels']
     condition_timestamps = conditions_dict['condition_times']
     legend_patches = {}
-
-    if len(list(set(labels_order))) > 8:
+    labels_order = np.array(conditions_dict['condition_labels'])
+    if len(np.unique(labels_order)) > 8:
         cmap = matplotlib.cm.get_cmap('Set2')
     else:
         cmap = matplotlib.cm.get_cmap('Set3')
-        if len(list(set(labels_order))) > 12:
+        # todo: usar un cmap que saque X colores
+        if len(np.unique(labels_order)) > 12:
             raise Warning(
                 "Attention! The maximum number of different conditions"
                 "is 12. If you have entered more than 12 different "
                 "conditions, there will be conditions whose color "
                 "matches. ")
 
+    # todo: aquí no se usa vlines, pero el fill_between solo necesita 4
+    #  puntos para un rectángulo, ej:
+    #   x = [0, 0, 2, 2]
+    #   y = [-3, 3, 3, -3]
     for condition_margin_idx in range(1, len(condition_timestamps)):
         if condition_timestamps[condition_margin_idx - 1] != \
                 condition_timestamps[condition_margin_idx]:
@@ -156,6 +159,7 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
     ax.legend(handles=list(legend_patches.values()),
               loc='upper center', bbox_to_anchor=(0.5, 1.15),
               ncol=3, fancybox=True, shadow=True)
+
 
 def __reshape_signal(epochs):
     """Aux function than reshapes the signal if it is divided in
