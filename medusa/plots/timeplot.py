@@ -157,7 +157,6 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
               loc='upper center', bbox_to_anchor=(0.5, 1.15),
               ncol=3, fancybox=True, shadow=True)
 
-
 def __reshape_signal(epochs):
     """Aux function than reshapes the signal if it is divided in
     epochs in order to plot it in a row"""
