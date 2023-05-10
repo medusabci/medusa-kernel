@@ -524,7 +524,8 @@ class CSP(components.ProcessingMethod):
         return csp
 
     def plot(self, channel_set, figure=None, plot_filters=False,
-             plot_patterns=True, topo_settings=None, show=False, plot_eig=True):
+             plot_patterns=True, topo_settings=None, show=False,
+             plot_eig=True, only_selected=True):
         # Error detection and initialization
         if not plot_patterns and not plot_filters:
             raise Exception("Cannot plot CSP if plot_filters and "
@@ -543,32 +544,40 @@ class CSP(components.ProcessingMethod):
                 "interp_contour_width": 1,
                 "interp_points": 500,
             }
+        if only_selected:
+            sel_patterns = self.sel_patterns
+            sel_filters = self.sel_filters
+            sel_eigenvalues = self.sel_eigenvalues
+        else:
+            sel_patterns = self.patterns
+            sel_filters = self.filters
+            sel_eigenvalues = self.eigenvalues
 
         # Parameters
         n_row = 2 if plot_patterns and plot_filters else 1
         max_f = 0
         max_p = 0
-        for i in range(self.n_filters):
-            if np.max(np.abs(self.sel_patterns[i, :])) > max_p:
-                max_p = np.max(np.abs(self.sel_patterns[i, :]))
-            if np.max(np.abs(self.sel_filters[i, :])) > max_f:
-                max_f = np.max(np.abs(self.sel_filters[i, :]))
+        for i in range(sel_filters.shape[0]):
+            if np.max(np.abs(sel_patterns[i, :])) > max_p:
+                max_p = np.max(np.abs(sel_patterns[i, :]))
+            if np.max(np.abs(sel_filters[i, :])) > max_f:
+                max_f = np.max(np.abs(sel_filters[i, :]))
 
         # Plot filters
         j = 0
         if plot_filters:
-            for j in range(self.n_filters):
-                ax = figure.add_subplot(n_row, self.n_filters, j + 1)
+            for j in range(sel_filters.shape[0]):
+                ax = figure.add_subplot(n_row, sel_filters.shape[0], j + 1)
                 topo_settings["clim"] = (-max_f, max_f)
                 topo_settings["cmap"] = "RdBu"
                 topo = TopographicPlot(axes=ax, channel_set=channel_set,
                                        **topo_settings)
-                topo.update(values=self.sel_filters[j, :])
+                topo.update(values=sel_filters[j, :])
                 ax.set_title("Filter %i" % j)
                 if plot_eig and not plot_patterns:
-                    ax.set_xlabel('Eig: %.3f' % self.sel_eigenvalues[j])
+                    ax.set_xlabel('Eig: %.3f' % sel_eigenvalues[j])
                 # Colorbar
-                if j == self.n_filters - 1:
+                if j == sel_filters.shape[0] - 1:
                     divider = make_axes_locatable(ax)
                     cax = divider.append_axes('right', size='5%', pad=0.05)
                     cbar = figure.colorbar(
@@ -578,18 +587,18 @@ class CSP(components.ProcessingMethod):
 
         # Plot patterns
         if plot_patterns:
-            for i in range(self.n_filters):
-                ax = figure.add_subplot(n_row, self.n_filters, j + i + 1)
+            for i in range(sel_filters.shape[0]):
+                ax = figure.add_subplot(n_row, sel_filters.shape[0], j + i + 1)
                 topo_settings["clim"] = (-max_p, max_p)
                 topo_settings["cmap"] = "PiYG"
                 topo = TopographicPlot(axes=ax, channel_set=channel_set,
                                        **topo_settings)
-                topo.update(values=self.sel_patterns[i, :])
+                topo.update(values=sel_patterns[i, :])
                 ax.set_title("Pattern %i" % i)
                 if plot_eig:
-                    ax.set_xlabel('Eig: %.3f' % self.sel_eigenvalues[i])
+                    ax.set_xlabel('Eig: %.3f' % sel_eigenvalues[i])
                 # Colorbar
-                if i == self.n_filters - 1:
+                if i == sel_filters.shape[0] - 1:
                     divider = make_axes_locatable(ax)
                     cax = divider.append_axes('right', size='5%', pad=0.05)
                     cbar = figure.colorbar(
@@ -601,7 +610,6 @@ class CSP(components.ProcessingMethod):
         if show:
             plt.show()
         return figure
-
 class CCA(components.ProcessingMethod):
     """
     The class CCA performs a Canonical Correlation Analysis filtering. First,
