@@ -16,20 +16,12 @@ from matplotlib.widgets import Button
 from medusa.utils import check_dimensions
 
 
-def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val,
-                        color='red'):
+def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
     """Aux function to plot vertical lines in case of signal is divided in two
         or more epochs"""
-    # todo: lo mismo de las vlines, no uses 50 puntos
-    vertical_lines = np.empty((blocks - 1, 2, 50))
-    for block in range(blocks - 1):
-        vertical_lines[block, :, :] = np.asarray(
-            [np.ones(50) * (block + 1) * int(samples_per_block / fs),
-             np.linspace(min_val, 1.5 * max_val, 50)])
-        ax.plot(vertical_lines[block, 0, :], vertical_lines[block, 1, :],
-                '--', color=color, linewidth=1.5)
-
-
+    t_ = np.arange(1,blocks-1) * int(samples_per_block / fs)
+    ax.vlines(t_, min_val, max_val, colors='k',
+                  linewidth=2, linestyles='solid')
 def __plot_events_lines(ax, events_dict, min_val, max_val):
     """Aux function to plot vertical lines corresponding  to marked events"""
     # Check errors
@@ -56,14 +48,8 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
                                 'desc_name'])
     legend_lines = {}
     previous_conditions = None
-    cmap = matplotlib.cm.get_cmap('tab10')
+    cmap = plt.get_cmap('rainbow')(np.linspace(0,1,len(events_names)))
     events_order = np.array(events_dict['event_labels'])
-    if len(np.unique(events_order)) > 10:
-        # todo: usar un cmap que saque X colores
-        raise Warning("Attention! The maximum number of different events"
-                      "is 10. If you have entered more than 10 different "
-                      "events, there will be events whose color "
-                      "matches.")
 
     if ax.legend_ is not None:
         handles, labels = ax.get_legend_handles_labels()
@@ -72,8 +58,8 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
     events_timestamps = np.array(events_dict['event_times'])
     for event_idx, event_type in enumerate(set(events_order)):
         t_ = events_timestamps[events_order == event_type]
-        l = ax.vlines(t_, min_val, max_val, colors=cmap.colors[event_idx],
-                      linewidth=1.5, linestyles='dashed',
+        l = ax.vlines(t_, min_val, max_val, colors=cmap[event_idx],
+                      linewidth=2, linestyles='dashed',
                       label=events_names[event_idx])
         if event_type not in legend_lines.keys():
             legend_lines[event_type] = l
@@ -121,32 +107,15 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
     condition_timestamps = conditions_dict['condition_times']
     legend_patches = {}
     labels_order = np.array(conditions_dict['condition_labels'])
-    if len(np.unique(labels_order)) > 8:
-        cmap = matplotlib.cm.get_cmap('Set2')
-    else:
-        cmap = matplotlib.cm.get_cmap('Set3')
-        # todo: usar un cmap que saque X colores
-        if len(np.unique(labels_order)) > 12:
-            raise Warning(
-                "Attention! The maximum number of different conditions"
-                "is 12. If you have entered more than 12 different "
-                "conditions, there will be conditions whose color "
-                "matches. ")
+    cmap = plt.get_cmap('jet')(np.linspace(0,1,len(conditions_names)))
 
-    # todo: aquí no se usa vlines, pero el fill_between solo necesita 4
-    #  puntos para un rectángulo, ej:
-    #   x = [0, 0, 2, 2]
-    #   y = [-3, 3, 3, -3]
     for condition_margin_idx in range(1, len(condition_timestamps)):
         if condition_timestamps[condition_margin_idx - 1] != \
                 condition_timestamps[condition_margin_idx]:
-            l = ax.fill_betweenx(np.linspace(min_val, 2 * max_val, 50),
-                                 np.ones(50) * condition_timestamps
-                                 [condition_margin_idx - 1],
-                                 np.ones(50) * condition_timestamps
-                                 [condition_margin_idx], color=
-                                 cmap.colors[
-                                     labels_order[condition_margin_idx]],
+            l = ax.fill_betweenx([min_val,max_val],
+                                 condition_timestamps[condition_margin_idx - 1],
+                                 condition_timestamps[condition_margin_idx],
+                                 color= cmap[labels_order[condition_margin_idx]],
                                  alpha=0.3,
                                  label=np.array(conditions_names)[np.array(
                                      labels_order[condition_margin_idx])])
@@ -172,7 +141,7 @@ def __reshape_signal(epochs):
 
 
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
-              ch_to_show=None, channel_offset=None, color='k',
+              ch_to_show=None, ch_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
               show=False, fig=None, axes=None):
     """
@@ -194,7 +163,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         Number of channels depicted in the plot. This parameter must be less or
         equal to the number of channels available in the recording. If None,
         this parameter is set as the total number of channels.
-    channel_offset: flot or None
+    ch_offset: flot or None
         Amplitude value to compute the offset of each channel. If None, the value
         is automatically calculated from signal values.
     color: string or tuple
@@ -279,20 +248,13 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         time_to_show = min(5, epoch_c.shape[0] / fs)
 
     # Set offset between channels
-    if channel_offset is None:
-        channel_offset = time_to_show * 2 * np.std(np.abs(
+    if ch_offset is None:
+        ch_offset = time_to_show * 2 * np.std(np.abs(
             epoch_c.copy().ravel()))
-    offset_values = np.arange(channels) * channel_offset
-    if len(offset_values)>1:
-        max_val = -offset_values[0] + offset_values[1]
-        min_val = -offset_values[-1] - offset_values[1]
-    else:
-        max_val = 2 * np.max(epoch_c)
-        min_val = 2 * np.min(epoch_c)
-
+    offset_values = np.arange(channels) * ch_offset
     epoch_c = epoch_c - offset_values
     ch_off = offset_values
-    del channel_offset, offset_values
+    del ch_offset, offset_values
 
     max_val, min_val = epoch_c.max(), epoch_c.min()
 
@@ -461,9 +423,13 @@ if __name__ == "__main__":
 
     # Define events and conditions dicts
     e_dict = {'events': {'event_1': {'desc_name': 'Event 1', 'label': 0},
-                         'event_2': {'desc_name': 'Event 2', 'label': 1}},
-              'event_labels': [0, 1, 1, 1, 0, 1, 0, 0, 1, 0],
-              'event_times': [0, 14, 15.4, 28, 2, 35, 42, 49, 53, 58.5]}
+                         'event_2': {'desc_name': 'Event 2', 'label': 1},
+                         'event_3': {'desc_name': 'Event 3', 'label': 2},
+                         'event_4': {'desc_name': 'Event 4', 'label': 3},
+                         'event_5': {'desc_name': 'Event 5', 'label': 4}},
+
+              'event_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
+              'event_times': [6, 14, 15.4, 28, 2, 35, 42, 49, 53, 58.5]}
 
     c_dict = {'conditions': {'con_1': {'desc_name': 'Condition 1', 'label': 0},
                              'con_2': {'desc_name': 'Condition 2', 'label': 1}},
@@ -472,5 +438,5 @@ if __name__ == "__main__":
 
     # Initialize TimePlot instance
     time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
-              ch_to_show=None,channel_offset=None,conditions_dict=None,
-              events_dict=None,show_epoch_lines=True,show=True)
+              ch_to_show=8,ch_offset=None,conditions_dict=c_dict,
+              events_dict=e_dict,show_epoch_lines=True,show=True)
