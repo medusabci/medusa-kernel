@@ -33,11 +33,11 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
         raise ValueError("'events_dict' must have 'events' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'events_dict' properly.")
-    if not 'event_labels' in events_dict.keys():
+    if not 'events_labels' in events_dict.keys():
         raise ValueError("'events_dict' must have 'event_labels' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'events_dict' properly.")
-    if not 'event_times' in events_dict.keys():
+    if not 'events_times' in events_dict.keys():
         raise ValueError("'events_dict' must have 'event_times' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'events_dict' properly.")
@@ -45,17 +45,18 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
     events_names = []
     for key_event in list(events_dict['events'].keys()):
         events_names.append(events_dict['events'][key_event][
-                                'desc_name'])
+                                'desc-name'])
     legend_lines = {}
     previous_conditions = None
     cmap = plt.get_cmap('rainbow')(np.linspace(0,1,len(events_names)))
-    events_order = np.array(events_dict['event_labels'])
+    events_order = np.array(events_dict['events_labels'])
 
     if ax.legend_ is not None:
         handles, labels = ax.get_legend_handles_labels()
-        previous_conditions = list(set(labels))
+        previous_conditions = list(np.unique(labels))
 
-    events_timestamps = np.array(events_dict['event_times'])
+
+    events_timestamps = np.array(events_dict['events_times'])
     for event_idx, event_type in enumerate(set(events_order)):
         t_ = events_timestamps[events_order == event_type]
         l = ax.vlines(t_, min_val, max_val, colors=cmap[event_idx],
@@ -78,8 +79,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
                   bbox_to_anchor=(0.5, 1.15), ncol=3, fancybox=True,
                   shadow=True)
 
-
-def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
+def __plot_condition_shades(ax, conditions_dict, display_times, min_val, max_val):
     """Aux function to plot background shades to corresponding to different
        conditions during the signal recording. """
     # Check errors
@@ -91,38 +91,63 @@ def __plot_condition_shades(ax, conditions_dict, min_val, max_val):
         raise ValueError("'conditions_dict' must have 'conditions' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'conditions_dict' properly.")
-    if not 'condition_labels' in conditions_dict.keys():
+    if not 'conditions_labels' in conditions_dict.keys():
         raise ValueError("'conditions_dict' must have 'condition_labels' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'conditions_dict' properly.")
-    if not 'condition_times' in conditions_dict.keys():
+    if not 'conditions_times' in conditions_dict.keys():
         raise ValueError("'conditions_dict' must have 'condition_times' key."
                          "Please, read carefully the time_plot documentation"
                          "to know how to define 'conditions_dict' properly.")
 
     conditions_names = []
+    legend_patches = {}
+
     for key_condition in list(conditions_dict['conditions'].keys()):
         conditions_names.append(conditions_dict['conditions'][key_condition][
-                                    'desc_name'])
-    condition_timestamps = conditions_dict['condition_times']
-    legend_patches = {}
-    labels_order = np.array(conditions_dict['condition_labels'])
+                                    'desc-name'])
+    condition_timestamps = conditions_dict['conditions_times']
+
+    # Check if timestamps are an iterable object
+    if not isinstance(condition_timestamps,np.ndarray) and \
+        not isinstance(condition_timestamps,list):
+        condition_timestamps = np.asarray([condition_timestamps])
+        labels_order = np.array([conditions_dict['conditions_labels']])
+    else:
+        labels_order = np.array(conditions_dict['conditions_labels'])
+
+    # Check if all conditions have a start and an end and fix it if not
+    c_idx = 0
+    while c_idx < len(labels_order)-1:
+    # for c_idx in range(len(labels_order)):
+        if (labels_order[c_idx] != labels_order[c_idx+1]) and \
+            (condition_timestamps[c_idx] != condition_timestamps[c_idx+1]):
+            labels_order = np.insert(labels_order,c_idx+1,labels_order[c_idx])
+            condition_timestamps = np.insert(condition_timestamps,
+                                             c_idx+1,
+                                             condition_timestamps[c_idx+1])
+        c_idx += 1
+    if labels_order[-1] != labels_order[-2]:
+        labels_order = np.append(labels_order,labels_order[-1])
+        condition_timestamps = np.append(condition_timestamps,
+                                                 display_times[-1])
+
     cmap = plt.get_cmap('jet')(np.linspace(0,1,len(conditions_names)))
 
-    for condition_margin_idx in range(1, len(condition_timestamps)):
-        if condition_timestamps[condition_margin_idx - 1] != \
-                condition_timestamps[condition_margin_idx]:
-            l = ax.fill_betweenx([min_val,max_val],
-                                 condition_timestamps[condition_margin_idx - 1],
-                                 condition_timestamps[condition_margin_idx],
-                                 color= cmap[labels_order[condition_margin_idx]],
-                                 alpha=0.3,
-                                 label=np.array(conditions_names)[np.array(
-                                     labels_order[condition_margin_idx])])
-            if str(labels_order[
-                       condition_margin_idx]) not in legend_patches.keys():
-                legend_patches.update(
-                    {str(labels_order[condition_margin_idx]): l})
+    for condition_margin_idx in np.arange(0,len(condition_timestamps),2):
+        l = ax.fill_betweenx([min_val,max_val],
+                             condition_timestamps[condition_margin_idx],
+                             condition_timestamps[condition_margin_idx+1],
+                             color= cmap[labels_order[condition_margin_idx]],
+                             alpha=0.3,
+                             label=np.array(conditions_names)[np.array(
+                                 labels_order[condition_margin_idx])])
+        if np.array(conditions_names)[
+            np.array(labels_order[
+                         condition_margin_idx])] not in legend_patches.keys():
+            legend_patches.update(
+                {np.array(conditions_names)[np.array(
+                                 labels_order[condition_margin_idx])]: l})
 
     # Create legend above the plot
     ax.legend(handles=list(legend_patches.values()),
@@ -170,12 +195,12 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         Color of the signal line. It is plotted in black by default.
     conditions_dict: dict
         Dictionary with the following structure:
-        {'conditions':{'con_1':{'desc_name':'Condition 1','label':0},
-                       'con_2':{'desc_name':'Condition 2','label':1}},
+        {'conditions':{'con_1':{'desc-name':'Condition 1','label':0},
+                       'con_2':{'desc-name':'Condition 2','label':1}},
          'condition_labels': [0,0,1,1,0,0],
          'condition_times': [0,14,14,28,28,35]}
          In this example, the sub-dictionary 'conditions' include each condition
-         with a descriptor name ('desc_name') which will be show in the time-plot
+         with a descriptor name ('desc-name') which will be show in the time-plot
          legend, and the label to identify the condition. For its part,
          'condition_labels' must be a list containing the order of start and end
          of each condition. Finally, 'condition_times' value must be a list
@@ -189,12 +214,12 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
          example).
     events_dict:
         Dictionary with the following structure:
-        {'events':{'event_1':{'desc_name':'Event 1','label':0},
-                   'event_2':{'desc_name':'Event 2','label':1}},
+        {'events':{'event_1':{'desc-name':'Event 1','label':0},
+                   'event_2':{'desc-name':'Event 2','label':1}},
          'event_labels': [0,1,1,1,0,1],
          'event_times': [0,14,15.4,28,2,35]}
          In this example, the sub-dictionary 'events' include each event with a
-         descriptor name ('desc_name') which will be show in the time-plot
+         descriptor name ('desc-name') which will be show in the time-plot
          legend, and the label to identify the event. For its part,
          'event_labels' must be a list containing the order in which each event
          ocurred. Finally, 'condition_times' value must be a list
@@ -375,7 +400,8 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
     #  Call the aux function to plot conditions
     if conditions_dict is not None:
-        __plot_condition_shades(axes, conditions_dict, min_val, max_val)
+        __plot_condition_shades(axes, conditions_dict, display_times,
+                                min_val, max_val)
 
     #  Call the aux function to plot vertical lines to mark the events
     if events_dict is not None:
@@ -401,6 +427,10 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
 if __name__ == "__main__":
     """ Example of use: """
+    from medusa.components import Recording
+    from medusa.meeg import meeg
+    import medusa.frequency_filtering as ff
+
     fs = 256
     T = 60
     t = np.arange(0, T, 1 / fs)
@@ -422,21 +452,21 @@ if __name__ == "__main__":
     signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
 
     # Define events and conditions dicts
-    e_dict = {'events': {'event_1': {'desc_name': 'Event 1', 'label': 0},
-                         'event_2': {'desc_name': 'Event 2', 'label': 1},
-                         'event_3': {'desc_name': 'Event 3', 'label': 2},
-                         'event_4': {'desc_name': 'Event 4', 'label': 3},
-                         'event_5': {'desc_name': 'Event 5', 'label': 4}},
+    e_dict = {'events': {'event_1': {'desc-name': 'Event 1', 'label': 0},
+                         'event_2': {'desc-name': 'Event 2', 'label': 1},
+                         'event_3': {'desc-name': 'Event 3', 'label': 2},
+                         'event_4': {'desc-name': 'Event 4', 'label': 3},
+                         'event_5': {'desc-name': 'Event 5', 'label': 4}},
 
-              'event_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
-              'event_times': [6, 14, 15.4, 28, 2, 35, 42, 49, 53, 58.5]}
+              'events_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
+              'events_times': [5, 14, 15.4, 28, 2, 35, 43, 49, 53, 58.5]}
 
-    c_dict = {'conditions': {'con_1': {'desc_name': 'Condition 1', 'label': 0},
-                             'con_2': {'desc_name': 'Condition 2', 'label': 1}},
-              'condition_labels': [0, 0, 1, 1, 0, 0, 1, 1, 0, 0],
-              'condition_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
+    c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
+                             'con_2': {'desc-name': 'Condition 2', 'label': 1}},
+              'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
+              'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
 
     # Initialize TimePlot instance
     time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
-              ch_to_show=8,ch_offset=None,conditions_dict=c_dict,
+              ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
               events_dict=e_dict,show_epoch_lines=True,show=True)
