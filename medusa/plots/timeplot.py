@@ -19,7 +19,7 @@ from medusa.utils import check_dimensions
 def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
     """Aux function to plot vertical lines in case of signal is divided in two
         or more epochs"""
-    t_ = np.arange(1,blocks-1) * int(samples_per_block / fs)
+    t_ = np.arange(1,blocks) * int(samples_per_block / fs)
     ax.vlines(t_, min_val, max_val, colors='k',
                   linewidth=2, linestyles='solid')
 def __plot_events_lines(ax, events_dict, min_val, max_val):
