@@ -17,7 +17,6 @@ setup(
            'Víctor Rodríguez-González, '
            'Sergio Pérez-Velasco',
     author_email='support@medusabci.com',
-    license='CC Attribution-NonCommercial-NoDerivs 2.0',
     install_requires=[
         'numpy',
         'scipy',
@@ -37,6 +36,9 @@ setup(
             'tensorflow-probability==0.16'
         ],
     },
+    package_data={
+        'medusa': ['meeg/*.tsv', 'local_activation/*.dll']
+    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
@@ -51,8 +53,6 @@ setup(
     description='Advanced biosignal processing toolbox',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    package_data={
-        'medusa': ['meeg/*.tsv', 'local_activation/*.dll']
-    },
+    license='CC Attribution-NonCommercial-NoDerivs 2.0',
     license_files=('LICENSE',),
 )
