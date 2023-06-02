@@ -1,8 +1,5 @@
-"""
-@author: Diego Marcos-Martínez
-"""
 # External imports
-import numpy as np
+import numpy as npMinor
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from scipy.signal import welch

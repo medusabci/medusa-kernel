@@ -1,10 +1,3 @@
-"""
-In this module you will find useful functions to apply optimized phase-based
-connectivity metrics. Enjoy!
-
-@authors: Víctor Rodríguez-González and Diego Marcos-Martínez
-"""
-
 # Built-in imports
 import warnings, os
 

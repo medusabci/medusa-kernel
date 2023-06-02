@@ -1,5 +1,4 @@
-"""Created on Monday February 14 09:27:14 2022
-
+"""
 In this module you will find useful functions and classes to operate with data
 recorded using motor imagery paradigms, which are widely used by the BCI
 community. Enjoy!

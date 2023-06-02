@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Dec 20 15:34:18 2019
-Edited on Mon Jun 13 10:00:00 2022
-
-@author: VICTOR
-@editor: Sergio Pérez-Velasco
-"""
 from medusa import frequency_filtering as ff
 from medusa import spatial_filtering as sf
 # from medusa.storage.medusa_data import MedusaData

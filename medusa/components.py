@@ -1,11 +1,3 @@
-"""Created on Monday March 15 19:27:14 2021
-
-In this module, you will find the main components of medusa, which provide
-skeletons for particular implementations. Enjoy!
-
-@author: Eduardo Santamaría-Vázquez
-"""
-
 # Built-in imports
 import json, bson
 import warnings

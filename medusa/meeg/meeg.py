@@ -1,15 +1,3 @@
-"""Created on Monday March 15 19:27:14 2021
-
-In this module, you will find all functions and data structures related to
-EEG and MEG signals. Enjoy!
-
-References:
-    https://stefanappelhoff.com/eeg_positions
-    https://github.com/sappelhoff/eeg_positions
-    https://mne.tools/dev/auto_tutorials/intro/40_sensor_locations.html
-@author: Eduardo Santamaría-Vázquez
-"""
-
 # Built-in imports
 import math
 

@@ -1,5 +1,3 @@
-""" Last edit: Víctor Martínez-Cagigal (07 Dec 2021) """
-
 import numpy as np
 
 

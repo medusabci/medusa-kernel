@@ -1,10 +1,3 @@
-"""Created on Monday March 15 19:27:14 2021
-
-This module provides
-
-@author: Eduardo Santamaría-Vázquez
-"""
-
 import os, warnings
 
 try:
