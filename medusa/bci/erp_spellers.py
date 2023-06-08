@@ -53,7 +53,7 @@ class ERPSpellerData(components.ExperimentData):
             command for the trial. For instance, in the HOS paradigm,
             you should define 1 matrix with 7 units, one for the initial menu
             and 6 for the second level of each command (letters).
-            Importantly, commands must be univocally defined in each matrix.
+            Importantly, commands must be unequivocally defined in each matrix.
             Therefore, units cannot share command identifiers. Then, the groups
             describe aggregations of commands that are highlighted at the
             same time. For instance, the row-column paradigm (RCP) [2]

@@ -1,5 +1,4 @@
 import numpy as np
-# from numba import jit
 import warnings
 from medusa.utils import check_dimensions
 

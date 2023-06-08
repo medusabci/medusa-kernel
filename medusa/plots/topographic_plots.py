@@ -3,7 +3,6 @@
 In this module, you will find some functions to represent connectivity graphs
 and topographic plots over a 2D head model. Enjoy!
 
-@authors: Víctor Martínez-Cagigal and Diego Marcos-Martínez
 """
 
 # External imports
@@ -16,6 +15,10 @@ import numpy as np
 
 # Medusa imports
 from medusa.meeg import UnlocatedChannel
+
+
+warnings.warn('Module topographic_plots is deprecated and will be removed in '
+              'following versions of MEDUSA Kernel. Use head_plots instead!')
 
 
 def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
@@ -76,7 +79,7 @@ def plot_connectivity(channel_set, adj_mat, head_radius=0.7266,
                         '[n_channels, n_channels]')
 
     # Get connectivity values
-    values_indx = np.tril_indices(adj_mat.shape[0],1)
+    values_indx = np.triu_indices(adj_mat.shape[0],1)
     conn_values = adj_mat[values_indx]
 
     # Map connectivity values to colors

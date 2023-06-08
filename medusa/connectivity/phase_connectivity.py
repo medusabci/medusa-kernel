@@ -1,21 +1,18 @@
-"""
-In this module you will find useful functions to apply optimized phase-based
-connectivity metrics. Enjoy!
-
-@authors: Víctor Rodríguez-González and Diego Marcos-Martínez
-"""
-
 # Built-in imports
-import warnings
+import warnings, os
 
 # External imports
 import scipy.signal as sp_signal
 import numpy as np
-import tensorflow as tf
 
 # Medusa imports
 from medusa import transforms
 from medusa.utils import check_dimensions
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 
 def __phase_connectivity_cpu(data, measure=None):
@@ -180,7 +177,8 @@ def __wpli(angles_1, angles_2, n_epochs, n_chan, ctype='CPU'):
                 abs(np.mean(np.multiply(abs(imz), np.sign(imz)), axis=1)),
                 np.mean(abs(imz), axis=1)
             )
-        wpli = np.reshape(wpli_vector, (n_epochs, n_chan, n_chan), order='F')
+        wpli = np.nan_to_num(
+            np.reshape(wpli_vector, (n_epochs, n_chan, n_chan), order='F'))
     elif ctype == 'GPU':
         imz = tf.math.sin(tf.math.subtract(angles_1, angles_2))
         wpli_vector = tf.math.divide(
@@ -191,8 +189,8 @@ def __wpli(angles_1, angles_2, n_epochs, n_chan, ctype='CPU'):
                 axis=1)),
             tf.math.reduce_mean(tf.math.abs(imz), axis=1))
         wpli = tf.reshape(wpli_vector, (n_epochs, n_chan, n_chan))
-
-    wpli = tf.linalg.set_diag(wpli, np.zeros((wpli.shape[0], wpli.shape[1])))
+        wpli = tf.linalg.set_diag(wpli, np.zeros((wpli.shape[0],
+                                                  wpli.shape[1])))
     return wpli
 
 
@@ -235,7 +233,6 @@ def phase_connectivity(data, measure=None):
         wpli-based connectivity matrix. [n_epochs, n_channels, n_channels].
 
     """
-    from medusa import tensorflow_integration
     # Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')
@@ -244,7 +241,8 @@ def phase_connectivity(data, measure=None):
         raise ValueError('Unknown measure key. Available are: "plv", "pli" or'
                          '"wpli".')
 
-    if tensorflow_integration.check_tf_config(autoconfig=True):
+    if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         if measure is None:
             plv, pli, wpli, = __phase_connectivity_gpu(data, measure)
             return np.asarray(plv), np.asarray(pli), np.asarray(wpli)

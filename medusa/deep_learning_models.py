@@ -1,16 +1,8 @@
 # Built-in imports
 import warnings
 import os
+
 # External imports
-import tensorflow as tf
-from tensorflow.keras.layers import Activation, Input, Flatten
-from tensorflow.keras.layers import Dropout, BatchNormalization
-from tensorflow.keras.layers import Conv2D, AveragePooling2D, DepthwiseConv2D
-from tensorflow.keras.layers import Dense, SpatialDropout2D, SeparableConv2D
-from tensorflow.keras.layers import Conv3D, AveragePooling3D, Add
-from tensorflow.keras.constraints import max_norm
-from tensorflow.keras.callbacks import EarlyStopping
-import tensorflow.keras as keras
 import sklearn.utils as sk_utils
 import numpy as np
 
@@ -18,6 +10,21 @@ import numpy as np
 from medusa import components
 from medusa import classification_utils
 from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
+    import tensorflow.keras as keras
+    from tensorflow.keras.layers import Activation, Input, Flatten
+    from tensorflow.keras.layers import Dropout, BatchNormalization
+    from tensorflow.keras.layers import Conv2D, AveragePooling2D
+    from tensorflow.keras.layers import DepthwiseConv2D, Dense
+    from tensorflow.keras.layers import SpatialDropout2D, SeparableConv2D
+    from tensorflow.keras.layers import Conv3D, AveragePooling3D, Add
+    from tensorflow.keras.constraints import max_norm
+    from tensorflow.keras.callbacks import EarlyStopping
+else:
+    raise tensorflow_integration.TFExtrasNotInstalled()
 
 
 class EEGInceptionv1(components.ProcessingMethod):
@@ -305,6 +312,7 @@ class EEGInceptionv1(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
@@ -634,6 +642,7 @@ class EEGNet(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
@@ -1448,7 +1457,8 @@ class EEGSym(components.ProcessingMethod):
         ordered_channels = left + middle + right
         index_channels = [channels.index(channel) for channel in
                           ordered_channels]
-        return X[:, :, index_channels]
+        return np.array(X)[:, :, index_channels], list(np.array(channels)[
+            index_channels])
 
     def predict_proba(self, X):
         """Model prediction scores for the given features.
@@ -1490,6 +1500,7 @@ class EEGSym(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
+        pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model

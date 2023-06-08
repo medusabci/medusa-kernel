@@ -1,6 +1,16 @@
-import tensorflow as tf
+# Built-in imports
+import warnings, os
+
+# External imports
 import numpy as np
+
+# Medusa imports
 from medusa.graph_theory import degree
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 def __density_gpu(W):
     """
@@ -29,7 +39,7 @@ def __density_gpu(W):
         lambda: 2, lambda: check_symmetry)
     
     N = W.shape[0]
-    deg = degree.degree(W,'GPU')
+    deg = degree.__degree_gpu(W)
     
     norm_value = tf.switch_case(tf.cast(check_symmetry,tf.int32), 
                 branch_fns={0: lambda: tf.math.multiply(N,tf.math.subtract(N,1)),
@@ -69,7 +79,7 @@ def __density_cpu(W):
         check_symmetry = 2
     
     N = W.shape[0]
-    deg = degree.degree(W,'CPU')
+    deg = degree.__degree_cpu(W)
     
     if check_symmetry == 0 or check_symmetry == 2:
         norm_value = N*(N-1)
@@ -106,12 +116,11 @@ def density(W,mode):
         
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
-      
-    if mode == 'CPU':
-        global_den,nodal_den = __density_cpu(W)
-    elif mode == 'GPU':
+
+    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         global_den,nodal_den = __density_gpu(W)
     else:
-        raise ValueError('Unknown mode')
+        global_den,nodal_den = __density_cpu(W)
         
     return global_den, nodal_den

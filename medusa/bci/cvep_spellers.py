@@ -1,5 +1,4 @@
-"""Created on Friday October 01 10:09:11 2021
-
+"""
 In this module you will find useful functions and classes to operate with data
 recorded using spellers based on code-modulated visual evoked potentials
 (c-VEP), which are widely used by the BCI community. Enjoy!
@@ -267,10 +266,6 @@ class CVEPSpellerDataset(components.Dataset):
 
         if experiment_mode == 'train':
             default_track_attributes_train = {
-                'cvep_labels': {
-                    'track_mode': 'concatenate',
-                    'parent': experiment_att_key
-                },
                 'spell_target': {
                     'track_mode': 'append',
                     'parent': experiment_att_key

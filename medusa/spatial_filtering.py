@@ -1,9 +1,12 @@
+import warnings
+from copy import copy
 import numpy as np
-from medusa import components
 from numpy import linalg as nlinalg
 from scipy import linalg as slinalg
-import warnings
-
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from medusa import components
+from medusa.plots.head_plots import TopographicPlot
 
 class LaplacianFilter(components.ProcessingMethod):
     """
@@ -225,7 +228,7 @@ def car(signal):
 
 
 class CSP(components.ProcessingMethod):
-    """ The class CSP performs a Common Spatial Pattern filtering.
+    """ Common Spatial Pattern filtering.
 
     Attributes
     ----------
@@ -237,60 +240,123 @@ class CSP(components.ProcessingMethod):
         De-mixing matrix (activation patterns are stored in columns).
     """
 
-    def __init__(self, n_filters=4):
+    def __init__(self, n_filters=4, selection="extremes"):
         """
-        n_filter : int or None
-            Number of most discriminant CSP filters to decompose the signal
-            into (must be less or equal to the number of channels in your
-            signal).
-            If int it will return that number of filters.
-            If None it will return all calculated filters."""
 
-        self.filters = None  # Mixing matrix (spatial filters)
-        self.eigenvalues = None  # Eigenvalues
-        self.patterns = None  # De-mixing matrix
-        self.n_filters = n_filters
+        Parameters
+        ----------
+        n_filters : int or None
+            Number of filters to select. Use None to return all filters
+            (default: 4).
+        selection : basestring
+            Selection method:
+            - "extremes" (default): classic method that takes the filters
+            from the extremes, which belong to both classes separately. This
+            method cannot be applied in problems with more than 2 classes.
+            - "eigenvalues": the eigenvalues are sorted and the highest ones
+            are eligible to be selected.
+
+        Attributes
+        ----------
+        filters: np.ndarray (n_channels, n_channels)
+            Mixing matrix, or forward model (spatial filters are stored in
+            rows).
+        patterns: np.ndarray (n_channels, n_channels)
+            De-mixing matrix, or backward model (patterns are stored in rows).
+        eigenvalues: np.ndarray (n_channels, )
+            Eigenvalues associated to each filter and pattern.
+        sel_idxs: np.ndarray (n_filters, )
+            Selected indexes to get the desired filters and patterns.
+        sel_filters: np.ndarray (n_filters, n_channels)
+            Selected spatial filters (stored in rows).
+        sel_patterns: np.ndarray (n_filters, n_channels)
+            Selected patterns (stored in rows).
+        sel_eigenvalues: np.ndarray (n_filters, )
+            Selected eigenvalues.
+        """
+        self.n_filters = n_filters      # Number of filters to choose
+        self.selection = selection      # Selection method
+        if self.n_filters is None:
+            self.selection = "none"
+
+        # Generated
+        self.filters = None             # Mixing matrix (spatial filters)
+        self.patterns = None            # De-mixing matrix
+        self.eigenvalues = None         # Eigenvalues
+        self.sel_idxs = None            # Selected indexes
+        self.sel_filters = None         # Selected spatial filters
+        self.sel_patterns = None        # Selected patterns
+        self.sel_eigenvalues = None     # Selected eigenvalues
+        self.is_fitted = False
 
     def fit(self, X, y):
-        """Train Common Spatial Patterns (CSP) filters
+        """ Method to train the CSP.
 
-            Train Common Spatial Patterns (CSP) filters with support to >2
-            classes based on support multiclass CSP by means of approximate
-            joint diagonalization. In this case, the spatial filter selection
-            is achieved according to [1].
+        This code is based on [1] for the 2-class problem, and based on [2]
+        for the > 2-class problem.
 
-            Parameters
-            ----------
-            X : numpy.ndarray, [n_trials, samples, channels]
-                Epoched data of shape (n_trials, samples, channels)
+        Parameters
+        ----------
+        X : numpy.ndarray (n_epochs, n_samples, n_channels)
+            Epoched data of shape (n_epochs, n_samples, n_channels)
 
-            y : numpy.ndarray, [n_trials,]
-                Labels for epoched data of shape (n_trials,)
+        y : numpy.ndarray (n_epochs, )
+            Labels for epoched data of shape (n_epochs, )
 
-            References
-            ----------
-            [1] Grosse-Wentrup, Moritz, and Martin Buss. "Multiclass common
-            spatial patterns and information theoretic feature extraction."
-            Biomedical Engineering, IEEE Transactions on 55, no. 8 (2008):
-            1991-2000.
+        References
+        ----------
+        [1]  Blankertz, B., Tomioka, R., Lemm, S., Kawanabe, M., & Muller,
+        K. R. (2007). Optimizing spatial filters for robust EEG single-trial
+        analysis. IEEE Signal processing magazine, 25(1), 41-56.
+        [2] Grosse-Wentrup, Moritz, and Martin Buss. "Multiclass common
+        spatial patterns and information theoretic feature extraction."
+        Biomedical Engineering, IEEE Transactions on 55, no. 8 (2008):
+        1991-2000.
         """
+        # Error detection
         n_classes = np.unique(y)
+        if len(n_classes) > 2 and self.selection == "extremes":
+            raise ValueError("Cannot use 'extremes' selection if the data has "
+                             "more than 2 classes (%i classess found)!"
+                             % len(n_classes))
+
         # Covariance matrices
         cov = []
         for c in n_classes:
             cov.append(np.cov(X[y == c].reshape(-1, X.shape[-1]).T))
-        cov = np.array(cov)
-        # Classic implementation for 2-class
+        cov = np.array(cov)  # dimensions [n_classes x n_cha x n_cha]
+
+        # Classic implementation for 2 classes
         if len(n_classes) == 2:
             # Solve the eigenvalue problem
-            eigenvalues, filters = slinalg.eigh(cov[0], cov[0] + cov[1])
+            self.eigenvalues, eigenvectors = slinalg.eigh(cov[0], cov.sum(0))
 
             # Indexes for sorting eigenvectors (w)
-            ix_sorted = np.argsort(np.abs(eigenvalues - 0.5))[::-1]
-        # Implementation for >2-classes
+            if self.selection == "eigenvalues":
+                # Automatic sorting using eigenvalues
+                self.sel_idxs = np.argsort(np.abs(self.eigenvalues - 0.5))[::-1]
+                self.sel_idxs = self.sel_idxs[:self.n_filters]
+            # if self.selection == "ratio-of-means":
+            #     proj0 = [np.dot(eigenvectors.T, trial.T) for trial in X[
+            #         y == n_classes[0]]]
+            #     proj0 = np.transpose(np.array(proj0), (0, 2, 1))
+            #     # epochs x filters x channels
+            if self.selection == "extremes":
+                # Automatic selection using extremes for both classes
+                self.sel_idxs = list()
+                ids = np.arange(len(self.eigenvalues)).tolist()
+                start = False
+                while len(self.sel_idxs) < self.n_filters:
+                    if start:
+                        self.sel_idxs.append(ids.pop(0))
+                    else:
+                        self.sel_idxs.append((ids.pop(len(ids) - 1)))
+                    start = not start
+
+        # Implementation for more than 2 classes
         elif len(n_classes) > 2:
             # Approximate joint diagonalization based on jacobi angle
-            filters, d = self.adj_pham(x=cov)
+            filters, d = self._adj_pham(x=cov)
             filters = filters.T
             # Normalization
             # Mean covariance
@@ -299,52 +365,67 @@ class CSP(components.ProcessingMethod):
                 temp = np.dot(np.dot(filters[:, i].T, cmean), filters[:, i])
                 filters[:, i] /= np.sqrt(temp)
             # We calculate the probability of each class
-            info = []
+            self.eigenvalues = []
             prob_class = [np.mean(y == c) for c in n_classes]
             for j in range(filters.shape[1]):
                 patterns, b = 0, 0
                 for i, c in enumerate(n_classes):
-                    temp = np.dot(np.dot(filters[:, j].T, cov[i]), filters[:, j])
+                    temp = np.dot(np.dot(filters[:, j].T, cov[i]),
+                                  filters[:, j])
                     patterns += prob_class[i] * np.log(np.sqrt(temp))
                     b += prob_class[i] * (temp ** 2 - 1)
                 mutual_info = - (patterns + (3.0 / 16) * (b ** 2))
-                info.append(mutual_info)
-            eigenvalues = info
-            # Indexes for sorting eigenvectors (w)
-            ix_sorted = np.argsort(info)[::-1]
+                self.eigenvalues.append(mutual_info)
+
+            # Indexes for sorting eigenvalues (w)
+            if self.selection == "eigenvalues":
+                self.sel_idxs = np.argsort(self.eigenvalues)[::-1]
+                self.sel_idxs = self.sel_idxs[:self.n_filters]
         else:
             raise ValueError("Number of classes must be  >= 2")
-        # Sort eigenvectors (w)
-        filters = filters[:, ix_sorted]
-        eigenvalues = [eigenvalues[i] for i in ix_sorted]
-        eigenvalues = np.diag(eigenvalues)
-        # Activation spatial patterns
-        # patterns = slinalg.pinv2(filters).T   # deprecated and removed in scipy 1.9.0
-        patterns = slinalg.pinv(filters).T
 
-        # Attribute storing of number of filters
-        self.filters = filters[:, :self.n_filters].T
-        self.eigenvalues = eigenvalues
-        self.patterns = patterns[:, :self.n_filters].T
+        # Get all the spatial filters, patterns and eigenvalues (non-sorted)
+        self.filters = eigenvectors.T
+        self.patterns = slinalg.pinv(eigenvectors)
+        self.eigenvalues = np.array(self.eigenvalues)
+
+        # Get the selected spatial filters, patterns and eigenvalues
+        if self.sel_idxs is not None:
+            self.sel_filters = self.filters[self.sel_idxs, :]
+            self.sel_patterns = self.patterns[self.sel_idxs, :]
+            self.sel_eigenvalues = self.eigenvalues[self.sel_idxs]
+        else:
+            self.sel_filters = self.filters
+            self.sel_patterns = self.patterns
+            self.sel_eigenvalues = self.eigenvalues
+        self.is_fitted = True
 
     def project(self, X):
-        """ This method projects the input data X with the spatial filters W
+        """ Projects the input data X with the selected spatial filters.
 
         Parameters
         ----------
-        X : numpy.ndarray [n_trials, samples, channels]
-            Input data (dimensions [n_trials, samples, channels])
+        X : numpy.ndarray (n_epochs, n_samples, n_channels)
+            Epoched data of shape (n_epochs, n_samples, n_channels).
 
         Returns
         -------
-        numpy.ndarray [n_trials, n_filters, samples]
-            Array with the epochs of signal projected in the CSP space
+        numpy.ndarray (n_epochs, n_filters, n_channels)
+            Array with the epochs of signal projected in the CSP space.
         """
-        if self.filters is None:
+        if len(X.shape) != 3:
+            raise Exception("X must be 3-dimensional (n_epochs x n_samples x "
+                            "n_channels!")
+        if not self.is_fitted:
             raise Exception("CSP must be fitted first")
-        return np.matmul(self.filters, X.transpose((0, 2, 1)))
 
-    def adj_pham(self, x, eps=1e-6, n_iter_max=15):
+        # Project each trial separately
+        projection = [np.dot(self.sel_filters, trial.T) for trial in X]
+        projection = np.transpose(np.array(projection), (0, 2, 1))
+        return projection
+
+    @staticmethod
+    def _adj_pham(x, eps=1e-6, n_iter_max=15):
         """Approximate joint diagonalization based on pham's algorithm.
             This is a direct implementation of the PHAM's AJD algorithm [1].
             Extracted from pyriemann module:
@@ -427,18 +508,113 @@ class CSP(components.ProcessingMethod):
         return v, d
 
     def to_dict(self):
-        return self.__dict__
+        dict_ = copy(self.__dict__)
+        for key, value in dict_.items():
+            if isinstance(value, np.ndarray):
+                dict_[key] = value.tolist()
+        return dict_
 
     @staticmethod
     def from_dict(dict_data):
         csp = CSP()
-        csp.filters = dict_data['filters']
-        csp.eigenvalues = dict_data['eigenvalues']
-        csp.patterns = dict_data['patterns']
         csp.n_filters = dict_data['n_filters']
+        csp.selection = dict_data['selection']
+        csp.filters = np.array(dict_data['filters'])
+        csp.patterns = np.array(dict_data['patterns'])
+        csp.eigenvalues = np.array(dict_data['eigenvalues'])
+        csp.sel_idxs = np.array(dict_data['sel_idxs'])
+        csp.sel_filters = np.array(dict_data['sel_filters'])
+        csp.sel_patterns = np.array(dict_data['sel_patterns'])
+        csp.sel_eigenvalues = np.array(dict_data['sel_eigenvalues'])
         return csp
 
+    def plot(self, channel_set, figure=None, plot_filters=False,
+             plot_patterns=True, topo_settings=None, show=False,
+             plot_eig=True, only_selected=True):
+        # Error detection and initialization
+        if not plot_patterns and not plot_filters:
+            raise Exception("Cannot plot CSP if plot_filters and "
+                            "plot_patterns are both None")
+        if figure is None:
+            figure = plt.figure(figsize=(7.5, 3), dpi=300)
+        if len(channel_set.l_cha) != self.sel_filters.shape[1]:
+            raise Exception("The number of channels (%i) must be the same as "
+                            "the number of channels used to train the CSP ("
+                            "%i)" % (len(channel_set.l_cha),
+                                     self.sel_filters.shape[1]))
+        if topo_settings is None:
+            topo_settings = {
+                "head_radius": 1.0,
+                "head_line_width": 2,
+                "interp_contour_width": 1,
+                "interp_points": 500,
+            }
+        if only_selected:
+            sel_patterns = self.sel_patterns
+            sel_filters = self.sel_filters
+            sel_eigenvalues = self.sel_eigenvalues
+        else:
+            sel_patterns = self.patterns
+            sel_filters = self.filters
+            sel_eigenvalues = self.eigenvalues
 
+        # Parameters
+        n_row = 2 if plot_patterns and plot_filters else 1
+        max_f = 0
+        max_p = 0
+        for i in range(sel_filters.shape[0]):
+            if np.max(np.abs(sel_patterns[i, :])) > max_p:
+                max_p = np.max(np.abs(sel_patterns[i, :]))
+            if np.max(np.abs(sel_filters[i, :])) > max_f:
+                max_f = np.max(np.abs(sel_filters[i, :]))
+
+        # Plot filters
+        j = 0
+        if plot_filters:
+            for j in range(sel_filters.shape[0]):
+                ax = figure.add_subplot(n_row, sel_filters.shape[0], j + 1)
+                topo_settings["clim"] = (-max_f, max_f)
+                topo_settings["cmap"] = "RdBu"
+                topo = TopographicPlot(axes=ax, channel_set=channel_set,
+                                       **topo_settings)
+                topo.update(values=sel_filters[j, :])
+                ax.set_title("Filter %i" % j)
+                if plot_eig and not plot_patterns:
+                    ax.set_xlabel('Eig: %.3f' % sel_eigenvalues[j])
+                # Colorbar
+                if j == sel_filters.shape[0] - 1:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes('right', size='5%', pad=0.05)
+                    cbar = figure.colorbar(
+                        topo.plot_handles["color-mesh"], cax=cax,
+                        orientation='vertical')
+            j += 1
+
+        # Plot patterns
+        if plot_patterns:
+            for i in range(sel_filters.shape[0]):
+                ax = figure.add_subplot(n_row, sel_filters.shape[0], j + i + 1)
+                topo_settings["clim"] = (-max_p, max_p)
+                topo_settings["cmap"] = "PiYG"
+                topo = TopographicPlot(axes=ax, channel_set=channel_set,
+                                       **topo_settings)
+                topo.update(values=sel_patterns[i, :])
+                ax.set_title("Pattern %i" % i)
+                if plot_eig:
+                    ax.set_xlabel('Eig: %.3f' % sel_eigenvalues[i])
+                # Colorbar
+                if i == sel_filters.shape[0] - 1:
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes('right', size='5%', pad=0.05)
+                    cbar = figure.colorbar(
+                        topo.plot_handles["color-mesh"], cax=cax,
+                        orientation='vertical')
+        plt.suptitle("CSP")
+
+        # Show?
+        if show:
+            plt.show()
+        return figure
 class CCA(components.ProcessingMethod):
     """
     The class CCA performs a Canonical Correlation Analysis filtering. First,

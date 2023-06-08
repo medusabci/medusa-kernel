@@ -1,4 +1,4 @@
-from medusa.plots import topographic_plots
+from medusa.plots import head_plots
 from medusa.meeg import EEGChannelSet
 import numpy as np
 

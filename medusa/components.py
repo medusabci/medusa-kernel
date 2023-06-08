@@ -1,11 +1,3 @@
-"""Created on Monday March 15 19:27:14 2021
-
-In this module, you will find the main components of medusa, which provide
-skeletons for particular implementations. Enjoy!
-
-@author: Eduardo Santamaría-Vázquez
-"""
-
 # Built-in imports
 import json, bson
 import warnings
@@ -270,7 +262,7 @@ class SettingsTreeItem(SerializableComponent):
             Tree item key
         info: str
             Information about this item
-        value_type: str ['string'|'number'|'boolean'|'dict'|'list'], optional
+        value_type: str ['string'|'number'|'integer'|'boolean'|'dict'|'list'], optional
             Type of the data stored in attribute value. Leave to None if the
             item is going to be a tree.
         value: str, int, float, bool, dict or list, optional
@@ -314,6 +306,11 @@ class SettingsTreeItem(SerializableComponent):
                     assert isinstance(value, int) or isinstance(value, float), \
                         'Parameter value must be of types %s or %s' % \
                         (int, float)
+            elif t == 'integer':
+                if value is not None:
+                    assert isinstance(value, int), \
+                        'Parameter value must be of types %s or %s' % \
+                        (int, float)
             elif t == 'boolean':
                 if value is not None:
                     assert isinstance(value, bool), \
@@ -346,7 +343,7 @@ class SettingsTreeItem(SerializableComponent):
     def add_item(self, item):
         """Adds tree item to the tree. Use this function to build a custom tree.
         Take into account that if this function is used, attributes value and
-        type will be set to None and 'tree', respectively.
+        type will be set to None.
 
         Parameters
         ----------
