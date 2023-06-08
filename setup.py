@@ -31,25 +31,23 @@ setup(
         'PyQt5'
     ],
     extras_require={
-        'GPU-TF': [
+        'TF': [
             'tensorflow<2.11',
             'tensorflow-probability==0.16'
         ],
     },
-    python_requires='>=3.8',
+    python_requires='>=3.8, <3.11',
     package_data={
         'medusa': ['meeg/*.tsv', 'local_activation/*.dll']
     },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
-        'Topic :: Software Development',
         'Topic :: Scientific/Engineering',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
     ],
     description='Advanced biosignal processing toolbox',
     long_description=long_description,
