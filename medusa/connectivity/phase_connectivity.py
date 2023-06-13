@@ -63,9 +63,9 @@ def __phase_connectivity_cpu(data, measure=None):
     elif measure == 'wpli':
         return __wpli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
     elif measure == 'plv':
-        return __plv(angles_1, angles_2, n_epochs, n_chan, 'CPU')
+        return __plv(angles_1, angles_2, n_epochs, n_samples, n_chan, 'CPU')
     else:
-        plv = __plv(angles_1, angles_2, n_epochs, n_chan, 'CPU')
+        plv = __plv(angles_1, angles_2, n_epochs, n_samples, n_chan, 'CPU')
         pli = __pli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
         wpli = __wpli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
         return plv, pli, wpli
