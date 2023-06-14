@@ -1,5 +1,5 @@
 # External imports
-import numpy as npMinor
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from scipy.signal import welch
