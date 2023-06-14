@@ -356,7 +356,7 @@ class ICA:
         time_plot(sources, self.fs, self.ica_labels,
                             ch_to_show=sources_to_show,
                             time_to_show=time_to_show,
-                            channel_offset=ch_offset,show=False,fig=fig,
+                            ch_offset=ch_offset,show=False,fig=fig,
                   axes=ax)
 
     def plot_summary(self, signal, component, psd_freq_range=[1,70],
