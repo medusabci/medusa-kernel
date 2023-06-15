@@ -460,80 +460,46 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
 if __name__ == "__main__":
     """ Example of use: """
-    # from medusa.components import Recording
-    # from medusa.meeg import meeg
-    # import medusa.frequency_filtering as ff
-    #
-    # fs = 256
-    # T = 60
-    # t = np.arange(0, T, 1 / fs)
-    # l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
-    #          'PZ', 'P4',
-    #          'PO7', 'POZ', 'PO8']
-    # A = 1  # noise amplitude
-    # sigma = 0.5  # Gaussian noise variance
-    # f = 5  # frequency of sinusoids (Hz)
-    # ps = np.linspace(0, -np.pi / 2, len(l_cha))  # Phase differences
-    # np.random.seed(0)
-    #
-    # # Define signal
-    # signal = np.empty((len(t), len(l_cha)))
-    # for c in range(len(l_cha)):
-    #     signal[:, c] = np.sin(2 * np.pi * f * t - ps[c]) + A * np.random.normal(
-    #         0, sigma, size=t.shape)
-    #
-    # signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
-    #
-    # # Define events and conditions dicts
-    # e_dict = {'events': {'event_1': {'desc-name': 'Event 1', 'label': 0},
-    #                      'event_2': {'desc-name': 'Event 2', 'label': 1},
-    #                      'event_3': {'desc-name': 'Event 3', 'label': 2},
-    #                      'event_4': {'desc-name': 'Event 4', 'label': 3},
-    #                      'event_5': {'desc-name': 'Event 5', 'label': 4}},
-    #
-    #           'events_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
-    #           'events_times': [5, 14, 15.4, 28, 2, 35, 43, 49, 53, 58.5]}
-    #
-    # c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
-    #                          'con_2': {'desc-name': 'Condition 2', 'label': 1}},
-    #           'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
-    #           'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
-    #
-    # # Initialize TimePlot instance
-    # time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
-    #           ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
-    #           events_dict=e_dict,show_epoch_lines=True,show=True)
-import medusa
-from medusa.components import Recording
-from medusa.plots import timeplot
+    from medusa.components import Recording
+    from medusa.meeg import meeg
+    import medusa.frequency_filtering as ff
 
-#%% PARAMETERS
-file = 'C:/Users\Diego\Downloads/prueba4.rec.bson'
+    fs = 256
+    T = 60
+    t = np.arange(0, T, 1 / fs)
+    l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
+             'PZ', 'P4',
+             'PO7', 'POZ', 'PO8']
+    A = 1  # noise amplitude
+    sigma = 0.5  # Gaussian noise variance
+    f = 5  # frequency of sinusoids (Hz)
+    ps = np.linspace(0, -np.pi / 2, len(l_cha))  # Phase differences
+    np.random.seed(0)
 
-#%% LOAD FILE AND PROCESSING
+    # Define signal
+    signal = np.empty((len(t), len(l_cha)))
+    for c in range(len(l_cha)):
+        signal[:, c] = np.sin(2 * np.pi * f * t - ps[c]) + A * np.random.normal(
+            0, sigma, size=t.shape)
 
-# Load
-rec = Recording.load(file)
+    signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
 
-# Pre-processing
-filt = medusa.FIRFilter(order=1000, cutoff=[1, 30], btype='bandpass')
-filt.fit(rec.eeg.fs)
-rec.eeg.signal = filt.transform(rec.eeg.signal)
+    # Define events and conditions dicts
+    e_dict = {'events': {'event_1': {'desc-name': 'Event 1', 'label': 0},
+                         'event_2': {'desc-name': 'Event 2', 'label': 1},
+                         'event_3': {'desc-name': 'Event 3', 'label': 2},
+                         'event_4': {'desc-name': 'Event 4', 'label': 3},
+                         'event_5': {'desc-name': 'Event 5', 'label': 4}},
 
-#%% REPRESENT EEG
+              'events_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
+              'events_times': [5, 14, 15.4, 28, 2, 35, 43, 49, 53, 58.5]}
 
-# Define events and conditions dicts
-e_dict = {'events': rec.marks.app_settings['events'],
-          'events_labels': rec.marks.events_labels,
-          'events_times': np.array(rec.marks.events_times)- rec.eeg.times[0]}
+    c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
+                             'con_2': {'desc-name': 'Condition 2', 'label': 1}},
+              'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
+              'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
 
-c_dict = {'conditions': rec.marks.app_settings['events'],
-          'conditions_labels': rec.marks.conditions_labels,
-          'conditions_times': np.array(rec.marks.conditions_times)-rec.eeg.times[0]}
-
-
-timeplot.time_plot(
-    rec.eeg.signal, fs=rec.eeg.fs, ch_labels=rec.eeg.channel_set.l_cha,
-    time_to_show=10, ch_to_show=None, ch_offset=None, conditions_dict=c_dict,
-    events_dict=e_dict, show_epoch_lines=True, show=True)
-
+    # Initialize TimePlot instance
+    time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
+              ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
+              events_dict=e_dict,show_epoch_lines=True,show=True)
