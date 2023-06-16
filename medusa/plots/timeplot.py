@@ -3,6 +3,8 @@ Created on Thu Aug 25 17:09:18 2022
 Edited on Mon Jan 09 14:00:00 2023
 @author: Diego Marcos-Martínez
 """
+import warnings
+
 # External imports
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,7 +24,7 @@ def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
     t_ = np.arange(1,blocks) * int(samples_per_block / fs)
     ax.vlines(t_, min_val, max_val, colors='k',
                   linewidth=2, linestyles='solid')
-def __plot_events_lines(ax, events_dict, min_val, max_val):
+def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
     """Aux function to plot vertical lines corresponding  to marked events"""
     # Check errors
     if not isinstance(events_dict, dict):
@@ -57,6 +59,12 @@ def __plot_events_lines(ax, events_dict, min_val, max_val):
 
 
     events_timestamps = np.array(events_dict['events_times'])
+
+    # Check if events_timestamps are referenced to recording start
+    if np.any(events_timestamps > display_times[-1]):
+        raise ValueError("Incorrect format of events_timestamps. "
+                         "The values must be referenced to the beginning "
+                         "of the record, so that the first timestamp has value 0.")
     for event_idx, event_type in enumerate(set(events_order)):
         t_ = events_timestamps[events_order == event_type]
         l = ax.vlines(t_, min_val, max_val, colors=cmap[event_idx],
@@ -116,21 +124,46 @@ def __plot_condition_shades(ax, conditions_dict, display_times, min_val, max_val
     else:
         labels_order = np.array(conditions_dict['conditions_labels'])
 
+    # Check if timestamps are referenced to recording start
+    if np.any(condition_timestamps > display_times[-1]):
+        raise ValueError("Incorrect format of condition_timestamps. "
+                         "The values must be referenced to the beginning "
+                         "of the record, so that the first timestamp has value 0.")
+
     # Check if all conditions have a start and an end and fix it if not
     c_idx = 0
+    corrected = False
     while c_idx < len(labels_order)-1:
-    # for c_idx in range(len(labels_order)):
-        if (labels_order[c_idx] != labels_order[c_idx+1]) and \
-            (condition_timestamps[c_idx] != condition_timestamps[c_idx+1]):
-            labels_order = np.insert(labels_order,c_idx+1,labels_order[c_idx])
-            condition_timestamps = np.insert(condition_timestamps,
-                                             c_idx+1,
-                                             condition_timestamps[c_idx+1])
+        if (labels_order[c_idx] != labels_order[c_idx+1]):
+            if c_idx != 0:
+                if labels_order[c_idx] != labels_order[c_idx-1]:
+                    labels_order = np.insert(labels_order, c_idx + 1,
+                                             labels_order[c_idx])
+                    condition_timestamps = np.insert(condition_timestamps,
+                                                     c_idx + 1,
+                                                     condition_timestamps[
+                                                         c_idx + 1])
+                    corrected = True
+            else:
+                labels_order = np.insert(labels_order,c_idx+1,labels_order[c_idx])
+                condition_timestamps = np.insert(condition_timestamps,
+                                                 c_idx+1,
+                                                 condition_timestamps[c_idx+1])
+                corrected = True
         c_idx += 1
     if labels_order[-1] != labels_order[-2]:
         labels_order = np.append(labels_order,labels_order[-1])
         condition_timestamps = np.append(condition_timestamps,
                                                  display_times[-1])
+        corrected = True
+
+    if corrected:
+        warnings.warn("The dictionary of conditions does not follow the "
+                "correct format ([Start condition X, End condition X,"
+                " Start condition Y, End condition Y ...]). "
+                "The labels and timestamps vector has been "
+                "automatically corrected. Check that the OK "
+                "is correct. ")
 
     cmap = plt.get_cmap('jet')(np.linspace(0,1,len(conditions_names)))
 
@@ -405,7 +438,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
     #  Call the aux function to plot vertical lines to mark the events
     if events_dict is not None:
-        __plot_events_lines(axes, events_dict, min_val, max_val)
+        __plot_events_lines(axes, events_dict, min_val, max_val, display_times)
 
     # Plot the signal
     axes.plot(display_times, epoch_c, color, linewidth=0.5)
