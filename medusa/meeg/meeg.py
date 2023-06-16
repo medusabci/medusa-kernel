@@ -16,7 +16,7 @@ class MEEGChannel(components.SerializableComponent):
     """This class implements a M/EEG channel.
     """
 
-    # TODO: This class is till not being used for compatibility reasons, but it
+    # TODO: This class is still not being used for compatibility reasons, but it
     #  should be introduced in the next major update of medusa kernel to remove
     #  channel dictionaries and simplify the management of MEEG signals
 
@@ -215,7 +215,7 @@ class EEGChannelSet(components.SerializableComponent):
 
     def set_standard_montage(self, l_cha=None, l_reference=None, l_ground=None,
                              montage='10-05', drop_landmarks=True,
-                             allow_unlocated_channels=False, standard=None):
+                             allow_unlocated_channels=False):
         """Set standard EEG channels with common reference. In 3 dimensions,
         the equator is taken a Nz-T10-Iz-T9.
 
@@ -250,8 +250,6 @@ class EEGChannelSet(components.SerializableComponent):
             coordinates. This allows to save labels that are not defined in the
             montage, but the behaviour in functions that need locations
             (e.g., topographic_plots) is unpredictable.
-        standard: str
-            DEPRECATED. Only left for compatibility reasons.
         """
         # Check errors
         if self.reference_method != 'common':
@@ -263,8 +261,6 @@ class EEGChannelSet(components.SerializableComponent):
         assert self.coord_system == 'cartesian' or \
                self.coord_system == 'spherical', \
             'Incorrect input on coord_system parameter'
-        # Compatibility
-        montage = standard if standard is not None else montage
         # Get montage
         if isinstance(montage, str):
             # Load standard montage
