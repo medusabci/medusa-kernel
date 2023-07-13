@@ -548,7 +548,7 @@ if __name__ == "__main__":
 
     # Set channel set
     channel_set = EEGChannelSet()
-    channel_set.set_standard_montage(standard='10-20')
+    channel_set.set_standard_montage(montage='10-20')
 
     # Initialize figure
     fig = plt.figure()
