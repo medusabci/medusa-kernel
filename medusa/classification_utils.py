@@ -51,10 +51,11 @@ def k_fold_split(x, y, k, keys=None, shuffle=False):
     >>> k_fold_iter = k_fold_split(x, y, k)
     >>> k_fold_acc = 0
     >>> for iter in k_fold_iter:
-    >>>     model.fit(iter[x_train, y_train])
-    >>>     y_test_pred = model.predict(iter[x_test, y_test])
-    >>>     k_fold_acc += np.sum(y_test_pred == y_test)/len(y_test)
-    >>>     k_fold_acc = k_fold_acc/len(k_fold_iter)
+    >>>     model.fit(iter["x_train"], iter["y_train"])
+    >>>     y_test_pred = model.predict(iter["x_test"], iter["y_test"])
+    >>>     k_fold_acc += np.sum(y_test_pred == iter["y_test"])/len(iter["y_test"])
+    >>> k_fold_acc = k_fold_acc/len(k_fold_iter)
+
     """
     # Convert to numpy arrays
     x = np.array(x)

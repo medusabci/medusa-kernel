@@ -1,5 +1,15 @@
-import tensorflow as tf
+# Built-in imports
+import warnings, os
+
+# External imports
 import numpy as np
+
+# Medusa imports
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
 
 def __trans_gpu(W):
     """
@@ -73,18 +83,9 @@ def transitivity(W,mode):
         
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
-      
-    if mode == 'CPU':
-        global_trans = __trans_cpu(W)
-    elif mode == 'GPU':
+    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         global_trans = __trans_gpu(W)
     else:
-        raise ValueError('Unknown mode')
-        
+        global_trans = __trans_cpu(W)
     return global_trans
-
-# import scipy.io as rmat
-
-# data = rmat.loadmat('D:/OneDrive - Universidad de Valladolid/Scripts/testPython/graphTest.mat')
-# W = data['W']
-# aa = transitivity(W,'CPU')

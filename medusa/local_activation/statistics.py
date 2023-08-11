@@ -1,9 +1,3 @@
-"""
-Created on Fri Dec 20 12:33:30 2019
-Modified on Tue Jun 21 12:32:00 2022
-
-@author: VICTOR
-"""
 import numpy as np
 
 

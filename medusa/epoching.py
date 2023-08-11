@@ -60,14 +60,14 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
     fs : float
         Sample rate
     w_epoch_t : list or numpy.ndarray
-        Temporal window in ms of the epoch. For example, t_baseline = [0, 1000]
+        Temporal window in ms of the epoch. For example, w_epoch_t = [0, 1000]
         takes the epoch form 0 ms to 1000 ms after each onset (0 ms represents
         the onset).
     w_baseline_t : list or numpy.ndarray, optional
-        Temporal window in ms of the baseline. For example, t_baseline =
-        [-500, 100] takes the baseline form -500 ms before each onset to 100
+        Temporal window in ms of the baseline. For example, w_baseline_t =
+        [-500, 100] takes the baseline from -500 ms before each onset to 100
         ms after each onset (0 ms represents the onset). This chunk of signal is
-        used to normalize the epoch, if aplicable
+        used to normalize the epoch, if applicable.
     norm : str, optional
        Set to 'z' for Z-score normalization or 'dc' for DC normalization.
        Statistical parameters are computed using the whole epoch.
@@ -104,10 +104,9 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
     l_epoch = w_epoch_s[1] - w_epoch_s[0]
     # For each onset
     n_cha = signal.shape[1]
-    epochs_idx = np.searchsorted(timestamps, onsets + w_epoch_t[0] / 1000,
-                                 side='left')
+    epochs_idx = get_nearest_idx(timestamps, onsets)
     epochs = np.lib.stride_tricks.sliding_window_view(
-        signal, (l_epoch, n_cha))[epochs_idx].squeeze(axis=1)
+        signal, (l_epoch, n_cha))[epochs_idx + w_epoch_s[0]].squeeze(axis=1)
     # Baseline normalization
     if w_baseline_t is not None and norm is not None:
         # Baseline start-end (samples)
@@ -115,10 +114,10 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
         w_baseline_s = np.array(w_baseline_t * fs / 1000, dtype=int)
         l_baseline = w_baseline_s[1] - w_baseline_s[0]
         # Extract baselines
-        baseline_idx = np.searchsorted(
-            timestamps, onsets + w_baseline_t[0] / 1000, side='left')
+        baseline_idx = get_nearest_idx(timestamps, onsets)
         baselines = np.lib.stride_tricks.sliding_window_view(
-            signal, (l_baseline, n_cha))[baseline_idx].squeeze(axis=1)
+            signal, (l_baseline, n_cha))[
+            baseline_idx + w_baseline_s[0]].squeeze(axis=1)
         epochs = normalize_epochs(epochs, norm_epochs=baselines, norm=norm)
     return epochs
 
@@ -312,3 +311,20 @@ def time_to_sample_index_events(times, onsets):
     rep_onsets = np.matlib.repmat(onsets, times.shape[0], 1)
 
     return np.argmin(np.abs(rep_times - rep_onsets), axis=0)
+
+def get_nearest_idx(timestamps, onsets):
+    """This function returns the indexes of the timestamps that are closest to
+    the onsets.
+    """
+    array = np.array(timestamps)
+
+    # get insert positions
+    idxs = np.searchsorted(array, onsets, side="left")
+
+    # find indexes where previous index is closer
+    prev_idx_is_less = ((idxs == len(array)) | (
+                np.fabs(onsets - array[np.maximum(idxs - 1, 0)]) < np.fabs(
+            onsets - array[np.minimum(idxs, len(array) - 1)])))
+    idxs[prev_idx_is_less] -= 1
+
+    return idxs

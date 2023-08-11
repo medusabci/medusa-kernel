@@ -1,5 +1,4 @@
-"""Created on Friday October 01 10:09:11 2021
-
+"""
 In this module you will find useful functions and classes to operate with data
 recorded using spellers based on code-modulated visual evoked potentials
 (c-VEP), which are widely used by the BCI community. Enjoy!

@@ -1,7 +1,17 @@
+# Built-in imports
+import warnings, os
+
+# External imports
 import numpy as np
-import tensorflow as tf
 import scipy.special as sps
-import tensorflow_probability as tfp
+
+# Medusa imports
+from medusa import tensorflow_integration
+
+# Extras
+if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
+    import tensorflow as tf
+    import tensorflow_probability as tfp
 
 def __divergency_cpu(W):
     """
@@ -240,13 +250,12 @@ def complexity(W,mode):
         
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
-      
-    if mode == 'CPU':
-        global_comp = __complexity_cpu(W)
-    elif mode == 'GPU':
+
+    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
+            tensorflow_integration.check_tf_config(autoconfig=True):
         global_comp = __complexity_gpu(W)
     else:
-        raise ValueError('Unknown mode')
-        
+        global_comp = __complexity_cpu(W)
+
     return global_comp
  
