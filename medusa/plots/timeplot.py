@@ -168,7 +168,7 @@ def __reshape_signal(epochs):
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
               ch_to_show=None, channel_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
-              show=False, fig=None,axes =None):
+              show=False, fig=None, axes=None):
     """
     Parameters
     ---------
@@ -407,11 +407,11 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
         #  Call the aux function to plot conditions
         if conditions_dict is not None:
-            __plot_condition_shades(ax, conditions_dict, fs, min_val, max_val)
+            __plot_condition_shades(axes, conditions_dict, min_val, max_val)
 
         #  Call the aux function to plot vertical lines to mark the events
         if events_dict is not None:
-            __plot_events_lines(axes, events_dict, fs, min_val, max_val)
+            __plot_events_lines(axes, events_dict, min_val, max_val)
 
         # Plot the signal
         axes.plot(display_times, epoch_c, color, linewidth=0.5)

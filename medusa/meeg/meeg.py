@@ -266,9 +266,9 @@ class EEGChannelSet(components.SerializableComponent):
             DEPRECATED. Only left for compatibility reasons.
         """
         # Check errors
-        if self.reference_method != 'common':
-            raise ValueError('Function set_standard_channels is available '
-                             'only for recordings with common reference. For '
+        if self.reference_method == 'bipolar':
+            raise ValueError('Function set_standard_channels is not available '
+                             'for recordings with bipolar reference. For '
                              'custom montages use set_custom_channels')
         assert self.dim == '2D' or self.dim == '3D', \
             'Incorrect input on dim parameter'
