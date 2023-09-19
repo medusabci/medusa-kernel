@@ -1,6 +1,7 @@
 # Built-in imports
 import math
 import ctypes
+import os
 
 # External imports
 import numpy as np
@@ -346,7 +347,9 @@ def lempelziv_complexity(signal):
     signal = np.reshape(np.transpose(signal, (0, 2, 1)), (n_epo, -1))
 
     # Get function from dll
-    dll_file = ".\computeLZC.dll"
+    dll_file = os.path.join(os.path.dirname(__file__),
+                        'computeLZC.dll')
+    # dll_file = ".\computeLZC.dll"
     lib = ctypes.cdll.LoadLibrary(dll_file)
     lzc_func = lib.computeLempelZivCmplx  # Access function
 
