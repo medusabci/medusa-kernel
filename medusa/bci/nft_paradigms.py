@@ -167,8 +167,8 @@ class SignalPreprocessing(components.ProcessingMethod):
             # Check if surface laplacian filter cannot be performed
             if self.laplacian_filter is not None:
                 signal_ = self.laplacian_filter.apply_lp(signal_)
-            else:
-                signal_ = signal_[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
+        else:
+            signal_ = signal_[:,self.montage.get_cha_idx_from_labels(self.target_channels)]
 
         signal__ = signal_.copy()
 
@@ -441,9 +441,6 @@ class ConnectivityExtraction(components.ProcessingMethod):
         -------
         baseline_value: float
         """
-        epochs_original, index = make_windows(signal, self.fs,
-                                              self.update_feature_window,
-                                              self.update_rate)
         filtered_epochs = make_windows(
             filtered_signal, self.fs,
             self.update_feature_window, self.update_rate,
@@ -570,7 +567,8 @@ class PowerExtraction(components.ProcessingMethod):
     """
 
     def __init__(self, l_baseline_t=5, fs=250, update_feature_window=2,
-                 update_rate=0.25, pct_tol = 0.9, f_dict=None, mode=None):
+                 right_ch_idx=None,update_rate=0.25, pct_tol = 0.9,
+                 f_dict=None, mode=None):
         """
         Class constructor
 
@@ -587,6 +585,13 @@ class PowerExtraction(components.ProcessingMethod):
         f_dict: dict
             Dict containing the frequency bands associated to training band
             and artifacts to avoid.
+        right_ch_idx: list (optional)
+            List containng the indexes of the channels that will be used
+            to predict right motor imagery. The indexes are relative to
+            the target channels list. This argument is only necessary when
+            using  the neurofeedback-based motor imagery.
+        update_rate: float
+            Value of the real-time feedback calculation rate.
         pct_tol: numpy.ndarray
             Array containing variance increase (in percentage) tolerated.
         mode: str
@@ -604,8 +609,9 @@ class PowerExtraction(components.ProcessingMethod):
         self.w_signal_samples_calibration = int(self.l_baseline_t * self.fs)
         self.f_dict = f_dict
         self.pct_tol = pct_tol
-        self.baseline_power = None
+        self.baseline_power = []
         self.thresholds = None
+        self.right_ch_idx = right_ch_idx
 
     def set_baseline(self, signal, signal_artifacts):
         """
@@ -630,8 +636,13 @@ class PowerExtraction(components.ProcessingMethod):
         _, psd = scipy.signal.welch(epochs, self.fs, 'hamming',
                                     self.w_signal_samples,
                                     axis=1,scaling='density')
-
-        b_power = self.power(psd)
+        b_power = []
+        if self.right_ch_idx is not None:
+            b_power.append(self.power(psd[:, :,np.setdiff1d(np.arange(psd.shape[2]),
+                                                          self.right_ch_idx)]))
+            b_power.append(self.power(psd[:,:,self.right_ch_idx]))
+        else:
+            b_power.append(self.power(psd))
 
         # Define artifact related thresholds
         if signal_artifacts is not None:
@@ -640,11 +651,14 @@ class PowerExtraction(components.ProcessingMethod):
                 :], axis=1).mean(axis=-1)
 
         if self.mode == 'single':
-            self.baseline_power = b_power[0]
+            self.baseline_power =  [b_power[0][0]]
+            if self.right_ch_idx is not None:
+                self.baseline_power.append(b_power[1][0])
 
         elif self.mode == 'ratio':
-            self.baseline_power = b_power[0] / b_power[1]
-
+            self.baseline_power = [b_power[0][0] / b_power[0][1]]
+            if self.right_ch_idx is not None:
+                self.baseline_power.append(b_power[1][0] / b_power[1][1])
         return self.baseline_power
 
     def band_power(self, signal, signal_artifacts):
@@ -670,13 +684,27 @@ class PowerExtraction(components.ProcessingMethod):
         _, psd = scipy.signal.welch(signal, self.fs, 'hamming',
                                     self.w_signal_samples,
                                     axis=0,scaling='density')
-        b_power_uncorrected = self.power(psd)
+        b_power_uncorrected = []
+        b_power = []
+        if self.right_ch_idx is not None:
+            b_power_uncorrected.append(self.power(psd[:, np.setdiff1d(np.arange(
+                psd.shape[1]),
+                                                          self.right_ch_idx)]))
+            b_power_uncorrected.append(self.power(psd[:,self.right_ch_idx]))
+        else:
+            b_power_uncorrected.append(self.power(psd))
         if self.mode == 'single':
-            b_power = b_power_uncorrected[0] - self.baseline_power
+            b_power = [b_power_uncorrected[0][0] - self.baseline_power[0]]
+            if self.right_ch_idx is not None:
+                b_power.append(b_power_uncorrected[1][0] - self.baseline_power[1])
 
         elif self.mode == 'ratio':
-            b_power = b_power_uncorrected[0] / b_power_uncorrected[
-                1] - self.baseline_power
+            b_power = [b_power_uncorrected[0][0] / b_power_uncorrected[0][1] - \
+                       self.baseline_power[0]]
+            if self.right_ch_idx is not None:
+                b_power.append(
+                    b_power_uncorrected[1][0] / b_power_uncorrected[1][1] - \
+                    self.baseline_power[1])
 
         # Check if artifact bands are defined
         if signal_artifacts is not None:
@@ -702,6 +730,8 @@ class PowerExtraction(components.ProcessingMethod):
             [n_training_bands].
         """
         # Check if psd has epochs dimension
+        if len(psd.shape) == 1:
+            psd = psd[:,None]
         if len(psd.shape) == 2:
             psd = psd[np.newaxis,:,:]
         bands = []
@@ -837,7 +867,8 @@ class ConnectivityBasedNFTModel(components.Algorithm):
 class PowerBasedNFTModel(components.Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
                  update_rate,montage, target_channels, mode, apply_car,
-                 apply_laplacian, pct_tol_ocular=None, pct_tol_muscular=None):
+                 apply_laplacian, right_ch_idx=None,
+                 pct_tol_ocular=None, pct_tol_muscular=None):
         """
         Pipeline for Power-based Neurofeedback training. This class
         inherits from components.Algorithm. Therefore, it can be used to create
@@ -859,6 +890,7 @@ class PowerBasedNFTModel(components.Algorithm):
         self.update_feature_window = update_feature_window
         self.montage = montage
         self.target_channels = target_channels
+        self.right_ch_idx = right_ch_idx
         self.mode = mode
         self.apply_car = apply_car
         self.apply_laplacian = apply_laplacian
@@ -890,6 +922,7 @@ class PowerBasedNFTModel(components.Algorithm):
                         PowerExtraction(fs=fs, l_baseline_t=l_baseline_t,
                                         update_feature_window=update_feature_window,
                                         update_rate=update_rate,mode=self.mode,
+                                        right_ch_idx=right_ch_idx,
                                         pct_tol=self.pct_tol,f_dict=filter_dict))
 
     def calibration(self, eeg, **kwargs):
@@ -933,7 +966,7 @@ class PowerBasedNFTModel(components.Algorithm):
         """
         target_bands = 0
         for filter in self.filter_dict:
-            if filter['type'] == 'training':
+            if filter['type'] == 'training' and len(filter['cutoff'][0])!=0:
                 target_bands += 1
         if self.mode == 'single':
             if target_bands == 1:
