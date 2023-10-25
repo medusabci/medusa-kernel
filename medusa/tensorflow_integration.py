@@ -11,9 +11,9 @@ except:
 class TFExtrasNotInstalled(Exception):
     def __init__(self):
         super().__init__(
-            'This functionality requires GPU-TF extras. Install '
-            'medusa-kernel with GPU-TF extras with "pip install '
-            'medusa-kernel[GPU-TF]')
+            'This functionality requires tensorflow extras. Reinstall '
+            'medusa-kernel using the following command "pip install '
+            'medusa-kernel[TF]')
 
 
 class NoGPU(Exception):

@@ -349,7 +349,6 @@ def lempelziv_complexity(signal):
     # Get function from dll
     dll_file = os.path.join(os.path.dirname(__file__),
                         'computeLZC.dll')
-    # dll_file = ".\computeLZC.dll"
     lib = ctypes.cdll.LoadLibrary(dll_file)
     lzc_func = lib.computeLempelZivCmplx  # Access function
 
