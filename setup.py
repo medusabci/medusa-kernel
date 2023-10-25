@@ -27,8 +27,7 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'statsmodels',
-        'PyQt5'
+        'statsmodels'
     ],
     extras_require={
         'TF': [
