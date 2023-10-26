@@ -663,7 +663,10 @@ class PowerExtraction(components.ProcessingMethod):
             self.baseline_power = [b_power[0][0] / b_power[0][1]]
             if self.right_ch_idx is not None:
                 self.baseline_power.append(b_power[1][0] / b_power[1][1])
-        return self.baseline_power
+        if self.right_ch_idx is None:
+            return self.baseline_power[0]
+        else:
+            return self.baseline_power
 
     def band_power(self, signal, signal_artifacts):
         """
@@ -716,9 +719,13 @@ class PowerExtraction(components.ProcessingMethod):
             if signal_artifacts is not None:
                 if ignore_noisy_windows(signal_artifacts, self.thresholds,
                                         self.pct_tol):
+                    if self.right_ch_idx is None:
+                        b_power = b_power[0]
                     return b_power
                 else:
                     return None
+        if self.right_ch_idx is None:
+            b_power = b_power[0]
         return b_power
 
     def power(self, psd):
