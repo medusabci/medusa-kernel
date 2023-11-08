@@ -10,10 +10,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('Qt5Agg')
+matplotlib.use('QtAgg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
-
 # Medusa imports
 from medusa.utils import check_dimensions
 
@@ -24,6 +23,8 @@ def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
     t_ = np.arange(1,blocks) * int(samples_per_block / fs)
     ax.vlines(t_, min_val, max_val, colors='k',
                   linewidth=2, linestyles='solid')
+
+
 def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
     """Aux function to plot vertical lines corresponding  to marked events"""
     # Check errors
@@ -86,6 +87,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
         ax.legend(handles=list(legend_lines.values()), loc='upper center',
                   bbox_to_anchor=(0.5, 1.15), ncol=3, fancybox=True,
                   shadow=True)
+
 
 def __plot_condition_shades(ax, conditions_dict, display_times, min_val, max_val):
     """Aux function to plot background shades to corresponding to different
