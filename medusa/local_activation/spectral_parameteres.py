@@ -22,8 +22,7 @@ def absolute_band_power(psd, fs, target_band):
     Returns
     -------
     powers : numpy 2D array
-        RP value for each band, epoch and channel. [n_bands, n_epochs,
-        n_channels]
+        RP value for eachh epoch and channel. [n_epochs, n_channels]
     """
     # To numpy arrays
     psd = np.array(psd)
@@ -70,8 +69,7 @@ def relative_band_power(psd, fs, target_band, baseline_band=None):
     Returns
     -------
     powers : numpy 2D array
-        RP value for each band, epoch and channel. [n_bands, n_epochs,
-        n_channels]
+        RP value for each epoch and channel. [n_epochs, n_channels]
     """
     # To numpy arrays
     psd = np.array(psd)
