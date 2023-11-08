@@ -201,7 +201,7 @@ def __reshape_signal(epochs):
 def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
               ch_to_show=None, ch_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
-              show=False, fig=None, axes=None):
+              fig=None, axes=None):
     """
     Parameters
     ---------
@@ -264,8 +264,6 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
         If signal is divided in epochs and the parameter value is True, vertical
         dotted red lines will be plotted, splitting the epochs. Otherwise, they
         will not be plotted. True is the default value.
-    show: bool
-        Show matplotlib figure
     fig: matplotlib.pyplot.figure or None
         If a matplotlib figure is specified, the plot is displayed inside it.
         Otherwise, the plot will generate a new figure.
@@ -328,7 +326,7 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
 
     fig.patch.set_alpha(0)
     axes.set_alpha(0)
-    fig.subplots_adjust(left=0.15, bottom=0.15, right=0.85)
+    fig.subplots_adjust(left=0.1, bottom=0.1)
     ch_slider, time_slider = None, None
 
     # Set maximum length of x-axis to be displayed
@@ -349,10 +347,14 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     # Create a time slider only if the time window to show is less than the
     # signal duration
     if time_to_show < epoch_c.shape[0] / fs:
-        max_x = int(time_to_show * fs)
+        # Get the bounding box of the x-axis label
+        left, bottom, width, height = axes.get_position().bounds
+        # Add a new axis just below the axes
+        # ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
+        ax_time = fig.add_axes([left, bottom-0.005, width, 0.02])
         # Adjust the main plot to make room for the sliders
-        ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
         # Define the max value of slider
+        max_x = int(time_to_show * fs)
         max_val_time_slider = display_times[-1] - max_x / fs
         # Define slider
         time_slider = Slider(ax=ax_time, label='', valmin=0,
@@ -377,10 +379,13 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     # Create a channel slider only if the channel window to show is less
     # than the total number of channels
     if ch_to_show < epoch_c.shape[1]:
-        max_y = ch_to_show
-        # Adjust the main plot to make room for the sliders
-        ax_ch = fig.add_axes([0.86, 0.15, 0.02, 0.73])
+        # Get the bounding box of the x-axis label
+        left, bottom, width, height = axes.get_position().bounds
+        # Add a new axis just below the axes
+        # ax_ch = fig.add_axes([0.86, 0.15, 0.02, 0.73])
+        ax_ch = fig.add_axes([left+width, bottom, 0.01, height])
         # Define the max value of slider
+        max_y = ch_to_show
         max_val_ch_slider = epoch_c.shape[1] - ch_to_show
         # Define slider
         ch_slider = Slider(ax=ax_ch, label='', valmin=-max_val_ch_slider,
@@ -453,10 +458,8 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     if show_epoch_lines:
         __plot_epochs_lines(axes, blocks, samples_per_block, fs,
                             min_val, max_val)
-
-    if show:
-        plt.show()
     return fig, axes
+
 
 if __name__ == "__main__":
     """ Example of use: """
