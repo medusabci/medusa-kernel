@@ -438,7 +438,6 @@ class CVEPModelCircularShifting(components.Algorithm):
         # Feature extraction and classification
         fitted_info = self.get_inst('clf_method').fit_dataset(
             dataset=data,
-            std_epoch_rejection=3.0,
             show_progress_bar=True,
             roll_targets=roll_targets
         )
@@ -875,7 +874,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
         return fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank
 
-    def fit_dataset(self, dataset: CVEPSpellerDataset, std_epoch_rejection=3.0,
+    def fit_dataset(self, dataset: CVEPSpellerDataset,
                     roll_targets=False, show_progress_bar=True):
 
         # Error checking
@@ -958,7 +957,9 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 pbar.update(1)
 
         # Precompute nearest channels for online artifact rejection
-        sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
+        sorted_dist_ch = None
+        if self.art_rej is not None:
+            sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
 
         # New bar
         if show_progress_bar:
@@ -976,7 +977,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
             for filter_idx in range(len(epochs_by_seq[seq_])):
 
                 # Offline artifact rejection
-                if std_epoch_rejection is not None:
+                if self.art_rej is not None:
                     epochs_std = np.std(epochs_by_seq[seq_][filter_idx],
                                         axis=1)  # STD per samples
                     ch_std = np.std(epochs_std, axis=0)  # Variation of epochs
@@ -986,11 +987,11 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                         epoch_to_keep[:, i] = (
                                 (epochs_std[:, i] < (
                                             np.median(epochs_std[:, i]) +
-                                            std_epoch_rejection * ch_std[
+                                            self.art_rej * ch_std[
                                                 i])) &
                                 (epochs_std[:, i] > (
                                             np.median(epochs_std[:, i]) -
-                                            std_epoch_rejection * ch_std[
+                                            self.art_rej * ch_std[
                                                 i]))
                         )
                     # Keep only epochs that are suitable for all channels
@@ -1049,7 +1050,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                        'fps_resolution': fps_resolution,
                        'len_epoch_ms': len_epoch_ms,
                        'len_epoch_sam': len_epoch_sam,
-                       'std_epoch_rejection': std_epoch_rejection,
+                       'std_epoch_rejection': self.art_rej,
                        'no_discarded_epochs': discarded_epochs,
                        'no_total_epochs': total_epochs,
                        'sorted_dist_ch': sorted_dist_ch
