@@ -298,7 +298,7 @@ class CVEPSpellerDataset(components.Dataset):
         Returns
         -------
         checker : data_structures.ConsistencyChecker
-            Standard consistency checker for ERP feature extraction
+            Standard consistency checker for c-VEP feature extraction
         """
         # Create consistency checker
         checker = components.ConsistencyChecker()
@@ -610,8 +610,8 @@ class StandardPreprocessing(components.ProcessingMethod):
 
         Parameters
         ----------
-        dataset: ERPSpellerDataset
-            ERPSpellerDataset with the recordings to be preprocessed.
+        dataset: CVEPSpellerDataset
+            CVEPSpellerDataset with the recordings to be preprocessed.
         show_progress_bar: bool
             Show progress bar
         """
@@ -758,8 +758,8 @@ class FilterBankPreprocessing(components.ProcessingMethod):
 
         Parameters
         ----------
-        dataset: ERPSpellerDataset
-            ERPSpellerDataset with the recordings to be preprocessed.
+        dataset: CVEPSpellerDataset
+            CVEPSpellerDataset with the recordings to be preprocessed.
         show_progress_bar: bool
             Show progress bar
         """
@@ -795,8 +795,8 @@ class FilterBankPreprocessing(components.ProcessingMethod):
 
 
 class CircularShiftingClassifier(components.ProcessingMethod):
-    """Standard feature extraction method for c-VEP-based spellers. Basically,
-    it computes a template for each sequence.
+    """Standard feature classification method for c-VEP-based spellers.
+    Basically, it computes a template for each sequence.
     """
 
     def __init__(self, correct_raster_latencies=False, art_rej=None, **kwargs):
@@ -1304,9 +1304,8 @@ class CircularShiftingEarlyStopping(components.ProcessingMethod):
 
 # ------------------------------- UTILS -------------------------------------- #
 def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
-    """ Function that returns the unique sequences of all targets.
-            return
-        """
+    """Returns the unique sequences of all targets.
+    """
     sequences = dict()
     try:
         # todo: command_idx, unit_idx y demas lo tiene que hacer medusa y no unity
