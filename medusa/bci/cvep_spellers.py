@@ -1304,8 +1304,17 @@ class CircularShiftingEarlyStopping(components.ProcessingMethod):
 
 # ------------------------------- UTILS -------------------------------------- #
 def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
-    """Returns the unique sequences of all targets.
-    """
+    """ Function that returns the unique sequences of all targets.
+            return
+        """
+    def is_shifted_version(stored_seqs, seq_to_check):
+        for s in stored_seqs:
+            if len(s) != len(seq_to_check):
+                continue
+            for j in range(len(seq_to_check)):
+                if np.all(np.array(s) == np.roll(seq_to_check, -j)):
+                    return s
+        return None
     sequences = dict()
     try:
         # todo: command_idx, unit_idx y demas lo tiene que hacer medusa y no unity
