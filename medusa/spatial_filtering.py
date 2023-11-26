@@ -615,6 +615,8 @@ class CSP(components.ProcessingMethod):
         if show:
             plt.show()
         return figure
+
+
 class CCA(components.ProcessingMethod):
     """
     The class CCA performs a Canonical Correlation Analysis filtering. First,

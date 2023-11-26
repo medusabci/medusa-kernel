@@ -1638,7 +1638,6 @@ class ERPSpellerModel(components.Algorithm):
     def __init__(self):
         """Class constructor
         """
-        print('ERPSpellerModel')
         super().__init__(fit_dataset=['spell_target',
                                       'spell_result_per_seq',
                                       'spell_acc_per_seq'],
