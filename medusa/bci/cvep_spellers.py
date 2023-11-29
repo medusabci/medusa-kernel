@@ -438,7 +438,7 @@ class CVEPModelCircularShifting(components.Algorithm):
         # Feature extraction and classification
         fitted_info = self.get_inst('clf_method').fit_dataset(
             dataset=data,
-            std_epoch_rejection=3.0,
+            std_epoch_rejection=None,
             show_progress_bar=True
         )
 
@@ -809,6 +809,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         self.correct_raster_latencies = correct_raster_latencies
 
     def _assert_consistency(self, dataset: CVEPSpellerDataset):
+        # TODO: this function is not necessary. Use CVEPSpellerDataset
+        #  consistency checker instead!
         len_seqs = set()
         fs = set()
         fps_resolution = set()
@@ -937,8 +939,10 @@ class CircularShiftingClassifier(components.ProcessingMethod):
             if show_progress_bar:
                 pbar.update(1)
 
-        # Precompute nearest channels for online artifact rejection
-        sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
+        sorted_dist_ch = None
+        if std_epoch_rejection is not None:
+            # Precompute nearest channels for online artifact rejection
+            sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
 
         # New bar
         if show_progress_bar:
