@@ -1137,7 +1137,9 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
         # For each number of cycles
         pred_item_by_no_cycles = []
-        no_cycles = np.max(exp_data.cycle_idx).astype(int) + 1
+        _exp_cycle_idx = np.array(exp_data.cycle_idx)
+        no_cycles = np.max(_exp_cycle_idx[np.array(exp_data.trial_idx) ==
+                                          trial_idx]).astype(int) + 1
         for nc in range(no_cycles):
             # Identify what are the epochs that must be processed
             idx = (np.array(exp_data.trial_idx) == trial_idx) & \
