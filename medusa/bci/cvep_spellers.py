@@ -425,7 +425,7 @@ class CVEPModelCircularShifting(components.Algorithm):
         return self.get_inst('clf_method')._is_predict_feasible_signal(
             times, onsets, fs)
 
-    def fit_dataset(self, dataset, **kwargs):
+    def fit_dataset(self, dataset, roll_targets=False, **kwargs):
         # Safe copy
         data = copy.deepcopy(dataset)
 
@@ -438,8 +438,8 @@ class CVEPModelCircularShifting(components.Algorithm):
         # Feature extraction and classification
         fitted_info = self.get_inst('clf_method').fit_dataset(
             dataset=data,
-            std_epoch_rejection=None,
-            show_progress_bar=True
+            show_progress_bar=True,
+            roll_targets=roll_targets
         )
 
         return fitted_info
@@ -876,8 +876,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
         return fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank
 
-    def fit_dataset(self, dataset: CVEPSpellerDataset, std_epoch_rejection=3.0,
-                    show_progress_bar=True):
+    def fit_dataset(self, dataset: CVEPSpellerDataset,
+                    roll_targets=False, show_progress_bar=True):
 
         # Error checking
         fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank = \
@@ -905,6 +905,15 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
             # Get unique sequences for this run
             unique_seqs = unique_seqs_by_run[rec_idx]
+            if roll_targets:
+                new_unique_seqs = dict()
+                for key, value in unique_seqs.items():
+                    c_ = rec_exp.command_idx[value[0]]
+                    c_lag_ = rec_exp.commands_info[0][str(int(c_))]['lag']
+                    c_seq_ = rec_exp.commands_info[0][str(int(c_))]['sequence']
+                    new_key = np.roll(c_seq_, c_lag_)
+                    new_unique_seqs[tuple(new_key)] = value
+                unique_seqs = new_unique_seqs
 
             # For each filter bank
             for filter_idx, signal in enumerate(rec_sig.signal):
@@ -917,6 +926,16 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                                                   w_epoch_t=[0, len_epoch_ms],
                                                   w_baseline_t=None,
                                                   norm=None)
+                
+                # Roll targets if training was not made with the 0 lag command
+                if roll_targets:
+                    for idx_, c_ in enumerate(rec_exp.command_idx):
+                        # TODO: nested matrices
+                        c_lag_ = rec_exp.commands_info[0][str(int(c_))]['lag']
+                        lag_samples = int(np.round(c_lag_ / fps_resolution * fs))
+                        # Revert the lag in the epoch
+                        epochs[idx_, :, :] = np.roll(
+                            epochs[idx_, :, :], lag_samples, axis=0)
 
                 # Organize epochs by sequence
                 for seq_, ep_idxs_ in unique_seqs.items():
@@ -939,9 +958,9 @@ class CircularShiftingClassifier(components.ProcessingMethod):
             if show_progress_bar:
                 pbar.update(1)
 
+        # Precompute nearest channels for online artifact rejection
         sorted_dist_ch = None
-        if std_epoch_rejection is not None:
-            # Precompute nearest channels for online artifact rejection
+        if self.art_rej is not None:
             sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
 
         # New bar
@@ -960,7 +979,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
             for filter_idx in range(len(epochs_by_seq[seq_])):
 
                 # Offline artifact rejection
-                if std_epoch_rejection is not None:
+                if self.art_rej is not None:
                     epochs_std = np.std(epochs_by_seq[seq_][filter_idx],
                                         axis=1)  # STD per samples
                     ch_std = np.std(epochs_std, axis=0)  # Variation of epochs
@@ -970,11 +989,11 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                         epoch_to_keep[:, i] = (
                                 (epochs_std[:, i] < (
                                             np.median(epochs_std[:, i]) +
-                                            std_epoch_rejection * ch_std[
+                                            self.art_rej * ch_std[
                                                 i])) &
                                 (epochs_std[:, i] > (
                                             np.median(epochs_std[:, i]) -
-                                            std_epoch_rejection * ch_std[
+                                            self.art_rej * ch_std[
                                                 i]))
                         )
                     # Keep only epochs that are suitable for all channels
@@ -1033,7 +1052,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                        'fps_resolution': fps_resolution,
                        'len_epoch_ms': len_epoch_ms,
                        'len_epoch_sam': len_epoch_sam,
-                       'std_epoch_rejection': std_epoch_rejection,
+                       'std_epoch_rejection': self.art_rej,
                        'no_discarded_epochs': discarded_epochs,
                        'no_total_epochs': total_epochs,
                        'sorted_dist_ch': sorted_dist_ch
@@ -1336,12 +1355,19 @@ def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
             #       interprets all dictionary keys as strings.
 
             # Add the command index to its associated sequence
-            if tuple(curr_seq_) not in sequences:
+            if len(sequences) == 0:
                 sequences[tuple(curr_seq_)] = [idx]
-            else:
+            elif tuple(curr_seq_) in sequences:
+                # Already there, add the cycle idx
                 sequences[tuple(curr_seq_)].append(idx)
-
-        # todo: check that sequences are not shifted versions of themselves??
+            else:
+                # If not there, first check that it is not a shifted version
+                # of a present sequences
+                orig_seq = is_shifted_version(list(sequences.keys()), curr_seq_)
+                if orig_seq is not None:
+                    sequences[tuple(orig_seq)].append(idx)
+                else:
+                    sequences[tuple(curr_seq_)] = [idx]
     except Exception as e:
         print(e)
     return sequences
