@@ -388,22 +388,27 @@ class CVEPModelCircularShifting(components.Algorithm):
                 self.add_method('prep_method', StandardPreprocessing(
                     bpf_order=bpf[0][0], bpf_cutoff=bpf[0][1],
                     notch_order=notch[0], notch_cutoff=notch[1]))
+                max_order = max(bpf[0][0], notch[0])
             else:
                 self.add_method('prep_method', StandardPreprocessing(
                     bpf_order=bpf[0][0], bpf_cutoff=bpf[0][1],
                     notch_order=None, notch_cutoff=None))
+                max_order = bpf[0][0]
         else:
             filter_bank = []
+            max_order = 0
             for i in range(len(bpf)):
                 filter_bank.append({
                     'order': bpf[i][0],
                     'cutoff': bpf[i][1],
                     'btype': 'bandpass'
                 })
+                max_order = bpf[i][0] if bpf[i][0] > max_order else max_order
             if notch is not None:
                 self.add_method('prep_method', FilterBankPreprocessing(
                     filter_bank=filter_bank, notch_order=notch[0],
                     notch_cutoff=notch[1]))
+                max_order = max(max_order, notch[0])
             else:
                 self.add_method('prep_method', FilterBankPreprocessing(
                     filter_bank=filter_bank, notch_order=None,
@@ -412,7 +417,8 @@ class CVEPModelCircularShifting(components.Algorithm):
         # Feature extraction and classification (circular shifting)
         self.add_method('clf_method', CircularShiftingClassifier(
             art_rej=art_rej,
-            correct_raster_latencies=correct_raster_latencies
+            correct_raster_latencies=correct_raster_latencies,
+            extra_epoch_samples=3*max_order
         ))
 
         # Early stopping
@@ -799,7 +805,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
     Basically, it computes a template for each sequence.
     """
 
-    def __init__(self, correct_raster_latencies=False, art_rej=None, **kwargs):
+    def __init__(self, correct_raster_latencies=False, art_rej=None,
+                 extra_epoch_samples=21, **kwargs):
         """ Class constructor """
         super().__init__(fit_dataset=['templates',
                                       'cca_by_seq'])
@@ -807,6 +814,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
         self.art_rej = art_rej
         self.correct_raster_latencies = correct_raster_latencies
+        self.extra_epoch_samples = extra_epoch_samples
 
     def _assert_consistency(self, dataset: CVEPSpellerDataset):
         # TODO: this function is not necessary. Use CVEPSpellerDataset
@@ -1063,7 +1071,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         return self.fitted
 
     def _is_predict_feasible(self, dataset):
-        l_ms = self.fitted['len_epoch_ms']
+        l_ms = self.fitted['len_epoch_ms'] + \
+               np.ceil(self.extra_epoch_samples/dataset.fs)
         for rec in dataset.recordings:
             rec_sig = getattr(rec, dataset.biosignal_att_key)
             rec_exp = getattr(rec, dataset.experiment_att_key)
@@ -1076,7 +1085,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         return True
 
     def _is_predict_feasible_signal(self, times, onsets, fs):
-        l_ms = self.fitted['len_epoch_ms']
+        l_ms = self.fitted['len_epoch_ms'] + \
+               np.ceil(self.extra_epoch_samples/fs)
         feasible = ep.check_epochs_feasibility(timestamps=times,
                                                onsets=onsets,
                                                fs=fs,
