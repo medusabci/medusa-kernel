@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('QtAgg')
+matplotlib.use('Qt5Agg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
@@ -76,7 +76,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
 
     # Create legend above the plot
     if previous_conditions is not None:
-        previous_handles = ax.legend_.legendHandles
+        previous_handles = ax.legend_.legend_handles
         for legend_line in list(legend_lines.values()):
             previous_handles.append(legend_line)
             previous_conditions.append(legend_line._label)
@@ -507,4 +507,4 @@ if __name__ == "__main__":
     # Initialize TimePlot instance
     time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
               ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
-              events_dict=e_dict,show_epoch_lines=True,show=True)
+              events_dict=e_dict,show_epoch_lines=True)
