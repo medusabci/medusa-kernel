@@ -200,7 +200,7 @@ def __reshape_signal(epochs):
     return epoch_c
 
 
-def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
+def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
               ch_to_show=None, ch_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
               fig=None, axes=None):
@@ -317,8 +317,11 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     max_val, min_val = epoch_c.max(), epoch_c.min()
 
     # Define times vector
-    display_times = np.linspace(0, (epoch_c.shape[0] - 1) / fs,
-                                epoch_c.shape[0])
+    if times is None:
+        display_times = np.linspace(0, (epoch_c.shape[0] - 1) / fs,
+                                    epoch_c.shape[0])
+    else:
+        display_times = times
 
     # Initialize plot
     if fig is None:
