@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('Qt5Agg')
+matplotlib.use('QtAgg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
