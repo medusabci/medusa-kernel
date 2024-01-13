@@ -76,7 +76,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
 
     # Create legend above the plot
     if previous_conditions is not None:
-        previous_handles = ax.legend_.legendHandles
+        previous_handles = ax.legend_.legend_handles
         for legend_line in list(legend_lines.values()):
             previous_handles.append(legend_line)
             previous_conditions.append(legend_line._label)
@@ -200,7 +200,7 @@ def __reshape_signal(epochs):
     return epoch_c
 
 
-def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
+def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
               ch_to_show=None, ch_offset=None, color='k',
               conditions_dict=None, events_dict=None, show_epoch_lines=True,
               fig=None, axes=None):
@@ -210,6 +210,8 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     signal: numpy ndarray
         Signal with shape of [n_epochs,n_samples, n_channels] or
         [n_samples, n_channels]
+    times: numpy ndarray
+        Timestamps of each sample of the signal with shape [n_samples]
     fs: float
         Sampling rate. Value 1 as default
     ch_labels: list of strings or None
@@ -317,8 +319,11 @@ def time_plot(signal, fs=1.0, ch_labels=None, time_to_show=None,
     max_val, min_val = epoch_c.max(), epoch_c.min()
 
     # Define times vector
-    display_times = np.linspace(0, int(epoch_c.shape[0] / fs),
-                                epoch_c.shape[0])
+    if times is None:
+        display_times = np.linspace(0, (epoch_c.shape[0] - 1) / fs,
+                                    epoch_c.shape[0])
+    else:
+        display_times = times
 
     # Initialize plot
     if fig is None:
@@ -507,4 +512,4 @@ if __name__ == "__main__":
     # Initialize TimePlot instance
     time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
               ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
-              events_dict=e_dict,show_epoch_lines=True,show=True)
+              events_dict=e_dict,show_epoch_lines=True)
