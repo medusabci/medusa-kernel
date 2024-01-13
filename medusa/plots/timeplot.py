@@ -210,6 +210,8 @@ def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
     signal: numpy ndarray
         Signal with shape of [n_epochs,n_samples, n_channels] or
         [n_samples, n_channels]
+    times: numpy ndarray
+        Timestamps of each sample of the signal with shape [n_samples]
     fs: float
         Sampling rate. Value 1 as default
     ch_labels: list of strings or None
