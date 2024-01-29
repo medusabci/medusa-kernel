@@ -706,8 +706,14 @@ class CMDModelBWRLDA(CVEPSpellerModel):
                 event_trial_idx=x_info['event_trial_idx'],
                 event_cycle_idx=x_info['event_cycle_idx']
             )
+        cmd_assessment = {
+            'x': x,
+            'x_info': x_info,
+            'y_pred': y_pred,
+            'spell_result': sel_cmd,
+            'spell_result_per_cycle': sel_cmd_per_cycle,
+        }
         # Spell accuracy
-        cmd_assessment = None
         if dataset.experiment_mode == 'train':
             # Spell accuracy per seq
             spell_acc_per_cycle = command_decoding_accuracy_per_cycle(
@@ -715,11 +721,6 @@ class CMDModelBWRLDA(CVEPSpellerModel):
                 x_info['spell_target']
             )
             cmd_assessment = {
-                'x': x,
-                'x_info': x_info,
-                'y_pred': y_pred,
-                'spell_result': sel_cmd,
-                'spell_result_per_cycle': sel_cmd_per_cycle,
                 'spell_acc_per_cycle': spell_acc_per_cycle
             }
         return sel_cmd, cmd_assessment
@@ -879,8 +880,14 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
                 event_trial_idx=x_info['event_trial_idx'],
                 event_cycle_idx=x_info['event_cycle_idx']
             )
+        cmd_assessment = {
+            'x': x,
+            'x_info': x_info,
+            'y_pred': y_pred,
+            'spell_result': sel_cmd,
+            'spell_result_per_cycle': sel_cmd_per_cycle,
+        }
         # Spell accuracy
-        cmd_assessment = None
         if dataset.experiment_mode == 'train':
             # Spell accuracy per seq
             spell_acc_per_cycle = command_decoding_accuracy_per_cycle(
@@ -888,11 +895,6 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
                 x_info['spell_target']
             )
             cmd_assessment = {
-                'x': x,
-                'x_info': x_info,
-                'y_pred': y_pred,
-                'spell_result': sel_cmd,
-                'spell_result_per_cycle': sel_cmd_per_cycle,
                 'spell_acc_per_cycle': spell_acc_per_cycle
             }
         return sel_cmd, cmd_assessment
