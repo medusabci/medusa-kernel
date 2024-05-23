@@ -676,7 +676,6 @@ if __name__ == "__main__":
     fig.add_subplot(1, 1, 1)
 
     # Plot topography with interpolation
-    values = np.random.random(channel_set.n_cha)
     topo = TopographicPlot(axes=fig.axes[0], channel_set=channel_set,
                            interpolate=True,plot_channel_points=True)
     topo.update(values=values)
