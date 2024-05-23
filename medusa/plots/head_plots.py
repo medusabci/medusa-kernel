@@ -70,7 +70,8 @@ class TopographicPlot:
                  plot_channel_labels=False, plot_channel_points=True,
                  channel_radius_size=None, interpolate=True,
                  extra_radius=0.29, interp_neighbors=3, interp_points=500,
-                 interp_contour_width=0.8, cmap="YlGnBu_r", clim=None):
+                 interp_contour_width=0.8, cmap="YlGnBu_r", clim=None,
+                 label_color='w'):
 
         self.axes = axes
         self.channel_set = channel_set
@@ -86,6 +87,7 @@ class TopographicPlot:
         self.interp_neighbors = interp_neighbors
         self.interp_points = interp_points
         self.interp_contour_width = interp_contour_width
+        self.label_color = label_color
         self.cmap = cmap
         self.clim = clim
 
@@ -96,7 +98,8 @@ class TopographicPlot:
             head_skin_color=self.head_skin_color,
             plot_channel_labels=self.plot_channel_labels,
             plot_channel_points=self.plot_channel_points,
-            channel_radius_size=self.channel_radius_size)
+            channel_radius_size=self.channel_radius_size,
+            label_color=self.label_color)
 
         self.plot_handles = None
 
@@ -168,7 +171,7 @@ class ConnectivityPlot:
                  head_line_width=4.0, head_skin_color="#E8BEAC",
                  plot_channel_labels=False, plot_channel_points=True,
                  channel_radius_size=0,  percentile_th=85,
-                 cmap="bwr", clim=None):
+                 cmap="bwr", clim=None,label_color='w'):
 
         self.axes = axes
         self.channel_set = channel_set
@@ -179,6 +182,7 @@ class ConnectivityPlot:
         self.plot_channel_points = plot_channel_points
         self.channel_radius_size = channel_radius_size
         self.percentile_th = percentile_th
+        self.label_color=label_color
         self.cmap = cmap
         self.clim = clim
 
@@ -189,7 +193,8 @@ class ConnectivityPlot:
             head_skin_color=self.head_skin_color,
             plot_channel_labels=self.plot_channel_labels,
             plot_channel_points=self.plot_channel_points,
-            channel_radius_size=self.channel_radius_size
+            channel_radius_size=self.channel_radius_size,
+            label_color=self.label_color
         )
         self.plot_handles = None
 
@@ -216,7 +221,8 @@ class ConnectivityPlot:
 
 def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
               head_skin_color="#E8BEAC", plot_channel_labels=False,
-              plot_channel_points=True, channel_radius_size=None):
+              plot_channel_points=True, channel_radius_size=None,
+              label_color='w'):
     """This function depicts a two-dimensional head diagram.
 
     Parameters
@@ -342,7 +348,7 @@ def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
             M = channel_set.n_cha
         percentage = len(channel_set.channels) * (0.25 / (M - 2)) + \
                      0.25 * ((M - 4) / (M - 2))
-        channel_radius_size = min_dist * percentage
+        channel_radius_size = (min_dist * percentage)*0.8
 
     # Plot channels as circunferences
     if channel_radius_size != 0:
@@ -357,7 +363,7 @@ def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
     # Plot channels points
     if plot_channel_points:
         handle = axes.scatter(ch_x, ch_y, head_line_width*3.5, facecolors='w',
-                              edgecolors='k', zorder=10)
+                              edgecolors='k', zorder=12)
         handles['ch-points'] = handle
 
     # Plot channels labels
@@ -366,7 +372,8 @@ def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
         for t in range(len(channel_set.channels)):
             handle = axes.text(ch_x[t] + 0.01, ch_y[t] - 0.85 * channel_radius_size,
                                channel_set.channels[t]['label'],
-                               fontsize=head_line_width*2, color='w', zorder=11)
+                               fontsize=head_line_width*2, color=label_color,
+                               zorder=11)
             handles['ch-labels'].append(handle)
 
     # Last considerations
@@ -482,7 +489,7 @@ def _plot_topography( values, axes, channel_set, head_handles,
             handles['ch-colors'] = list()
             for ch_idx in range(len(channel_set.channels)):
                 patch = matplotlib.patches.Circle(
-                    (ch_x[ch_idx], ch_y[ch_idx]), radius=ch_size*0.7,
+                    (ch_x[ch_idx], ch_y[ch_idx]), radius=ch_size,
                     facecolor=np.squeeze(mapper.to_rgba(values))[ch_idx],
                     edgecolor=None, zorder=10)
                 handle = axes.add_patch(patch)
@@ -659,7 +666,8 @@ if __name__ == "__main__":
     # Plot topography with no interpolation
     topo = TopographicPlot(axes=fig.axes[0], channel_set=channel_set,
                            interpolate=False,plot_channel_points=True,
-                           channel_radius_size=None)
+                           channel_radius_size=None,plot_channel_labels=True,
+                           label_color='r')
     topo.update(values=values)
     # Add colorbar
     cbar_ax = fig.add_axes(
