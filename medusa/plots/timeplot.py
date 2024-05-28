@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-# matplotlib.use('QtAgg')
+matplotlib.use('TkAgg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
@@ -20,9 +20,9 @@ from medusa.utils import check_dimensions
 def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):
     """Aux function to plot vertical lines in case of signal is divided in two
         or more epochs"""
-    t_ = np.arange(1, blocks) * int(samples_per_block / fs)
+    t_ = np.arange(1,blocks) * int(samples_per_block / fs)
     ax.vlines(t_, min_val, max_val, colors='k',
-              linewidth=2, linestyles='solid')
+                  linewidth=2, linestyles='solid')
 
 
 def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
@@ -51,12 +51,13 @@ def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
                                 'desc-name'])
     legend_lines = {}
     previous_conditions = None
-    cmap = plt.get_cmap('rainbow')(np.linspace(0, 1, len(events_names)))
+    cmap = plt.get_cmap('rainbow')(np.linspace(0,1,len(events_names)))
     events_order = np.array(events_dict['events_labels'])
 
     if ax.legend_ is not None:
         handles, labels = ax.get_legend_handles_labels()
         previous_conditions = list(np.unique(labels))
+
 
     events_timestamps = np.array(events_dict['events_times'])
 
@@ -88,8 +89,7 @@ def __plot_events_lines(ax, events_dict, min_val, max_val, display_times):
                   shadow=True)
 
 
-def __plot_condition_shades(ax, conditions_dict, display_times, min_val,
-                            max_val):
+def __plot_condition_shades(ax, conditions_dict, display_times, min_val, max_val):
     """Aux function to plot background shades to corresponding to different
        conditions during the signal recording. """
     # Check errors
@@ -119,8 +119,8 @@ def __plot_condition_shades(ax, conditions_dict, display_times, min_val,
     condition_timestamps = conditions_dict['conditions_times']
 
     # Check if timestamps are an iterable object
-    if not isinstance(condition_timestamps, np.ndarray) and \
-            not isinstance(condition_timestamps, list):
+    if not isinstance(condition_timestamps,np.ndarray) and \
+        not isinstance(condition_timestamps,list):
         condition_timestamps = np.asarray([condition_timestamps])
         labels_order = np.array([conditions_dict['conditions_labels']])
     else:
@@ -135,10 +135,10 @@ def __plot_condition_shades(ax, conditions_dict, display_times, min_val,
     # Check if all conditions have a start and an end and fix it if not
     c_idx = 0
     corrected = False
-    while c_idx < len(labels_order) - 1:
-        if (labels_order[c_idx] != labels_order[c_idx + 1]):
+    while c_idx < len(labels_order)-1:
+        if (labels_order[c_idx] != labels_order[c_idx+1]):
             if c_idx != 0:
-                if labels_order[c_idx] != labels_order[c_idx - 1]:
+                if labels_order[c_idx] != labels_order[c_idx-1]:
                     labels_order = np.insert(labels_order, c_idx + 1,
                                              labels_order[c_idx])
                     condition_timestamps = np.insert(condition_timestamps,
@@ -147,35 +147,33 @@ def __plot_condition_shades(ax, conditions_dict, display_times, min_val,
                                                          c_idx + 1])
                     corrected = True
             else:
-                labels_order = np.insert(labels_order, c_idx + 1,
-                                         labels_order[c_idx])
+                labels_order = np.insert(labels_order,c_idx+1,labels_order[c_idx])
                 condition_timestamps = np.insert(condition_timestamps,
-                                                 c_idx + 1,
-                                                 condition_timestamps[
-                                                     c_idx + 1])
+                                                 c_idx+1,
+                                                 condition_timestamps[c_idx+1])
                 corrected = True
         c_idx += 1
     if labels_order[-1] != labels_order[-2]:
-        labels_order = np.append(labels_order, labels_order[-1])
+        labels_order = np.append(labels_order,labels_order[-1])
         condition_timestamps = np.append(condition_timestamps,
-                                         display_times[-1])
+                                                 display_times[-1])
         corrected = True
 
     if corrected:
         warnings.warn("The dictionary of conditions does not follow the "
-                      "correct format ([Start condition X, End condition X,"
-                      " Start condition Y, End condition Y ...]). "
-                      "The labels and timestamps vector has been "
-                      "automatically corrected. Check that the OK "
-                      "is correct. ")
+                "correct format ([Start condition X, End condition X,"
+                " Start condition Y, End condition Y ...]). "
+                "The labels and timestamps vector has been "
+                "automatically corrected. Check that the OK "
+                "is correct. ")
 
-    cmap = plt.get_cmap('jet')(np.linspace(0, 1, len(conditions_names)))
+    cmap = plt.get_cmap('jet')(np.linspace(0,1,len(conditions_names)))
 
-    for condition_margin_idx in np.arange(0, len(condition_timestamps), 2):
-        l = ax.fill_betweenx([min_val, max_val],
+    for condition_margin_idx in np.arange(0,len(condition_timestamps),2):
+        l = ax.fill_betweenx([min_val,max_val],
                              condition_timestamps[condition_margin_idx],
-                             condition_timestamps[condition_margin_idx + 1],
-                             color=cmap[labels_order[condition_margin_idx]],
+                             condition_timestamps[condition_margin_idx+1],
+                             color= cmap[labels_order[condition_margin_idx]],
                              alpha=0.3,
                              label=np.array(conditions_names)[np.array(
                                  labels_order[condition_margin_idx])])
@@ -184,7 +182,7 @@ def __plot_condition_shades(ax, conditions_dict, display_times, min_val,
                          condition_margin_idx])] not in legend_patches.keys():
             legend_patches.update(
                 {np.array(conditions_names)[np.array(
-                    labels_order[condition_margin_idx])]: l})
+                                 labels_order[condition_margin_idx])]: l})
 
     # Create legend above the plot
     ax.legend(handles=list(legend_patches.values()),
@@ -202,13 +200,11 @@ def __reshape_signal(epochs):
     return epoch_c
 
 
-def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
-              time_to_show=None, ch_to_show=None, ch_offset=None, color='k',
-              conditions_dict=None, events_dict=None, show_epoch_lines=True):
+def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
+              ch_to_show=None, ch_offset=None, color='k',
+              conditions_dict=None, events_dict=None, show_epoch_lines=True,
+              fig=None, axes=None):
     """
-    Practical function to plot signals, adding interaction and scrollers to
-    facilitate visuyalization
-
     Parameters
     ---------
     signal: numpy ndarray
@@ -278,7 +274,6 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
     axes: matplotlib.pyplot.axes or None
         If a matplotlib axes are specified, the plot is displayed inside it.
         Otherwise, the plot will generate a new figure.
-
     Notes
     ---------
     If time_to_show or ch_to_show parameters are defined and the signal is
@@ -287,65 +282,8 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
     slider can be controlled by pressing up and dow arrows, and by dragging the
     marker. For its part, horizontal slider van be controlled by pressing
     right or left arrow, and by dragging the marker.
-
-    Examples
-    --------
-    This is a complete example of use for this function.
-
-    >>>> from medusa.components import Recording
-    >>>> from medusa.meeg import meeg
-    >>>> import medusa.frequency_filtering as ff
-    >>>> import matplotlib
-    >>>> matplotlib.use('Qt5Agg')
-
-    >>>> fs = 256
-    >>>> T = 60
-    >>>> t = np.arange(0, T, 1 / fs)
-    >>>> l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
-    >>>>          'PZ', 'P4',
-    >>>>          'PO7', 'POZ', 'PO8']
-    >>>> A = 1  # noise amplitude
-    >>>> sigma = 0.5  # Gaussian noise variance
-    >>>> f = 5  # frequency of sinusoids (Hz)
-    >>>> ps = np.linspace(0, -np.pi / 2, len(l_cha))  # Phase differences
-    >>>> np.random.seed(0)
-
-    >>>> # Define multichannel signal
-    >>>> signal = np.empty((len(t), len(l_cha)))
-    >>>> for c in range(len(l_cha)):
-    >>>>     signal[:, c] = np.sin(2 * np.pi * f * t - ps[c]) + A *
-    >>>>        np.random.normal(0, sigma, size=t.shape)
-
-    >>>> signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
-
-    >>>> # Define events and conditions dicts
-    >>>> e_dict = {'events': {'event_1': {'desc-name': 'Event 1', 'label': 0},
-    >>>>                      'event_2': {'desc-name': 'Event 2', 'label': 1},
-    >>>>                      'event_3': {'desc-name': 'Event 3', 'label': 2},
-    >>>>                      'event_4': {'desc-name': 'Event 4', 'label': 3},
-    >>>>                      'event_5': {'desc-name': 'Event 5', 'label': 4}},
-
-    >>>>           'events_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
-    >>>>           'events_times': [5, 14, 15.4, 28, 2, 35, 43, 49, 53, 58.5]}
-
-    >>>> c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
-    >>>>                          'con_2': {'desc-name': 'Condition 2', 'label': 1}},
-    >>>>           'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
-    >>>>           'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
-
-    >>>> # Initialize TimePlot instance
-    >>>> fig, axs = plt.subplots(1, 1)
-    >>>> time_plot(fig, axs, signal=signal, fs=fs,ch_labels=l_cha,time_to_show=None,
-    >>>>           ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
-    >>>>           events_dict=e_dict,show_epoch_lines=True)
-    >>>> fig.show()
     """
 
-    # Check backend
-    backend = matplotlib.get_backend()
-    if backend not in ['Qt5Agg', 'QtAgg']:
-        raise ValueError('This function requires Qt5Agg or QtAgg matplotlib '
-                         'backends!. Call function matplotlib.use(backend)')
 
     # Check signal dimensions
     signal = check_dimensions(signal)
@@ -385,13 +323,7 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
         display_times = np.linspace(0, (epoch_c.shape[0] - 1) / fs,
                                     epoch_c.shape[0])
     else:
-        display_times = times - times[0]
-        if events_dict is not None:
-            events_dict['events_times'] = \
-                np.array(events_dict['events_times']) - times[0]
-        if conditions_dict is not None:
-            conditions_dict['conditions_times'] = \
-                np.array(conditions_dict['conditions_times']) - times[0]
+        display_times = times
 
     # Initialize plot
     if fig is None:
@@ -426,7 +358,7 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
         left, bottom, width, height = axes.get_position().bounds
         # Add a new axis just below the axes
         # ax_time = fig.add_axes([0.15, 0.02, 0.70, 0.03])
-        ax_time = fig.add_axes([left, bottom - 0.005, width, 0.02])
+        ax_time = fig.add_axes([left, bottom-0.005, width, 0.02])
         # Adjust the main plot to make room for the sliders
         # Define the max value of slider
         max_x = int(time_to_show * fs)
@@ -458,7 +390,7 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
         left, bottom, width, height = axes.get_position().bounds
         # Add a new axis just below the axes
         # ax_ch = fig.add_axes([0.86, 0.15, 0.02, 0.73])
-        ax_ch = fig.add_axes([left + width, bottom, 0.01, height])
+        ax_ch = fig.add_axes([left+width, bottom, 0.01, height])
         # Define the max value of slider
         max_y = ch_to_show
         max_val_ch_slider = epoch_c.shape[1] - ch_to_show
@@ -534,3 +466,50 @@ def time_plot(fig, axes, signal, times=None, fs=1.0, ch_labels=None,
         __plot_epochs_lines(axes, blocks, samples_per_block, fs,
                             min_val, max_val)
     return fig, axes
+
+
+if __name__ == "__main__":
+    """ Example of use: """
+    from medusa.components import Recording
+    from medusa.meeg import meeg
+    import medusa.frequency_filtering as ff
+
+    fs = 256
+    T = 60
+    t = np.arange(0, T, 1 / fs)
+    l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
+             'PZ', 'P4','PO7', 'POZ', 'PO8']
+    A = 1  # noise amplitude
+    sigma = 0.5  # Gaussian noise variance
+    f = 5  # frequency of sinusoids (Hz)
+    ps = np.linspace(0, -np.pi / 2, len(l_cha))  # Phase differences
+    np.random.seed(0)
+
+    # Define signal
+    signal = np.empty((len(t), len(l_cha)))
+    for c in range(len(l_cha)):
+        signal[:, c] = np.sin(2 * np.pi * f * t - ps[c]) + A * np.random.normal(
+            0, sigma, size=t.shape)
+
+    signal = signal.reshape((10, int(signal.shape[0] / 10), signal.shape[1]))
+
+    # Define events and conditions dicts
+    e_dict = {'events': {'event_1': {'desc-name': 'Event 1', 'label': 0},
+                         'event_2': {'desc-name': 'Event 2', 'label': 1},
+                         'event_3': {'desc-name': 'Event 3', 'label': 2},
+                         'event_4': {'desc-name': 'Event 4', 'label': 3},
+                         'event_5': {'desc-name': 'Event 5', 'label': 4}},
+
+              'events_labels': [0, 1, 1, 2, 0, 1, 3, 0, 1, 4],
+              'events_times': [5, 14, 15.4, 28, 2, 35, 43, 49, 53, 58.5]}
+
+    c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
+                             'con_2': {'desc-name': 'Condition 2', 'label': 1}},
+              'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
+              'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 59.9]}
+
+    # Initialize TimePlot instance
+    figure = plt.figure()
+    time_plot(signal=signal,times=None,fs=fs,ch_labels=l_cha,time_to_show=None,
+              ch_to_show=5,ch_offset=None,conditions_dict=c_dict,
+              events_dict=e_dict,show_epoch_lines=True,fig=figure)
