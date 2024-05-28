@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('TkAgg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
@@ -465,6 +464,11 @@ def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
     if show_epoch_lines:
         __plot_epochs_lines(axes, blocks, samples_per_block, fs,
                             min_val, max_val)
+
+    warnings.warn("In order to enjoy all the available options of the "
+                            "time_plot function, it is necessary to have an "
+                            "interactive backend compatible with matplotlib "
+                            "enabled.")
     return fig, axes
 
 
@@ -474,6 +478,10 @@ if __name__ == "__main__":
     from medusa.meeg import meeg
     import medusa.frequency_filtering as ff
 
+    # Using an interactive backend
+    matplotlib.use('TkAgg')
+
+    # Defining some signal parameters 
     fs = 256
     T = 60
     t = np.arange(0, T, 1 / fs)
