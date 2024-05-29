@@ -24,7 +24,7 @@ from medusa.connectivity.amplitude_connectivity import __aec_ort_cpu as aec
 from medusa.graph_theory import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
-from medusa.local_activation.spectral_parameteres import absolute_band_power
+from medusa.local_activation.spectral_parameteres import band_power
 
 
 class SignalPreprocessing(components.ProcessingMethod):
@@ -756,7 +756,7 @@ class PowerExtraction(components.ProcessingMethod):
         # Calculate band power relative to the whole bandwidth
         for idx, band in enumerate(bands):
             for b in band:
-                powers[idx] += np.mean(np.mean(absolute_band_power(psd, self.fs,
+                powers[idx] += np.mean(np.mean(band_power(psd, self.fs,
                                                                    b),
                                                axis=0))
         return powers
