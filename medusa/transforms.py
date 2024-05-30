@@ -2,7 +2,9 @@ import numpy as np
 from scipy.signal import welch as welch_sp
 from scipy.signal import hilbert as hilbert_sp
 from medusa.utils import check_dimensions
-
+import pywt
+from scipy import ndimage
+from scipy.signal import windows, ShortTimeFFT, detrend
 
 def hilbert(signal):
     """This method implements the Hilbert transform.
@@ -23,36 +25,6 @@ def hilbert(signal):
     # Check errors
     if np.iscomplexobj(signal):
         raise ValueError("Signal must be real.")
-
-    # Old tensorflow implementation
-    # if tensorflow_integration.check_tf_config(autoconfig=True) and flag:
-    #
-    #     # Run the fft on the columns, not the rows.
-    #     signal = tf.convert_to_tensor(signal, dtype=tf.complex128)
-    #     signal = tf.transpose(tf.signal.fft(tf.transpose(signal)))
-    #
-    #     # Coeficients
-    #     h = np.zeros(n)
-    #     if (n > 0) and (2*np.fix(n/2) == n):
-    #         # Even and nonempty
-    #         h[0:int(n/2+1)] = 1
-    #         h[1:int(n/2)] *= 2
-    #     elif n > 0:
-    #         # Odd and nonempty
-    #         h[0] = 1
-    #         h[1:int((n+1)/2)] = 2
-    #
-    #     tf_h = tf.constant(h, name='h', dtype=tf.float64)
-    #     if len(signal.shape) == 2:
-    #         reps = tf.Tensor.get_shape(signal).as_list()[-1]
-    #         hs = tf.stack([tf_h]*reps, -1)
-    #     elif len(signal.shape) == 1:
-    #         hs = tf_h
-    #     else:
-    #         raise NotImplementedError
-    #
-    #     xc = signal * tf.complex(hs, tf.zeros_like(hs))
-    #     return tf.transpose(tf.signal.ifft(tf.transpose(xc)))
 
     return hilbert_sp(signal, axis=1)
 
@@ -136,4 +108,294 @@ def normalize_psd(psd, norm='rel'):
 
     return psd_norm
 
+def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
+                        smooth=True, smooth_sigma=2, apply_detrend=True,
+                        apply_normalization=True, scale_to=None):
+
+    """This method calculates the spectrogram of a signal from the Short Time
+        Fourier Transform (STFT) with a gaussian window.
+
+        Implementation based on https://github.com/drammock/spectrogram-tutorial
+
+    Parameters
+    ----------
+    signal : numpy nd array
+        Signal with shape [n_samples].
+    fs : int
+        Sampling frequency of the signal
+    time_window: float
+        Length in seconds of the gaussian window used in STFT.
+    overlap_pct: int
+        Percentage of the signal that is overlapped during the STFT calculation.
+        Default: 80% of the window.
+    smooth: bool
+        Define if a gaussian filter is used to smooth the final result.
+        Default: True
+    smooth_sigma: float
+        Sigma value used for the gaussian filter if smooth option is True.
+    apply_detrend: bool
+        Define if linear de-trending  is applied to the signal before the
+        STFT. Default: True
+    apply_normalization: bool
+        Define if normalization  is applied to the signal before the
+        STFT. Default: True
+    scale_to: ‘magnitude’, ‘psd’ | None
+        Choose how the output is scaled, so each STFT column represents either
+        'magnitude' or a PSD spectrum.
+
+
+    Returns
+    -------
+    Sx : numpy 2D array
+        Spectrogram of the signal with shape [n_frequencies, n_samples].
+    times: numpy 1D array
+        Numpy array  with the time stamps.
+    frequencies: numpy 1D array
+        Numpy array  with the frequency values. The maximum value is the
+        fs/2."""
+
+    # Check errors
+    if not 0 <= overlap_pct <= 100:
+        raise ValueError(f"Error: overlap_pct parameter expected "
+                         f"between 0 and 100.")
+
+    signal = signal.squeeze()
+    if len(signal.shape) > 1:
+        raise ValueError("Only one-channel signals are supported.")
+
+    # Apply detrend and normalization
+    if apply_detrend:
+        signal = detrend(signal, type='linear')
+    if apply_normalization:
+        stddev = signal.std()
+        signal = signal / stddev
+
+    # Convert window from seconds to numbers of samples
+    window_nsamp = int(time_window * fs)
+
+    # Define gaussian window
+    window_sigma = (window_nsamp + 1) / 6
+    window = windows.gaussian(window_nsamp, window_sigma, sym=True)
+
+    # Compute the number of samples to overlap
+    noverlap = overlap_pct * window_nsamp / 100
+
+    # Compute the hop of gaussian window in sammples
+    step_nsamp = int(window_nsamp - noverlap)
+
+    # Spectrogram using SFFT
+    SFT = ShortTimeFFT(win=window,hop=step_nsamp,fs=fs,
+                              scale_to=scale_to)
+    Sx = SFT.spectrogram(signal)
+
+    # Smooth
+    if smooth:
+        Sx = ndimage.gaussian_filter(Sx, sigma=smooth_sigma)
+
+    # Compute times and frequencies vectors
+    t_lo, t_hi = SFT.extent(len(signal))[:2]
+    times = np.arange(t_lo, t_hi, SFT.delta_t)
+    f_lo, f_hi = SFT.extent(len(signal))[2:]
+    frequencies = np.arange(f_lo, f_hi, SFT.delta_f)
+
+    return Sx, times, frequencies
+
+def __cone_of_influency(center_frequency, N, fs):
+    f_0 = center_frequency * 2 * np.pi
+    cmor_flambda = 4 * np.pi / (f_0 + np.sqrt(2 + f_0 ** 2))
+    coi = (1.0 / np.sqrt(2)) * cmor_flambda * (
+            N / 2 - np.abs(np.arange(0, N) - (N - 1) / 2)) * (1.0 / fs)
+    return 1.0/coi
+
+def __compute_scales(N, filters_per_octave):
+    nOctaves = int(np.log2(2 * np.floor(N / 2.0)))
+    scales = 2 ** np.arange(1, nOctaves, 1.0 / filters_per_octave)
+    return scales
+
+def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
+                    bandwidth_frequency=1.5, apply_detrend=True,
+                        apply_normalization=True, smooth=True,smooth_sigma=2):
+
+    """This method calculates the spectrogram of a signal from the Continuous
+        Wavelet Transform (CWT) with complex Morlet wavelets.
+
+        Implementation based on https://gist.github.com/MiguelonGonzalez
+
+    Parameters
+    ----------
+    signal : numpy nd array
+        Signal with shape [n_samples].
+    fs : int
+        Sampling frequency of the signal
+    filters_per_octave: int
+        Number of filters used to compute CWT.
+    center_frequency: float
+        Center frequency used to compute CWT using Morlet wavelets.
+    bandwidth_frequency: float
+        Band width used to compute CWT using Morlet wavelets.
+    smooth: bool
+        Define if a gaussian filter is used to smooth the final result.
+        Default: True
+    smooth_sigma: float
+        Sigma value used for the gaussian filter if smooth option is True.
+    apply_detrend: bool
+        Define if linear de-trending  is applied to the signal before the
+        CWT. Default: True
+    apply_normalization: bool
+        Define if normalization  is applied to the signal before the
+        CWT. Default: True
+
+
+    Returns
+    -------
+    power : numpy 2D array
+        Spectrogram of the signal with shape [n_frequencies, n_samples].
+    times: numpy 1D array
+        Numpy array  with the time stamps.
+    frequencies: numpy 1D array
+        Numpy array  with the frequency values. The maximum value is the
+        fs/2.
+    coif: numpy 1D array
+        Numpy array  with shape [n_samples] with cone of influence values."""
+
+    # Check errors
+    signal = signal.squeeze()
+    if len(signal.shape) > 1:
+        raise ValueError("Only one-channel signals are supported.")
+
+    # Apply detrend and normalization
+    if apply_detrend:
+        signal = detrend(signal, type='linear')
+    if apply_normalization:
+        stddev = signal.std()
+        signal = signal / stddev
+
+    N = len(signal)
+    dt = 1.0 / fs
+    times = np.arange(N) * dt
+
+    scales = __compute_scales(N,filters_per_octave)
+
+    c, freqs = pywt.cwt(signal, scales,
+                        f'cmor{bandwidth_frequency}-{center_frequency}')
+    frequencies = pywt.scale2frequency(
+        f'cmor{bandwidth_frequency}-{center_frequency}', scales) / dt
+
+    power = np.abs(c * np.conj(c))
+
+    # smooth a bit
+    if smooth:
+        power = ndimage.gaussian_filter(power, sigma=smooth_sigma)
+
+    coif = __cone_of_influency(center_frequency,N,fs)
+
+    return power[frequencies<=0.5*fs], times, frequencies[frequencies<=0.5*fs], \
+        coif
+
+def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
+              center_frequency=1, bandwidth_frequency=1.5, apply_detrend=True,
+                        apply_normalization=True, smooth=True,smooth_sigma=2):
+
+    """This method calculates the Cross Wavelet Transform of two signals from
+        the Continuous Wavelet Transform (CWT) with complex Morlet wavelets.
+        Both spectrogram and phase can be calculated.
+
+    Implementation based on https://gist.github.com/MiguelonGonzalezParameters
+
+    Parameters
+    ----------
+    signal1 : numpy nd array
+        Signal with shape [n_samples].
+    signal2 : numpy nd array
+        Signal with shape [n_samples].
+    fs : int
+        Sampling frequency of the signal
+    mode: 'spectrogram', 'phase' | None
+        Choose the desired result. 'spectrogram' returns the cross spectrogram
+        between both signals while 'phase' returns the cross phase.
+    filters_per_octave: int
+        Number of filters used to compute CWT.
+    center_frequency: float
+        Center frequency used to compute CWT using Morlet wavelets.
+    bandwidth_frequency: float
+        Band width used to compute CWT using Morlet wavelets.
+    smooth: bool
+        Define if a gaussian filter is used to smooth the final result.
+        Default: True
+    smooth_sigma: float
+        Sigma value used for the gaussian filter if smooth option is True.
+    apply_detrend: bool
+        Define if linear de-trending  is applied to the signal before the
+        CWT. Default: True
+    apply_normalization: bool
+        Define if normalization  is applied to the signal before the
+        CWT. Default: True
+
+
+    Returns
+    -------
+    power : numpy 2D array
+        Spectrogram of the signal with shape [n_frequencies, n_samples].
+    times: numpy 1D array
+        Numpy array  with the time stamps.
+    frequencies: numpy 1D array
+        Numpy array  with the frequency values. The maximum value is the
+        fs/2.
+    coif: numpy 1D array
+        Numpy array  with shape [n_samples] with cone of influence values."""
+
+    # Check errors
+    signal1 = signal1.squeeze()
+    if len(signal1.shape) > 1:
+        raise ValueError("Signal 1 Error: Only one-channel signals are supported.")
+
+    signal2 = signal2.squeeze()
+    if len(signal2.shape) > 1:
+        raise ValueError("Signal 2 Error: Only one-channel signals are supported.")
+
+    if not (len(signal1) == len(signal2)):
+        raise ValueError("Signals must have the same length")
+
+    if mode is None:
+        mode = 'spectrogram'
+
+    # Apply detrend and normalization
+    if apply_detrend:
+        signal1 = detrend(signal1, type='linear')
+        signal2 = detrend(signal2, type='linear')
+    if apply_normalization:
+        stddev1 = signal1.std()
+        signal1 = signal1 / stddev1
+        stddev2 = signal2.std()
+        signal2 = signal2 / stddev2
+
+    N = len(signal1)
+    dt = 1.0 / fs
+    times = np.arange(N) * dt
+
+
+    scales = __compute_scales(N,filters_per_octave)
+
+    c1, _ = pywt.cwt(signal1, scales,
+                        f'cmor{bandwidth_frequency}-{center_frequency}')
+    c2, _ = pywt.cwt(signal2, scales,
+                        f'cmor{bandwidth_frequency}-{center_frequency}')
+
+    result = c1 * np.conj(c2)
+    frequencies = pywt.scale2frequency(
+        f'cmor{bandwidth_frequency}-{center_frequency}', scales) / dt
+
+
+    if mode == 'spectrogram':
+        result = np.abs(result)
+    elif mode == 'phase':
+        result = np.angle(result)
+
+    if smooth:
+        result = ndimage.gaussian_filter(result, sigma=smooth_sigma)
+
+    coif = __cone_of_influency(center_frequency, N, fs)
+
+    return result[frequencies<=0.5*fs], times, frequencies[frequencies<=0.5*fs],\
+        coif
 
