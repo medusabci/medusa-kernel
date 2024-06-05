@@ -5,7 +5,7 @@ from matplotlib.figure import Figure
 from scipy.signal import welch
 
 # Medusa imports
-from medusa.plots.head_plots import plot_head,plot_topography
+from medusa.plots.head_plots import TopographicPlot
 from medusa.meeg.meeg import EEGChannelSet
 from medusa import epoching
 from medusa.plots.timeplot import time_plot
@@ -333,12 +333,10 @@ class ICA:
         for r in axes:
             for c in r:
                 if ic_c < n_components:
-                    plot_head(axes=c, channel_set=self.channel_set,
-                              interp_points=300,linewidth=1.5)
-                    plot_topography(axes=c,channel_set=self.channel_set,
-                                    values=components[:, ic_c],
-                                    interp_points=300,cmap=cmap,
-                                    show_colorbar=False,plot_extra=0)
+                    topo = TopographicPlot(axes=c,channel_set=self.channel_set,
+                                    interp_points=300,head_line_width=1.5,
+                                    cmap=cmap,extra_radius=0)
+                    topo.update(values=components[:, ic_c])
                     c.set_title(self.ica_labels[ic_c])
                     ic_c += 1
                 else:
@@ -395,12 +393,10 @@ class ICA:
             ax_4 =fig.add_subplot(3, 1, 3)
 
             # Topoplot
-            plot_head(axes=ax_1, channel_set=self.channel_set,
-                      interp_points=300, linewidth=1.5)
-            plot_topography(axes=ax_1, channel_set=self.channel_set,
-                            values=components[:, component[ii]],
-                            interp_points=300, cmap=cmap,
-                            show_colorbar=False, plot_extra=0)
+            topo = TopographicPlot(axes=ax_1, channel_set=self.channel_set,
+                                   interp_points=300, head_line_width=1.5,
+                                   cmap=cmap, extra_radius=0)
+            topo.update(values=components[:, component[ii]])
             ax_1.set_title(self.ica_labels[component[ii]])
 
             stacked_source = np.reshape(
