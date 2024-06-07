@@ -27,7 +27,8 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'statsmodels'
+        'statsmodels',
+        'PyWavelets'
     ],
     extras_require={
         'TF': [
