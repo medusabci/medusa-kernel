@@ -2075,7 +2075,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 )
                 pred_item.append({
                     'sorted_cmds': sorted_cmds,
-                    'fitted_sequence': seq_
+                    'fitted_sequence': seq_,
+                    'full_corrs': corrs.tolist()
                 })
 
             # Store the predicted item
