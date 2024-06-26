@@ -1092,6 +1092,159 @@ class CVEPModelCircularShifting(components.Algorithm):
             std=std
         )
 
+class CVEPModelTRCAGoldCodes(components.Algorithm):
+
+    def __init__(self, bpf=[[7, (1.0, 30.0)]], notch=[7, (49.0, 51.0)],
+                 art_rej=None, correct_raster_latencies=False,
+                 *args, **kwargs):
+        super().__init__()
+
+        if len(bpf) == 1:
+            if notch is not None:
+                self.add_method('prep_method', StandardPreprocessing(
+                    bpf_order=bpf[0][0], bpf_cutoff=bpf[0][1],
+                    notch_order=notch[0], notch_cutoff=notch[1]))
+            else:
+                self.add_method('prep_method', StandardPreprocessing(
+                    bpf_order=bpf[0][0], bpf_cutoff=bpf[0][1],
+                    notch_order=None, notch_cutoff=None))
+        else:
+            filter_bank = []
+            for i in range(len(bpf)):
+                filter_bank.append({
+                    'order': bpf[i][0],
+                    'cutoff': bpf[i][1],
+                    'btype': 'bandpass'
+                })
+            if notch is not None:
+                self.add_method('prep_method', FilterBankPreprocessing(
+                    filter_bank=filter_bank, notch_order=notch[0],
+                    notch_cutoff=notch[1]))
+            else:
+                self.add_method('prep_method', FilterBankPreprocessing(
+                    filter_bank=filter_bank, notch_order=None,
+                    notch_cutoff=None))
+
+        # Feature extraction and classification (circular shifting)
+        self.add_method('clf_method', TRCAGoldCodesClassifier(
+            art_rej=art_rej,
+            correct_raster_latencies=correct_raster_latencies
+        ))
+
+        # Early stopping
+        self.add_method('es_method', CircularShiftingEarlyStopping())
+
+    def check_predict_feasibility(self, dataset):
+        return self.get_inst('clf_method')._is_predict_feasible(dataset)
+
+    def check_predict_feasibility_signal(self, times, onsets, fs):
+        return self.get_inst('clf_method')._is_predict_feasible_signal(
+            times, onsets, fs)
+
+    def fit_dataset(self, dataset, **kwargs):
+        # Safe copy
+        data = copy.deepcopy(dataset)
+
+        # Preprocessing
+        data = self.get_inst('prep_method').fit_transform_dataset(
+            dataset=data,
+            show_progress_bar=True
+        )
+
+        # Feature extraction and classification
+        fitted_info = self.get_inst('clf_method').fit_dataset(
+            dataset=data,
+            std_epoch_rejection=3.0,
+            show_progress_bar=True
+        )
+
+        return fitted_info
+
+    def predict_dataset(self, dataset):
+        # Safe copy
+        data = copy.deepcopy(dataset)
+
+        # Preprocessing
+        data = self.get_inst('prep_method').transform_dataset(
+            dataset=data,
+            show_progress_bar=True
+        )
+
+        # Feature extraction and classification
+        pred_items = self.get_inst('clf_method').predict_dataset(
+            dataset=data,
+            show_progress_bar=True
+        )
+
+        # Extract the selected items using the maximum number of cycles
+        selected_seq = 0  # todo: several sequences in the same matrix
+        spell_result = []
+        for item in pred_items:
+            spell_result.append(
+                item[-1][selected_seq]['sorted_cmds'][0]['label'])
+
+        # Extract the selected items depending on the number of cycles
+        spell_result_per_cycle = []
+        for item in pred_items:
+            trial_result_per_cycle = {}
+            for nc, pred in enumerate(item):
+                trial_result_per_cycle[nc] = pred[selected_seq][
+                    'sorted_cmds'][0]['label']
+            spell_result_per_cycle.append(trial_result_per_cycle)
+
+        # Create the decoding dictionary
+        cmd_decoding = {
+            'spell_result': spell_result,
+            'spell_result_per_cycle': spell_result_per_cycle,
+            'items_by_no_cycle': pred_items
+        }
+        return cmd_decoding
+
+    def predict(self, times, signal, trial_idx, exp_data, sig_data):
+        # Safe copy
+        times_ = copy.deepcopy(times)
+        signal_ = copy.deepcopy(signal)
+        trial_idx_ = copy.deepcopy(trial_idx)
+        exp_data_ = copy.deepcopy(exp_data)
+        sig_data_ = copy.deepcopy(sig_data)
+
+        # Preprocessing
+        signal_ = self.get_inst('prep_method').transform_signal(
+            signal=signal_
+        )
+
+        # Feature extraction and classification
+        pred_item_by_no_cycles = self.get_inst('clf_method').predict(
+            times_, signal_, trial_idx_, exp_data_, sig_data_
+        )
+
+        # Extract the selected label using the maximum number of cycles
+        selected_seq = 0  # todo: several sequences in the same matrix
+        spell_result = pred_item_by_no_cycles[-1][selected_seq][
+            'sorted_cmds'][0]['label']
+
+        # Extract the selected label depending on the number of cycles
+        spell_result_per_cycle = {}
+        for nc, pred in enumerate(pred_item_by_no_cycles):
+            spell_result_per_cycle[nc] = pred[selected_seq]['sorted_cmds'][
+                0]['label']
+
+        # Create the decoding dictionary
+        cmd_decoding = {
+            'spell_result': spell_result,
+            'spell_result_per_cycle': spell_result_per_cycle,
+            'items_by_no_cycle': pred_item_by_no_cycles
+        }
+
+        return cmd_decoding
+
+    def must_stop(self, corr_vector, std=3.0):
+        # Safe copy
+        corr_vector_ = copy.deepcopy(corr_vector)
+        return self.get_inst('es_method').check_early_stop(
+            corr_vector=corr_vector,
+            std=std
+        )
 
 # ------------------------------- ALGORITHMS -------------------------------- #
 class StandardPreprocessing(components.ProcessingMethod):
@@ -2128,6 +2281,486 @@ class CircularShiftingClassifier(components.ProcessingMethod):
             pbar.close()
         return pred_items_by_no_cycles
 
+class TRCAGoldCodesClassifier(components.ProcessingMethod):
+    """Standard feature extraction method for c-VEP-based spellers. Basically,
+    it computes a template for each sequence, using TRCA. ATTENTION: Only if
+    works if the test matrix is 4x4.
+    """
+
+    def __init__(self, correct_raster_latencies=False, art_rej=None, **kwargs):
+        """ Class constructor """
+        super().__init__(fit_dataset=['templates',
+                                      'cca_by_seq'])
+        self.fitted = dict()
+
+        self.art_rej = art_rej
+        self.correct_raster_latencies = correct_raster_latencies
+
+    def _assert_consistency(self, dataset: CVEPSpellerDataset):
+        len_seqs = set()
+        fs = set()
+        fps_resolution = set()
+        unique_seqs_by_run = []
+        unique_all_seqs = set()
+        is_filter_bank = []
+        for rec in dataset.recordings:
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+            if rec_exp.mode != 'train':
+                raise ValueError('There is at least one CVEPSpellerData '
+                                 'instance that was not recording under train '
+                                 'mode. Aborting feature extraction...')
+            if not hasattr(rec_exp, 'spell_target'):
+                raise ValueError('There is at least one CVEPSpellerData '
+                                 'instance that has not "spell_target" data. '
+                                 'Aborting feature extraction...')
+            fps_resolution.add(rec_exp.fps_resolution)
+            fs.add(rec_sig.fs)
+            unique_seqs = get_unique_sequences_from_targets(rec_exp)
+            for seq_ in unique_seqs:
+                len_seqs.add(len(seq_))
+                unique_all_seqs.add(seq_)
+            unique_seqs_by_run.append(unique_seqs)
+
+            if isinstance(rec_sig.signal, list):
+                is_filter_bank.append(True)
+            else:
+                is_filter_bank.append(False)
+        if len(len_seqs) > 1:
+            raise ValueError('There are sequences with different lengths in '
+                             'the CVEPSpellerDataset instance! Aborting feature'
+                             ' extraction...')
+        if len(fs) > 1:
+            raise ValueError('There are CVEPSpellerData instances with '
+                             'different sampling rates! Aborting feature '
+                             'extraction...')
+        if len(fps_resolution) > 1:
+            raise ValueError('There are CVEPSpellerData instances with '
+                             'different refresh rates! Aborting feature '
+                             'extraction...')
+        if len(unique_all_seqs) > 1:
+            # Check if some sequences are shifted versions of another
+            unique_ = list(unique_all_seqs)
+            all_combos = np.array(list(itertools.combinations(
+                np.arange(0, len(unique_)), 2)))
+            for i_comb in range(all_combos.shape[0]):
+                s1 = unique_[all_combos[i_comb][0]]
+                s2 = unique_[all_combos[i_comb][1]]
+                if check_if_shifted(s1, s2):
+                    raise ValueError('There are targets that share shifted '
+                                     'versions of the same sequence. Solve that'
+                                     'before extracting features!')
+
+        if len(np.unique(is_filter_bank)):
+            is_filter_bank = is_filter_bank[0]
+        else:
+            raise ValueError('There are recordings that have filter banks and '
+                             'other do not.')
+        len_seq = len_seqs.pop()
+        fs = fs.pop()
+        fps_resolution = fps_resolution.pop()
+
+        return fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank
+
+    def fit_dataset(self, dataset: CVEPSpellerDataset, std_epoch_rejection=3.0,
+                    show_progress_bar=True):
+
+        # Error checking
+        fs, fps_resolution, len_seq, unique_seqs_by_run, is_filter_bank = \
+            self._assert_consistency(dataset)
+
+        # Init progress bar for sequences
+        if show_progress_bar:
+            pbar = tqdm(total=len(dataset.recordings),
+                        desc='Extracting unique sequences')
+
+        # Compute sequence length in milliseconds
+        len_epoch_ms = len_seq / fps_resolution * 1000
+        len_epoch_sam = int(len_seq / fps_resolution * fs)
+
+        # Get the epochs of each sequence
+        epochs_by_seq = {}
+        for rec_idx, rec in enumerate(dataset.recordings):
+            # Extract recording experiment and biosignal
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+
+            # Filter bank init
+            if not is_filter_bank:
+                rec_sig.signal = [rec_sig.signal]
+
+            # Get unique sequences for this run
+            unique_seqs = unique_seqs_by_run[rec_idx]
+
+            # For each filter bank
+            for filter_idx, signal in enumerate(rec_sig.signal):
+
+                # Extract epochs
+                epochs = mds.get_epochs_of_events(timestamps=rec_sig.times,
+                                                  signal=signal,
+                                                  onsets=rec_exp.onsets,
+                                                  fs=fs,
+                                                  w_epoch_t=[0, len_epoch_ms],
+                                                  w_baseline_t=None,
+                                                  norm=None)
+
+                # Organize epochs by sequence
+                for seq_, ep_idxs_ in unique_seqs.items():
+                    if tuple(seq_) not in epochs_by_seq:
+                        epochs_by_seq[tuple(seq_)] = \
+                            [None for i in range(len(rec_sig.signal))]
+                        epochs_by_seq[tuple(seq_)][filter_idx] = \
+                            epochs[ep_idxs_, :, :]
+                    else:
+                        if epochs_by_seq[tuple(seq_)][filter_idx] is None:
+                            epochs_by_seq[tuple(seq_)][filter_idx] = \
+                                epochs[ep_idxs_, :, :]
+                        else:
+                            epochs_by_seq[tuple(seq_)][
+                                filter_idx] = np.concatenate((
+                                epochs_by_seq[tuple(seq_)][filter_idx],
+                                epochs[ep_idxs_, :, :]
+                            ), axis=0)
+
+            if show_progress_bar:
+                pbar.update(1)
+
+        # Precompute nearest channels for online artifact rejection
+        sorted_dist_ch = rec_sig.channel_set.sort_nearest_channels()
+
+        # New bar
+        if show_progress_bar:
+            pbar.close()
+            pbar = tqdm(total=len(epochs_by_seq) * len_seq,
+                        desc='Creating templates')
+
+        # For each sequence
+        seq_dict = dict()
+        discarded_epochs = 0
+        total_epochs = 0
+        for seq_ in epochs_by_seq:
+
+            # For each filter of the bank
+            for filter_idx in range(len(epochs_by_seq[seq_])):
+
+                # Offline artifact rejection
+                if std_epoch_rejection is not None:
+                    epochs_std = np.std(epochs_by_seq[seq_][filter_idx],
+                                        axis=1)  # STD per samples
+                    ch_std = np.std(epochs_std, axis=0)  # Variation of epochs
+                    # For each channel, check if the variation is adequate
+                    epoch_to_keep = np.zeros(epochs_std.shape)
+                    for i in range(len(ch_std)):
+                        epoch_to_keep[:, i] = (
+                                (epochs_std[:, i] < (
+                                            np.median(epochs_std[:, i]) +
+                                            std_epoch_rejection * ch_std[
+                                                i])) &
+                                (epochs_std[:, i] > (
+                                            np.median(epochs_std[:, i]) -
+                                            std_epoch_rejection * ch_std[
+                                                i]))
+                        )
+                    # Keep only epochs that are suitable for all channels
+                    idx_to_keep = (
+                            np.sum(epoch_to_keep, axis=1) == epochs_std.shape[1]
+                    )
+                    epochs_by_seq[seq_][filter_idx] = \
+                        epochs_by_seq[seq_][filter_idx][idx_to_keep, :, :]
+                    discarded_epochs += np.sum(idx_to_keep == False)
+                    total_epochs += len(idx_to_keep)
+
+                # Task related component analysis
+                Trca = sf.TRCA()
+
+                # Reference (main template repeated 'no_cycles' times)
+                main_template = np.mean(epochs_by_seq[seq_][filter_idx], axis=0)
+
+
+
+
+                # Input data
+                X = epochs_by_seq[seq_][filter_idx]
+
+                # Fit TRCA and project the main template
+                Trca.fit(X)
+                main_template = Trca.project(main_template)
+                # Create all possible template shifts
+                templates = dict()
+                for lag in range(0,4*int(len_seq/4),int(len_seq/4)):
+                    lag_samples = int(np.round(lag / fps_resolution * fs))
+                    lagged_seq = np.roll(seq_, -lag, axis=0)
+                    lagged_template = np.roll(main_template, -lag_samples,
+                                              axis=0)
+                    templates[tuple(lagged_seq)] = lagged_template
+
+                    if show_progress_bar:
+                        pbar.update(1)
+
+                # STD by channel (useful for online artifact rejection)
+                X = X.reshape((X.shape[0] * X.shape[1], X.shape[2]))
+                std_by_channel = np.std(X, axis=0)
+
+                # Store data of each trained sequence
+                if tuple(seq_) not in seq_dict:
+                    seq_dict[tuple(seq_)] = []
+                seq_dict[tuple(seq_)].append(
+                    {'trca': Trca,
+                     'templates': templates,
+                     'std_by_channel': std_by_channel,
+                     }
+                )
+
+        # Store fitted params
+        self.fitted = {'sequences': seq_dict,
+                       'fs': fs,
+                       'fps_resolution': fps_resolution,
+                       'len_epoch_ms': len_epoch_ms,
+                       'len_epoch_sam': len_epoch_sam,
+                       'std_epoch_rejection': std_epoch_rejection,
+                       'no_discarded_epochs': discarded_epochs,
+                       'no_total_epochs': total_epochs,
+                       'sorted_dist_ch': sorted_dist_ch
+                       }
+        if show_progress_bar:
+            pbar.close()
+
+        return self.fitted
+
+    def _is_predict_feasible(self, dataset):
+        l_ms = self.fitted['len_epoch_ms']
+        for rec in dataset.recordings:
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+            feasible = ep.check_epochs_feasibility(timestamps=rec_sig.times,
+                                                   onsets=rec_exp.onsets,
+                                                   fs=rec_sig.fs,
+                                                   t_window=[0, l_ms])
+            if feasible != 'ok':
+                return False
+        return True
+
+    def _is_predict_feasible_signal(self, times, onsets, fs):
+        l_ms = self.fitted['len_epoch_ms']
+        feasible = ep.check_epochs_feasibility(timestamps=times,
+                                               onsets=onsets,
+                                               fs=fs,
+                                               t_window=[0, l_ms])
+        if feasible != 'ok':
+            return False
+        return True
+
+    def _interpolate_epoch(self, epoch, channel_set, bad_channels_idx,
+                           no_neighbors=3):
+        interp_epoch = epoch.copy()
+        # Are all channels bad?
+        if len(bad_channels_idx) == len(channel_set.channels):
+            print('> Artifact rejection: Cannot interpolate because all '
+                  'channels are bad.')
+            return interp_epoch
+
+        # For each bad channel
+        bad_labels = []
+        for i in bad_channels_idx:
+            bad_labels.append(channel_set.channels[i]['label'])
+        for i, bad_label in enumerate(bad_labels):
+            if bad_label not in self.fitted['sorted_dist_ch']:
+                raise Exception('Label %s is not present in the EEGChannelSet'
+                                ' in which the model was fitted for!'
+                                % bad_label)
+            # Find the K labels of the nearest neighbors
+            sorted_ch = self.fitted['sorted_dist_ch'][bad_label]
+            interp_labels = []
+            for ch in sorted_ch:
+                interp_labels.append(ch["channel"]["label"])
+                if len(interp_labels) == no_neighbors:
+                    break
+
+            # Interpolate using average
+            interp_idxs = channel_set.get_cha_idx_from_labels(interp_labels)
+            interp_epoch[:, bad_channels_idx[i]] = \
+                np.mean(interp_epoch[:, np.array(interp_idxs)], axis=1)
+        print('> Artifact rejection: interpolated %i channels' %
+              len(bad_channels_idx))
+        return interp_epoch
+
+    def predict(self, times, signal, trial_idx, exp_data, sig_data):
+        # Parameters
+        len_epoch_ms = self.fitted['len_epoch_ms']
+        len_epoch_sam = self.fitted['len_epoch_sam']
+        fs = self.fitted['fs']
+        exp_data.onsets = np.array(exp_data.onsets)
+
+        # Assert filter bank
+        if not isinstance(signal, list):
+            signal = [signal]
+        for seq_, seq_data_ in self.fitted['sequences'].items():
+            if len(seq_data_) != len(signal):
+                raise ValueError('[TRCAGoldCodesClassifier] Cannot predict '
+                                 'if the signal do not have the same number of '
+                                 'filter banks than the fitted one!')
+
+        # For each number of cycles
+        pred_item_by_no_cycles = []
+        no_cycles = np.max(exp_data.cycle_idx).astype(int) + 1
+        for nc in range(no_cycles):
+            # Identify what are the epochs that must be processed
+            idx = (np.array(exp_data.trial_idx) == trial_idx) & \
+                  (np.array(exp_data.cycle_idx) <= nc)
+
+            # Raster latencies?
+            raster_dict = None
+            if self.correct_raster_latencies:
+                possible_onsets_idx = np.where(
+                    exp_data.raster_events['onset'] <
+                    exp_data.onsets[idx][-1]
+                )[0]
+                if possible_onsets_idx.size > 0:
+                    raster_dict = exp_data.raster_events['event'][
+                        possible_onsets_idx[-1]]
+
+            # For each fitted sequence
+            pred_item = []
+            final_seq = []
+            final_corr = []
+            for seq_, seq_data_ in self.fitted['sequences'].items():
+
+                # For each possible filter bank
+                f_corrs = []
+                for filter_idx, filter_signal in enumerate(signal):
+
+                    # Extract the epochs for that signal, trial and no. cycles
+                    epochs = mds.get_epochs_of_events(
+                        timestamps=times,
+                        signal=filter_signal,
+                        onsets=exp_data.onsets[idx],
+                        fs=fs,
+                        w_epoch_t=[0, len_epoch_ms],
+                        w_baseline_t=None,
+                        norm=None)
+                    if len(epochs.shape) == 2:
+                        # Create a dummy dimension if we have only one epoch
+                        epochs = np.expand_dims(epochs, 0)
+
+                    # Artifact rejection
+                    if self.art_rej is not None:
+                        epoch_std_by_channel = \
+                            np.std(epochs[:, :len_epoch_sam, :], axis=1)
+                        for i in range(epoch_std_by_channel.shape[0]):
+                            discard_epoch = epoch_std_by_channel[i, :] > \
+                                            seq_data_[filter_idx][
+                                                'std_by_channel'] \
+                                            * self.art_rej
+                            if np.any(discard_epoch):
+                                # TODO: precompute distance matrix before
+                                epochs[i, :len_epoch_sam, :] = \
+                                    self._interpolate_epoch(
+                                        epoch=epochs[i, :len_epoch_sam, :],
+                                        channel_set=sig_data.channel_set,
+                                        bad_channels_idx=
+                                        np.where(discard_epoch)[0],
+                                        no_neighbors=3
+                                    )
+
+                    # Average the epochs
+                    avg = np.mean(epochs[:, :len_epoch_sam, :], axis=0)
+
+                    # TRCA projection
+                    x_ = seq_data_[filter_idx]['trca'].project(
+                        avg)
+
+                    # Correlation coefficients between x_ and the templates
+                    corrs = []
+                    seqs = []
+                    for shift_seq_, template_ in \
+                            seq_data_[filter_idx]['templates'].items():
+                        # Correct template using raster latencies
+                        lat_s = 0
+                        if raster_dict is not None:
+                            if shift_seq_ in raster_dict:
+                                lat_s = int(raster_dict[shift_seq_] * fs)
+                        tem_ = np.roll(template_, lat_s)
+                        temp_p = np.dot(tem_, x_) / np.sqrt(np.dot(np.dot(
+                            tem_, tem_), np.dot(x_, x_)))
+                        corrs.append(temp_p)
+                        #seqs.append(shift_seq_)
+                        if filter_idx==0:
+                            final_seq.append(shift_seq_)
+                    f_corrs.append(corrs)
+
+                # Average the correlations between different filter banks
+                corrs = list(np.mean(np.array(f_corrs), axis=0))
+                final_corr=final_corr+corrs
+                #seqs = np.array(seqs)
+            final_corr = np.array(final_corr)
+            final_seq=np.array(final_seq)
+
+
+            # Sort the sequences by corrs' descending order
+            sorted_idx = np.argsort(-final_corr)
+            sorted_corrs = final_corr[sorted_idx]
+            sorted_seqs = final_seq[sorted_idx, :]
+
+            # Identify the selected command
+            sorted_cmds = get_items_by_sorted_sequences(
+                experiment=exp_data,
+                trial_idx=trial_idx,
+                sorted_seqs=sorted_seqs,
+                sorted_corrs=sorted_corrs
+            )
+            pred_item.append({
+                'sorted_cmds': sorted_cmds,
+                'fitted_sequence': seq_
+            })
+
+            # Store the predicted item
+            pred_item_by_no_cycles.append(pred_item)
+
+        return pred_item_by_no_cycles
+
+    def predict_dataset(self, dataset: CVEPSpellerDataset,
+                        show_progress_bar=True):
+        # Error detection
+        if not self.fitted:
+            raise Exception(
+                'Cannot predict if templates and '
+                'TRCA projections are not fitted before! Aborting...')
+        for rec in dataset.recordings:
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+            if rec_sig.fs != self.fitted['fs']:
+                raise ValueError('The sampling rate of this test recording '
+                                 '(%.2f Hz) is not the same as for the fitted '
+                                 'recordings! (%.2f Hz)' %
+                                 (rec_sig.fs, self.fitted['fs']))
+            if rec_exp.fps_resolution != self.fitted['fps_resolution']:
+                raise ValueError('The refresh rate of this test recording '
+                                 '(%.2f Hz) is not the same as for the fitted '
+                                 'recordings! (%.2f Hz)' %
+                                 (rec_exp.fps_resolution,
+                                  self.fitted['fps_resolution']))
+
+        if show_progress_bar:
+            pbar = tqdm(total=len(dataset.recordings),
+                        desc='Predicting dataset')
+
+        # For each recording
+        pred_items_by_no_cycles = []
+        for rec in dataset.recordings:
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+
+            # For each trial
+            for t_idx in np.unique(rec_exp.trial_idx):
+                decoding_by_no_cycles = \
+                    self.predict(rec_sig.times, rec_sig.signal, t_idx,
+                                 rec_exp, rec_sig)
+                pred_items_by_no_cycles.append(decoding_by_no_cycles)
+            if show_progress_bar:
+                pbar.update(1)
+        if show_progress_bar:
+            pbar.close()
+        return pred_items_by_no_cycles
 
 class CircularShiftingEarlyStopping(components.ProcessingMethod):
     def __init__(self, **kwargs):
@@ -2356,3 +2989,57 @@ class LFSR:
             else:
                 sequence = np.array(sequence) - np.floor(base / 2).astype(int)
         return sequence
+class GOLD_CODES:
+    """ Computes a set of 2^N-1 gold codes """
+
+    def __init__(self, polynomial_1,polynomial_2, base=2 ,center=False):
+        """ Constructor of GOLD_CODES """
+        self.polynomial_1 = polynomial_1
+        self.polynomial_2 = polynomial_2
+        self.base = base
+        self.order = len(polynomial_1)
+        self.N = base ** self.order - 1
+        self.sequences = self.gold_codes(polynomial_1, polynomial_2,base,self.order)
+
+    @staticmethod
+    def gold_codes(pol_1, pol_2,base,N):
+        """ This method implements a generator of Gold Codes.
+
+        IMPORTANT: Gold Codes with optimized correlation properties
+        are obtained from two PREFERRED m-sequences.
+
+        Parameters
+        ----------
+        pol_1: list
+            First Generator polynomial. E.g. (bias is specified for math convention
+            but not used):
+            "1 + x^5 + x^6" would be [0, 0, 0, 0, 1, 1].
+            "1 + 2x + x^4" would be [2, 0, 0, 1]
+        pol_2: list
+            Second Generator polynomial. E.g. (bias is specified for math convention
+            but not used):
+        base : int
+            Base of the sequence events that
+            belongs to the Galois Field of the same base.
+        N : int
+            Length of the sequence.
+
+        Returns
+        -------
+        sequence : list
+            LFSR m-sequence (maximum length is base^order-1), where order is the
+            order of the polynomial.
+        """
+        if (pol_1[-1] != pol_2[-1]):
+            raise Exception("Pol_1 and Pol_2 must have the same degree")
+        else:
+            sequences=[]
+            seq_1 = LFSR.lfsr(pol_1)  # seed [0,...,0,1]
+            seq_2 = LFSR.lfsr(pol_2)
+            seq_1.reverse()
+            seq_2.reverse()
+            for i in range(0,base**N-1):
+                seq_2_rolled=list(np.roll(np.array(seq_2),i))
+                seq = [int(bool(seq_1[j]) ^ bool(seq_2_rolled[j])) for j in range(len(seq_1))]
+                sequences.append(seq)
+            return sequences
