@@ -11,9 +11,9 @@ except:
 class TFExtrasNotInstalled(Exception):
     def __init__(self, msg=None):
         if msg is None:
-            msg = 'This functionality requires tensorflow extras. Reinstall '
-            'medusa-kernel using the following command "pip install '
-            'medusa-kernel[TF]'
+            msg = ('This functionality requires tensorflow extras. Reinstall '
+                   'medusa-kernel using the following command "pip install '
+                   'medusa-kernel[TF]')
         super().__init__(msg)
 
 
