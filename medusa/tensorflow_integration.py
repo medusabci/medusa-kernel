@@ -9,26 +9,35 @@ except:
 
 
 class TFExtrasNotInstalled(Exception):
-    def __init__(self):
-        super().__init__(
-            'This functionality requires tensorflow extras. Reinstall '
+    def __init__(self, msg=None):
+        if msg is None:
+            msg = 'This functionality requires tensorflow extras. Reinstall '
             'medusa-kernel using the following command "pip install '
-            'medusa-kernel[TF]')
+            'medusa-kernel[TF]'
+        super().__init__(msg)
 
 
 class NoGPU(Exception):
-    def __init__(self):
-        super().__init__('No GPU available')
+    def __init__(self, msg=None):
+        if msg is None:
+            msg = 'No GPU available'
+        super().__init__(msg)
 
 
 class NoCPU(Exception):
-    def __init__(self):
-        super().__init__('No CPU available')
+    def __init__(self, msg=None):
+        if msg is None:
+            msg = 'No CPU available'
+        super().__init__(msg)
 
 
 class DeviceNotAvailable(Exception):
-    def __init__(self, device):
-        super().__init__('Device %s not available' % device)
+    def __init__(self, msg=None, device=None):
+        if msg is None and device is None:
+            msg = 'Device not available'
+        elif msg is None and device is not None:
+            msg = f'Device {device} not available'
+        super().__init__(msg)
 
 
 def config_tensorflow(gpu_acceleration=True, device=None):
@@ -85,7 +94,7 @@ def config_tensorflow(gpu_acceleration=True, device=None):
                     if check:
                         os.environ["MEDUSA_TF_DEVICE"] = device
                     else:
-                        raise DeviceNotAvailable(device)
+                        raise DeviceNotAvailable(device=device)
             else:
                 raise NoCPU()
 
