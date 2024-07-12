@@ -464,7 +464,7 @@ def decode_commands_from_events(event_scores, commands_info, event_run_idx,
                 cmd_seqs = list()
                 for cmd_id, cmd_info in commands_info[r][0].items():
                     cmd_ids.append(cmd_id)
-                    cmd_seqs.append(cmd_info['sequence'] * (c+1))
+                    cmd_seqs.append(cmd_info['sequence'] * (c + 1))
                 # Calculate correlations to all commands
                 corr_scores = np.abs(
                     np.corrcoef(cycle_event_scores, cmd_seqs)[0, 1:])
@@ -615,9 +615,9 @@ class CVEPSpellerModel(components.Algorithm):
 
 
 class CMDModelBWRLDA(CVEPSpellerModel):
-
     """Class that uses the bitwise reconstruction (BWR) paradigm with an LDA
     classifier"""
+
     def __int__(self):
         super().__init__()
 
@@ -700,12 +700,12 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         y_pred = self.get_inst('clf_method').predict_proba(x)[:, 1]
         # Command decoding
         sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
-                event_scores=y_pred,
-                commands_info=x_info['commands_info'],
-                event_run_idx=x_info['event_run_idx'],
-                event_trial_idx=x_info['event_trial_idx'],
-                event_cycle_idx=x_info['event_cycle_idx']
-            )
+            event_scores=y_pred,
+            commands_info=x_info['commands_info'],
+            event_run_idx=x_info['event_run_idx'],
+            event_trial_idx=x_info['event_trial_idx'],
+            event_cycle_idx=x_info['event_cycle_idx']
+        )
         cmd_assessment = {
             'x': x,
             'x_info': x_info,
@@ -760,6 +760,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
 class CMDModelBWREEGInception(CVEPSpellerModel):
     """Class that uses the bitwise reconstruction (BWR) paradigm with an
     EEG-Inception model """
+
     def __int__(self):
         super().__init__()
 
@@ -874,12 +875,12 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         y_pred = clf_utils.categorical_labels(y_pred)
         # Command decoding
         sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
-                event_scores=y_pred,
-                commands_info=x_info['commands_info'],
-                event_run_idx=x_info['event_run_idx'],
-                event_trial_idx=x_info['event_trial_idx'],
-                event_cycle_idx=x_info['event_cycle_idx']
-            )
+            event_scores=y_pred,
+            commands_info=x_info['commands_info'],
+            event_run_idx=x_info['event_run_idx'],
+            event_trial_idx=x_info['event_trial_idx'],
+            event_cycle_idx=x_info['event_cycle_idx']
+        )
         cmd_assessment = {
             'x': x,
             'x_info': x_info,
@@ -935,8 +936,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
 class CVEPModelCircularShifting(components.Algorithm):
 
     def __init__(self, bpf=[[7, (1.0, 30.0)]], notch=[7, (49.0, 51.0)],
-                 art_rej=None, correct_raster_latencies=False,
-                 *args, **kwargs):
+                 art_rej=None, correct_raster_latencies=False, *args, **kwargs):
         super().__init__()
 
         if len(bpf) == 1:
@@ -974,11 +974,14 @@ class CVEPModelCircularShifting(components.Algorithm):
         self.add_method('clf_method', CircularShiftingClassifier(
             art_rej=art_rej,
             correct_raster_latencies=correct_raster_latencies,
-            extra_epoch_samples=3*max_order
+            extra_epoch_samples=3 * max_order
         ))
 
         # Early stopping
-        self.add_method('es_method', CircularShiftingEarlyStopping())
+        self.add_method('es_method', CircularShiftingAsyncESExtension(
+            predict_by_cycles_callback=self.get_inst(
+                'clf_method').predict_cycles
+        ))
 
     def check_predict_feasibility(self, dataset):
         return self.get_inst('clf_method')._is_predict_feasible(dataset)
@@ -998,13 +1001,13 @@ class CVEPModelCircularShifting(components.Algorithm):
         )
 
         # Feature extraction and classification
-        fitted_info = self.get_inst('clf_method').fit_dataset(
+        fitted_info_clf = self.get_inst('clf_method').fit_dataset(
             dataset=data,
             show_progress_bar=True,
             roll_targets=roll_targets
         )
 
-        return fitted_info
+        return fitted_info_clf
 
     def predict_dataset(self, dataset):
         # Safe copy
@@ -1046,7 +1049,8 @@ class CVEPModelCircularShifting(components.Algorithm):
         }
         return cmd_decoding
 
-    def predict(self, times, signal, trial_idx, exp_data, sig_data):
+    def predict(self, times, signal, trial_idx, exp_data, sig_data,
+                return_all_cycles=True):
         # Safe copy
         times_ = copy.deepcopy(times)
         signal_ = copy.deepcopy(signal)
@@ -1061,7 +1065,8 @@ class CVEPModelCircularShifting(components.Algorithm):
 
         # Feature extraction and classification
         pred_item_by_no_cycles = self.get_inst('clf_method').predict(
-            times_, signal_, trial_idx_, exp_data_, sig_data_
+            times_, signal_, trial_idx_, exp_data_, sig_data_,
+            return_all_cycles=return_all_cycles
         )
 
         # Extract the selected label using the maximum number of cycles
@@ -1084,13 +1089,103 @@ class CVEPModelCircularShifting(components.Algorithm):
 
         return cmd_decoding
 
-    def must_stop(self, corr_vector, std=3.0):
+    def predict_earlystopping(self, times, signal, trial_idx, exp_data,
+                              sig_data, return_all_cycles=True,
+                              multi_window=None, ewma_beta=0.95,
+                              std=3.75):
         # Safe copy
-        corr_vector_ = copy.deepcopy(corr_vector)
-        return self.get_inst('es_method').check_early_stop(
-            corr_vector=corr_vector,
+        times_ = copy.deepcopy(times)
+        signal_ = copy.deepcopy(signal)
+        trial_idx_ = copy.deepcopy(trial_idx)
+        exp_data_ = copy.deepcopy(exp_data)
+        sig_data_ = copy.deepcopy(sig_data)
+
+        # Preprocessing
+        signal_ = self.get_inst('prep_method').transform_signal(
+            signal=signal_
+        )
+
+        # Feature extraction and classification
+        pred_item_by_no_cycles = self.get_inst('es_method').predict(
+            times_, signal_, trial_idx_, exp_data_, sig_data_,
+            return_all_cycles=return_all_cycles,
+            multi_window=multi_window, ewma_beta=ewma_beta,
             std=std
         )
+
+        # Extract the selected label using the maximum number of cycles
+        selected_seq = 0  # todo: several sequences in the same matrix
+        spell_result = pred_item_by_no_cycles[-1][selected_seq][
+            'sorted_cmds'][0]['label']
+
+        # Extract the selected label depending on the number of cycles
+        spell_result_per_cycle = {}
+        for nc, pred in enumerate(pred_item_by_no_cycles):
+            spell_result_per_cycle[nc] = pred[selected_seq]['sorted_cmds'][
+                0]['label']
+
+        # Create the decoding dictionary
+        cmd_decoding = {
+            'spell_result': spell_result,
+            'spell_result_per_cycle': spell_result_per_cycle,
+            'items_by_no_cycle': pred_item_by_no_cycles
+        }
+
+        return cmd_decoding
+
+    def predict_dataset_earlystopping(self, dataset, multi_window=None,
+                                      ewma_beta=0.95, std=3.75):
+        # Safe copy
+        data = copy.deepcopy(dataset)
+
+        # Preprocessing
+        data = self.get_inst('prep_method').transform_dataset(
+            dataset=data,
+            show_progress_bar=True
+        )
+
+        # Feature extraction and classification
+        pred_items = self.get_inst('es_method').predict_dataset(
+            dataset=data,
+            show_progress_bar=True
+        )
+
+        # TODO: all of this is incorrect
+
+        # Extract the selected items using the maximum number of cycles and
+        # the early stopping
+        selected_seq = 0  # todo: several sequences in the same matrix
+        spell_result = []
+        for item in pred_items:
+            spell_result.append(
+                item[-1][selected_seq]['sorted_cmds'][0]['label'])
+
+        # Extract the selected items depending on the number of cycles
+        spell_result_per_cycle = []
+        for item in pred_items:
+            trial_result_per_cycle = {}
+            for nc, pred in enumerate(item):
+                trial_result_per_cycle[nc] = pred[selected_seq][
+                    'sorted_cmds'][0]['label']
+            spell_result_per_cycle.append(trial_result_per_cycle)
+
+        # Create the decoding dictionary
+        cmd_decoding = {
+            'spell_result': spell_result,
+            'spell_result_per_cycle': spell_result_per_cycle,
+            'items_by_no_cycle': pred_items
+        }
+        return cmd_decoding
+
+    # TODO: delete
+    # def must_stop(self, corr_vector, std=3.0):
+    #     # Safe copy
+    #     corr_vector_ = copy.deepcopy(corr_vector)
+    #     return self.get_inst('es_method').check_early_stop(
+    #         corr_vector=corr_vector_,
+    #         std=std
+    #     )
+
 
 class CVEPModelTRCAGoldCodes(components.Algorithm):
 
@@ -1245,6 +1340,7 @@ class CVEPModelTRCAGoldCodes(components.Algorithm):
             corr_vector=corr_vector,
             std=std
         )
+
 
 # ------------------------------- ALGORITHMS -------------------------------- #
 class StandardPreprocessing(components.ProcessingMethod):
@@ -1596,7 +1692,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
                     cmd_id = target[1]
                     cmd_seq = rec_exp.commands_info[cmd_mtx][cmd_id]['sequence']
                     n_cycles = np.array(rec_exp.cycle_idx)[
-                        rec_exp.trial_idx == t][-1] + 1
+                                   rec_exp.trial_idx == t][-1] + 1
                     rec_exp.event_cvep_labels = np.concatenate(
                         (rec_exp.event_cvep_labels, cmd_seq * int(n_cycles)),
                         axis=0)
@@ -1913,13 +2009,14 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                                                   w_epoch_t=[0, len_epoch_ms],
                                                   w_baseline_t=None,
                                                   norm=None)
-                
+
                 # Roll targets if training was not made with the 0 lag command
                 if roll_targets:
                     for idx_, c_ in enumerate(rec_exp.command_idx):
                         # TODO: nested matrices
                         c_lag_ = rec_exp.commands_info[0][str(int(c_))]['lag']
-                        lag_samples = int(np.round(c_lag_ / fps_resolution * fs))
+                        lag_samples = int(
+                            np.round(c_lag_ / fps_resolution * fs))
                         # Revert the lag in the epoch
                         epochs[idx_, :, :] = np.roll(
                             epochs[idx_, :, :], lag_samples, axis=0)
@@ -1975,13 +2072,13 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                     for i in range(len(ch_std)):
                         epoch_to_keep[:, i] = (
                                 (epochs_std[:, i] < (
-                                            np.median(epochs_std[:, i]) +
-                                            self.art_rej * ch_std[
-                                                i])) &
+                                        np.median(epochs_std[:, i]) +
+                                        self.art_rej * ch_std[
+                                            i])) &
                                 (epochs_std[:, i] > (
-                                            np.median(epochs_std[:, i]) -
-                                            self.art_rej * ch_std[
-                                                i]))
+                                        np.median(epochs_std[:, i]) -
+                                        self.art_rej * ch_std[
+                                            i]))
                         )
                     # Keep only epochs that are suitable for all channels
                     idx_to_keep = (
@@ -2051,7 +2148,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
     def _is_predict_feasible(self, dataset):
         l_ms = self.fitted['len_epoch_ms'] + \
-               np.ceil(self.extra_epoch_samples/dataset.fs)
+               np.ceil(self.extra_epoch_samples / dataset.fs)
         for rec in dataset.recordings:
             rec_sig = getattr(rec, dataset.biosignal_att_key)
             rec_exp = getattr(rec, dataset.experiment_att_key)
@@ -2065,7 +2162,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
 
     def _is_predict_feasible_signal(self, times, onsets, fs):
         l_ms = self.fitted['len_epoch_ms'] + \
-               np.ceil(self.extra_epoch_samples/fs)
+               np.ceil(self.extra_epoch_samples / fs)
         feasible = ep.check_epochs_feasibility(timestamps=times,
                                                onsets=onsets,
                                                fs=fs,
@@ -2108,7 +2205,32 @@ class CircularShiftingClassifier(components.ProcessingMethod):
               len(bad_channels_idx))
         return interp_epoch
 
-    def predict(self, times, signal, trial_idx, exp_data, sig_data):
+    def predict(self, times, signal, trial_idx, exp_data, sig_data,
+                return_all_cycles=True):
+        # For each number of cycles
+        pred_item_by_no_cycles = []
+        _exp_cycle_idx = np.array(exp_data.cycle_idx)
+        no_cycles = np.max(_exp_cycle_idx[np.array(exp_data.trial_idx) ==
+                                          trial_idx]).astype(int) + 1
+
+        # Cycles to return
+        if return_all_cycles:
+            cycles_to_return = np.arange(no_cycles)
+        else:
+            cycles_to_return = [no_cycles]
+
+        # For each cycle to return
+        for nc in cycles_to_return:
+            pred_item = self.predict_cycles(
+                times, signal, trial_idx, exp_data, sig_data,
+                cycle_idxs_to_consider=np.arange(0, nc + 1)
+            )
+            pred_item_by_no_cycles.append(pred_item)
+
+        return pred_item_by_no_cycles
+
+    def predict_cycles(self, times, signal, trial_idx, exp_data, sig_data,
+                       cycle_idxs_to_consider):
         # Parameters
         len_epoch_ms = self.fitted['len_epoch_ms']
         len_epoch_sam = self.fitted['len_epoch_sam']
@@ -2124,118 +2246,115 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                                  'if the signal do not have the same number of '
                                  'filter banks than the fitted one!')
 
-        # For each number of cycles
-        pred_item_by_no_cycles = []
-        _exp_cycle_idx = np.array(exp_data.cycle_idx)
-        no_cycles = np.max(_exp_cycle_idx[np.array(exp_data.trial_idx) ==
-                                          trial_idx]).astype(int) + 1
-        for nc in range(no_cycles):
-            # Identify what are the epochs that must be processed
-            idx = (np.array(exp_data.trial_idx) == trial_idx) & \
-                  (np.array(exp_data.cycle_idx) <= nc)
+        # Identify what are the epochs that must be processed
+        idx = np.where(
+            np.isin(np.array(exp_data.cycle_idx), cycle_idxs_to_consider) &
+            (np.array(exp_data.trial_idx) == trial_idx)
+        )[0]
 
-            # Raster latencies?
-            raster_dict = None
-            if self.correct_raster_latencies:
-                possible_onsets_idx = np.where(
-                    exp_data.raster_events['onset'] <
-                    exp_data.onsets[idx][-1]
-                )[0]
-                if possible_onsets_idx.size > 0:
-                    raster_dict = exp_data.raster_events['event'][
-                        possible_onsets_idx[-1]]
+        # Raster latencies?
+        raster_dict = None
+        if self.correct_raster_latencies:
+            possible_onsets_idx = np.where(
+                exp_data.raster_events['onset'] <
+                exp_data.onsets[idx][-1]
+            )[0]
+            if possible_onsets_idx.size > 0:
+                raster_dict = exp_data.raster_events['event'][
+                    possible_onsets_idx[-1]]
 
-            # For each fitted sequence
-            pred_item = []
-            for seq_, seq_data_ in self.fitted['sequences'].items():
+        # For each fitted sequence
+        pred_items = []
+        for seq_, seq_data_ in self.fitted['sequences'].items():
 
-                # For each possible filter bank
-                f_corrs = []
-                for filter_idx, filter_signal in enumerate(signal):
+            # For each possible filter bank
+            f_corrs = []
+            for filter_idx, filter_signal in enumerate(signal):
 
-                    # Extract the epochs for that signal, trial and no. cycles
-                    epochs = mds.get_epochs_of_events(
-                        timestamps=times,
-                        signal=filter_signal,
-                        onsets=exp_data.onsets[idx],
-                        fs=fs,
-                        w_epoch_t=[0, len_epoch_ms],
-                        w_baseline_t=None,
-                        norm=None)
-                    if len(epochs.shape) == 2:
-                        # Create a dummy dimension if we have only one epoch
-                        epochs = np.expand_dims(epochs, 0)
+                # Extract the epochs for that signal, trial and no. cycles
+                epochs = mds.get_epochs_of_events(
+                    timestamps=times,
+                    signal=filter_signal,
+                    onsets=exp_data.onsets[idx],
+                    fs=fs,
+                    w_epoch_t=[0, len_epoch_ms],
+                    w_baseline_t=None,
+                    norm=None)
+                if len(epochs.shape) == 2:
+                    # Create a dummy dimension if we have only one epoch
+                    epochs = np.expand_dims(epochs, 0)
 
-                    # Artifact rejection
-                    if self.art_rej is not None:
-                        epoch_std_by_channel = \
-                            np.std(epochs[:, :len_epoch_sam, :], axis=1)
-                        for i in range(epoch_std_by_channel.shape[0]):
-                            discard_epoch = epoch_std_by_channel[i, :] > \
-                                            seq_data_[filter_idx][
-                                                'std_by_channel'] \
-                                            * self.art_rej
-                            if np.any(discard_epoch):
-                                # TODO: precompute distance matrix before
-                                epochs[i, :len_epoch_sam, :] = \
-                                    self._interpolate_epoch(
-                                        epoch=epochs[i, :len_epoch_sam, :],
-                                        channel_set=sig_data.channel_set,
-                                        bad_channels_idx=
-                                        np.where(discard_epoch)[0],
-                                        no_neighbors=3
-                                    )
+                # Artifact rejection
+                if self.art_rej is not None:
+                    epoch_std_by_channel = \
+                        np.std(epochs[:, :len_epoch_sam, :], axis=1)
+                    for i in range(epoch_std_by_channel.shape[0]):
+                        discard_epoch = epoch_std_by_channel[i, :] > \
+                                        seq_data_[filter_idx][
+                                            'std_by_channel'] \
+                                        * self.art_rej
+                        if np.any(discard_epoch):
+                            # TODO: precompute distance matrix before
+                            epochs[i, :len_epoch_sam, :] = \
+                                self._interpolate_epoch(
+                                    epoch=epochs[i, :len_epoch_sam, :],
+                                    channel_set=sig_data.channel_set,
+                                    bad_channels_idx=
+                                    np.where(discard_epoch)[0],
+                                    no_neighbors=3
+                                )
 
-                    # Average the epochs
-                    avg = np.mean(epochs[:, :len_epoch_sam, :], axis=0)
+                # Average the epochs
+                avg = np.mean(epochs[:, :len_epoch_sam, :], axis=0)
 
-                    # CCA projection
-                    x_ = seq_data_[filter_idx]['cca'].project(
-                        avg, filter_idx=0, projection='Wy')
+                # CCA projection
+                x_ = seq_data_[filter_idx]['cca'].project(
+                    avg, filter_idx=0, projection='Wy')
 
-                    # Correlation coefficients between x_ and the templates
-                    corrs = []
-                    seqs = []
-                    for shift_seq_, template_ in \
-                            seq_data_[filter_idx]['templates'].items():
-                        # Correct template using raster latencies
-                        lat_s = 0
-                        if raster_dict is not None:
-                            if shift_seq_ in raster_dict:
-                                lat_s = int(raster_dict[shift_seq_] * fs)
-                        tem_ = np.roll(template_, lat_s)
-                        temp_p = np.dot(tem_, x_) / np.sqrt(np.dot(np.dot(
-                            tem_, tem_), np.dot(x_, x_)))
-                        corrs.append(temp_p)
-                        seqs.append(shift_seq_)
-                    f_corrs.append(corrs)
+                # Correlation coefficients between x_ and the templates
+                corrs = []
+                seqs = []
+                for shift_seq_, template_ in \
+                        seq_data_[filter_idx]['templates'].items():
+                    # Correct template using raster latencies
+                    lat_s = 0
+                    if raster_dict is not None:
+                        if shift_seq_ in raster_dict:
+                            lat_s = int(raster_dict[shift_seq_] * fs)
+                    tem_ = np.roll(template_, lat_s)
+                    temp_p = np.dot(tem_, x_) / np.sqrt(np.dot(np.dot(
+                        tem_, tem_), np.dot(x_, x_)))
+                    corrs.append(temp_p)
+                    seqs.append(shift_seq_)
+                f_corrs.append(corrs)
 
-                # Average the correlations between different filter banks
-                corrs = np.mean(np.array(f_corrs), axis=0)
-                seqs = np.array(seqs)
+            # Average the correlations between different filter banks
+            corrs = np.mean(np.array(f_corrs), axis=0)
+            seqs = np.array(seqs)
 
-                # Sort the sequences by corrs' descending order
-                sorted_idx = np.argsort(-corrs)
-                sorted_corrs = corrs[sorted_idx]
-                sorted_seqs = seqs[sorted_idx, :]
+            # Sort the sequences by corrs' descending order
+            sorted_idx = np.argsort(-corrs)
+            sorted_corrs = corrs[sorted_idx]
+            sorted_seqs = seqs[sorted_idx, :]
 
-                # Identify the selected command
-                sorted_cmds = get_items_by_sorted_sequences(
-                    experiment=exp_data,
-                    trial_idx=trial_idx,
-                    sorted_seqs=sorted_seqs,
-                    sorted_corrs=sorted_corrs
-                )
-                pred_item.append({
-                    'sorted_cmds': sorted_cmds,
-                    'fitted_sequence': seq_,
-                    'full_corrs': corrs.tolist()
-                })
+            # Identify the selected command
+            sorted_cmds = get_items_by_sorted_sequences(
+                experiment=exp_data,
+                trial_idx=trial_idx,
+                sorted_seqs=sorted_seqs,
+                sorted_corrs=sorted_corrs
+            )
+            pred_item = {
+                'sorted_cmds': sorted_cmds,
+                'fitted_sequence': seq_,
+                'full_corrs': corrs.tolist(),
+                'seqs': seqs.tolist()
+            }
 
             # Store the predicted item
-            pred_item_by_no_cycles.append(pred_item)
+            pred_items.append(pred_item)
 
-        return pred_item_by_no_cycles
+        return pred_items
 
     def predict_dataset(self, dataset: CVEPSpellerDataset,
                         show_progress_bar=True):
@@ -2280,6 +2399,172 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         if show_progress_bar:
             pbar.close()
         return pred_items_by_no_cycles
+
+
+class CircularShiftingAsyncESExtension(components.ProcessingMethod):
+
+    def __init__(self, predict_by_cycles_callback, **kwargs):
+        self.predict_by_cycles_callback = predict_by_cycles_callback
+
+    @staticmethod
+    def _must_stop(rhos, sel_idx, std=3.75):
+        """
+            Early stopping method to detect if the selected correlation must
+            be sent. The selected item will be sent if its correlation is an
+            outlier of the distribution formed by the rest of correlations,
+            assumming normality.
+
+            Parameters
+            --------------------
+            rhos: list() or numpy 1D array
+                List of correlations
+            sel_idx: int
+                Index of the selected correlation
+            std: float
+                Standard deviation that indicates the threshold that must be
+                overcome to send a selection
+
+            Returns
+            ---------------------
+            tuple(must_stop, probs):
+                must_stop is a boolean that determines if the item must be sent.
+                probs is a numpy 1D array with the same dimension as rhos
+                that indicates, for each correlation, the probability of
+                being sent between 0 and 1.
+        """
+        rhos = np.array(rhos)
+        sel_rho = rhos[sel_idx]
+        spu_rho = np.delete(rhos, sel_idx)
+
+        # Stop if the selected correlation is an outlier of the spurious dist
+        threshold = np.mean(spu_rho) + std * np.std(spu_rho)
+        must_stop = sel_rho > threshold
+
+        # Update probabilities of being selected for each correlation value
+        probs = threshold - rhos
+        probs = 1 - (probs / np.max(probs))
+        return must_stop, probs
+
+    def predict(self, times, signal, trial_idx, exp_data, sig_data,
+                return_all_cycles=True, multi_window=None, ewma_beta=0.95,
+                std=3.75):
+        # Get the maximum cycle
+        _exp_cycle_idx = np.array(exp_data.cycle_idx)
+        mc = np.max(_exp_cycle_idx[np.array(exp_data.trial_idx) ==
+                                   trial_idx]).astype(int)
+        pred_item_by_no_cycles = list()
+
+        # Return all cycles or just the last one (online) ?
+        if return_all_cycles:
+            cycles_to_return = np.arange(mc + 1)
+        else:
+            cycles_to_return = [mc]
+
+        # For each number of cycles
+        for nc in cycles_to_return:
+            # Get the cycle windows to extract correlations
+            if multi_window is None:
+                # Consider all cycles in our window
+                ind_wins = [list(range(nc, i, -1)) for i in
+                            range(nc - 1, -2, -1)]
+            else:
+                # Consider the multi-window length
+                ind_wins = [list(range(nc, i, -1)) for i in
+                            range(nc - 1, nc - multi_window - 1, -1)]
+                ind_wins = [lst for lst in ind_wins if all(x >= 0 for x in lst)]
+                print("> No. windows %i" % len(ind_wins))
+
+            # Predict all windows
+            items = list()
+            for win in ind_wins:
+                pred_item = self.predict_by_cycles_callback(
+                    times, signal, trial_idx, exp_data, sig_data,
+                    cycle_idxs_to_consider=win)
+                items.append(pred_item)
+
+            # Weight using EWMA for each fitted sequence
+            n_seq = len(items[0])
+            decoding = list()
+            for k in range(n_seq):
+                ewma_decoding = {
+                    'sorted_cmds': None,
+                    'fitted_sequence': items[0][k]['fitted_sequence'],
+                    'full_corrs': None,
+                    'seqs': np.array(items[0][k]['seqs']),
+                    'must_stop': None
+                }
+
+                # Modify the full correlations
+                ewma_corr = np.array(items[0][k]['full_corrs'])
+                for i in range(1, len(items)):
+                    ewma_corr += ewma_beta * ewma_corr + \
+                                 (1 - ewma_beta) * \
+                                 np.array(items[i][k]['full_corrs'])
+                ewma_decoding['full_corrs'] = ewma_corr
+
+                # Sort the correlations and sequences
+                sorted_idx = np.argsort(-ewma_corr)
+                sorted_corrs = ewma_corr[sorted_idx]
+                sorted_seqs = ewma_decoding['seqs'][sorted_idx, :]
+
+                # Update item correlations and probs
+                sorted_cmds = get_items_by_sorted_sequences(
+                    experiment=exp_data,
+                    trial_idx=trial_idx,
+                    sorted_seqs=sorted_seqs,
+                    sorted_corrs=sorted_corrs
+                )
+
+                # Early stopping
+                sel_idx = np.where(sorted_corrs == sorted_cmds[0][
+                    'correlation'])[0][0]
+                must_stop, probs = self._must_stop(
+                    rhos=sorted_corrs,
+                    sel_idx=sel_idx,
+                    std=std)
+                ewma_decoding['must_stop'] = True if must_stop else False
+
+                # Update probs for each item
+                for si, seq_ in enumerate(sorted_seqs):
+                    for item in sorted_cmds:
+                        if np.all(np.array(item['item']['sequence']) == seq_):
+                            item['prob'] = probs[si]
+                            break
+                ewma_decoding['sorted_cmds'] = sorted_cmds
+
+                # Add to the decoding
+                decoding.append(ewma_decoding)
+
+            # Add to the big decoding list
+            pred_item_by_no_cycles.append(decoding)
+        return pred_item_by_no_cycles
+
+    def predict_dataset(self, dataset: CVEPSpellerDataset,
+                        show_progress_bar=True, multi_window=None,
+                        ewma_beta=0.95, std=3.75):
+        if show_progress_bar:
+            pbar = tqdm(total=len(dataset.recordings),
+                        desc='Predicting dataset')
+
+        # For each recording
+        pred_items_by_no_cycles = []
+        for rec in dataset.recordings:
+            rec_sig = getattr(rec, dataset.biosignal_att_key)
+            rec_exp = getattr(rec, dataset.experiment_att_key)
+
+            # For each trial
+            for t_idx in np.unique(rec_exp.trial_idx):
+                decoding_by_no_cycles = \
+                    self.predict(rec_sig.times, rec_sig.signal, t_idx,
+                                 rec_exp, rec_sig, multi_window=multi_window,
+                                 ewma_beta=ewma_beta, std=std)
+                pred_items_by_no_cycles.append(decoding_by_no_cycles)
+            if show_progress_bar:
+                pbar.update(1)
+        if show_progress_bar:
+            pbar.close()
+        return pred_items_by_no_cycles
+
 
 class TRCAGoldCodesClassifier(components.ProcessingMethod):
     """Standard feature extraction method for c-VEP-based spellers. Basically,
@@ -2453,13 +2738,13 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
                     for i in range(len(ch_std)):
                         epoch_to_keep[:, i] = (
                                 (epochs_std[:, i] < (
-                                            np.median(epochs_std[:, i]) +
-                                            std_epoch_rejection * ch_std[
-                                                i])) &
+                                        np.median(epochs_std[:, i]) +
+                                        std_epoch_rejection * ch_std[
+                                            i])) &
                                 (epochs_std[:, i] > (
-                                            np.median(epochs_std[:, i]) -
-                                            std_epoch_rejection * ch_std[
-                                                i]))
+                                        np.median(epochs_std[:, i]) -
+                                        std_epoch_rejection * ch_std[
+                                            i]))
                         )
                     # Keep only epochs that are suitable for all channels
                     idx_to_keep = (
@@ -2476,9 +2761,6 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
                 # Reference (main template repeated 'no_cycles' times)
                 main_template = np.mean(epochs_by_seq[seq_][filter_idx], axis=0)
 
-
-
-
                 # Input data
                 X = epochs_by_seq[seq_][filter_idx]
 
@@ -2487,7 +2769,7 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
                 main_template = Trca.project(main_template)
                 # Create all possible template shifts
                 templates = dict()
-                for lag in range(0,4*int(len_seq/4),int(len_seq/4)):
+                for lag in range(0, 4 * int(len_seq / 4), int(len_seq / 4)):
                     lag_samples = int(np.round(lag / fps_resolution * fs))
                     lagged_seq = np.roll(seq_, -lag, axis=0)
                     lagged_template = np.roll(main_template, -lag_samples,
@@ -2683,18 +2965,17 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
                         temp_p = np.dot(tem_, x_) / np.sqrt(np.dot(np.dot(
                             tem_, tem_), np.dot(x_, x_)))
                         corrs.append(temp_p)
-                        #seqs.append(shift_seq_)
-                        if filter_idx==0:
+                        # seqs.append(shift_seq_)
+                        if filter_idx == 0:
                             final_seq.append(shift_seq_)
                     f_corrs.append(corrs)
 
                 # Average the correlations between different filter banks
                 corrs = list(np.mean(np.array(f_corrs), axis=0))
-                final_corr=final_corr+corrs
-                #seqs = np.array(seqs)
+                final_corr = final_corr + corrs
+                # seqs = np.array(seqs)
             final_corr = np.array(final_corr)
-            final_seq=np.array(final_seq)
-
+            final_seq = np.array(final_seq)
 
             # Sort the sequences by corrs' descending order
             sorted_idx = np.argsort(-final_corr)
@@ -2762,6 +3043,7 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
             pbar.close()
         return pred_items_by_no_cycles
 
+
 class CircularShiftingEarlyStopping(components.ProcessingMethod):
     def __init__(self, **kwargs):
         """ Class constructor """
@@ -2802,6 +3084,7 @@ def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
     """ Function that returns the unique sequences of all targets.
             return
         """
+
     def is_shifted_version(stored_seqs, seq_to_check):
         for s in stored_seqs:
             if len(s) != len(seq_to_check):
@@ -2810,6 +3093,7 @@ def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
                 if np.all(np.array(s) == np.roll(seq_to_check, -j)):
                     return s
         return None
+
     sequences = dict()
     try:
         # todo: command_idx, unit_idx y demas lo tiene que hacer medusa y no unity
@@ -2989,20 +3273,23 @@ class LFSR:
             else:
                 sequence = np.array(sequence) - np.floor(base / 2).astype(int)
         return sequence
+
+
 class GOLD_CODES:
     """ Computes a set of 2^N-1 gold codes """
 
-    def __init__(self, polynomial_1,polynomial_2, base=2 ,center=False):
+    def __init__(self, polynomial_1, polynomial_2, base=2, center=False):
         """ Constructor of GOLD_CODES """
         self.polynomial_1 = polynomial_1
         self.polynomial_2 = polynomial_2
         self.base = base
         self.order = len(polynomial_1)
         self.N = base ** self.order - 1
-        self.sequences = self.gold_codes(polynomial_1, polynomial_2,base,self.order)
+        self.sequences = self.gold_codes(polynomial_1, polynomial_2, base,
+                                         self.order)
 
     @staticmethod
-    def gold_codes(pol_1, pol_2,base,N):
+    def gold_codes(pol_1, pol_2, base, N):
         """ This method implements a generator of Gold Codes.
 
         IMPORTANT: Gold Codes with optimized correlation properties
@@ -3033,13 +3320,14 @@ class GOLD_CODES:
         if (pol_1[-1] != pol_2[-1]):
             raise Exception("Pol_1 and Pol_2 must have the same degree")
         else:
-            sequences=[]
+            sequences = []
             seq_1 = LFSR.lfsr(pol_1)  # seed [0,...,0,1]
             seq_2 = LFSR.lfsr(pol_2)
             seq_1.reverse()
             seq_2.reverse()
-            for i in range(0,base**N-1):
-                seq_2_rolled=list(np.roll(np.array(seq_2),i))
-                seq = [int(bool(seq_1[j]) ^ bool(seq_2_rolled[j])) for j in range(len(seq_1))]
+            for i in range(0, base ** N - 1):
+                seq_2_rolled = list(np.roll(np.array(seq_2), i))
+                seq = [int(bool(seq_1[j]) ^ bool(seq_2_rolled[j])) for j in
+                       range(len(seq_1))]
                 sequences.append(seq)
             return sequences
