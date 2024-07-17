@@ -2472,7 +2472,6 @@ class CircularShiftingAsyncESExtension(components.ProcessingMethod):
                 ind_wins = [list(range(nc, i, -1)) for i in
                             range(nc - 1, nc - multi_window - 1, -1)]
                 ind_wins = [lst for lst in ind_wins if all(x >= 0 for x in lst)]
-                print("> No. windows %i" % len(ind_wins))
 
             # Predict all windows
             items = list()
