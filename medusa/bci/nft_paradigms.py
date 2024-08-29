@@ -173,20 +173,24 @@ class SignalPreprocessing(components.ProcessingMethod):
             if self.laplacian_filter is not None:
                 signal_ = self.laplacian_filter.apply_lp(signal_)
         else:
-            if self.target_channels is not None:
-                signal_ = signal_[:, self.montage.get_cha_idx_from_labels(
-                    self.target_channels)]
+            signal_ = signal_[:, self.montage.get_cha_idx_from_labels(
+                self.target_channels)]
 
         signal__ = signal_.copy()
 
         if signal_artifacts is not None:
+            # Filter only the target channels in Power Based models
+            if signal__.shape[1] != signal_artifacts.shape[2]:
+                signal__ = signal__[:, self.montage.get_cha_idx_from_labels(
+                    self.target_channels)]
+
             # Frequency filtering on artifact-related bands
             if parallel_computing:
                 filt_threads = []
                 for filter in self.artifact_iir_filters:
                     t = components.ThreadWithReturnValue(target=
                                                          filter.transform,
-                                                         args=(signal__.copy(),))
+                                                         args=(signal__,))
                     filt_threads.append(t)
                     t.start()
 
@@ -195,7 +199,7 @@ class SignalPreprocessing(components.ProcessingMethod):
             else:
                 for filt_idx, filter in enumerate(self.artifact_iir_filters):
                     signal_artifacts[filt_idx, :, :] = filter.transform(
-                        signal__[np.newaxis, :, :].copy())
+                        signal__[np.newaxis, :, :])
         return signal_, signal_artifacts
 
     def prep_fit_transform(self, fs, signal):
@@ -427,25 +431,27 @@ class ConnectivityExtraction(components.ProcessingMethod):
         self.thresholds = None
         self.baseline_value = None
 
-    def set_baseline(self, filtered_signal,signal_artifacts ):
+    def set_baseline(self, signal, signal_artifacts, filtered_signal):
         """
         This functions establish the baseline value.
         Parameters
         ----------
-        filtered_signal: numpy.ndarray
-            Signal filtered in the narrow band for training.
+        signal: numpy.ndarray
+            Original signal pre-processed (offset and power-line removed, and CAR)
             [n_samples, n_channels].
         signal_artifacts: numpy.ndarray
             Array containing the signal filtered in each frequency band associated
             to the artifacts  to avoid. [n_artifact_bands, n_samples, n_channels].
+        filtered_signal: numpy.ndarray
+            Signal filtered in the narrow band for training. [n_samples, n_channels].
         Returns
         -------
         baseline_value: float
         """
-        filtered_epochs,_ = make_windows(
+        filtered_epochs = make_windows(
             filtered_signal, self.fs,
             self.update_feature_window, self.update_rate,
-            reject=True)
+            reject=False)[~index, :, :]
 
         adj_mat = self.calculate_adj_mat(filtered_epochs)
 
@@ -488,8 +494,9 @@ class ConnectivityExtraction(components.ProcessingMethod):
             raise ValueError(
                 '[ConnectivityExtraction] Calibration not performed.')
         adj_mat = self.calculate_adj_mat(signal)
-        c_value = self.calculate_feature(np.squeeze(adj_mat)) \
-                  - self.baseline_value
+        # c_value = self.calculate_feature(np.squeeze(adj_mat)) \
+        #           - self.baseline_value
+        c_value = self.calculate_feature(np.squeeze(adj_mat))
         # Check if artifact bands are defined
         if signal_artifacts is not None:
             if ignore_noisy_windows(
@@ -663,10 +670,7 @@ class PowerExtraction(components.ProcessingMethod):
             self.baseline_power = [b_power[0][0] / b_power[0][1]]
             if self.right_ch_idx is not None:
                 self.baseline_power.append(b_power[1][0] / b_power[1][1])
-        if self.right_ch_idx is None:
-            return self.baseline_power[0]
-        else:
-            return self.baseline_power
+        return self.baseline_power
 
     def band_power(self, signal, signal_artifacts):
         """
@@ -701,31 +705,21 @@ class PowerExtraction(components.ProcessingMethod):
         else:
             b_power_uncorrected.append(self.power(psd))
         if self.mode == 'single':
-            b_power = [b_power_uncorrected[0][0] - self.baseline_power[0]]
+            b_power.append(b_power_uncorrected[0][0])
             if self.right_ch_idx is not None:
-                b_power.append(
-                    b_power_uncorrected[1][0] - self.baseline_power[1])
-
+                b_power.append(b_power_uncorrected[1][0])
         elif self.mode == 'ratio':
-            b_power = [b_power_uncorrected[0][0] / b_power_uncorrected[0][1] - \
-                       self.baseline_power[0]]
+            b_power.append(b_power_uncorrected[0][0]/b_power_uncorrected[0][1])
             if self.right_ch_idx is not None:
-                b_power.append(
-                    b_power_uncorrected[1][0] / b_power_uncorrected[1][1] - \
-                    self.baseline_power[1])
+                b_power.append(b_power_uncorrected[1][0]/b_power_uncorrected[1][1])
 
         # Check if artifact bands are defined
         if signal_artifacts is not None:
-            if signal_artifacts is not None:
-                if ignore_noisy_windows(signal_artifacts, self.thresholds,
-                                        self.pct_tol):
-                    if self.right_ch_idx is None:
-                        b_power = b_power[0]
-                    return b_power
-                else:
-                    return None
-        if self.right_ch_idx is None:
-            b_power = b_power[0]
+            if ignore_noisy_windows(signal_artifacts, self.thresholds,
+                                    self.pct_tol):
+                return b_power
+            else:
+                return None
         return b_power
 
     def power(self, psd):
@@ -841,7 +835,8 @@ class ConnectivityBasedNFTModel(components.Algorithm):
         narrow_filtered_signal = self.get_inst('prep_method'). \
             narrow_transform(signal=original_signal)
         self.baseline_value = self.get_inst('feat_ext_method'). \
-            set_baseline(signal_artifacts=signal_artifacts,
+            set_baseline(signal=original_signal,
+                         signal_artifacts=signal_artifacts,
                          filtered_signal=narrow_filtered_signal)
 
     def training(self, eeg):
