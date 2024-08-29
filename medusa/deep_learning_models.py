@@ -1,6 +1,7 @@
 # Built-in imports
 import warnings
 import os
+import re
 
 # External imports
 import sklearn.utils as sk_utils
@@ -10,6 +11,7 @@ import numpy as np
 from medusa import components
 from medusa import classification_utils
 from medusa import tensorflow_integration
+from medusa.meeg import get_standard_montage
 
 # Extras
 if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
@@ -671,13 +673,11 @@ class EEGSym(components.ProcessingMethod):
     Variability in Motor Imagery Based BCIs with Deep Learning. IEEE
     Transactions on Neural Systems and Rehabilitation Engineering.
     """
-    #TODO: Implement automatic ordering of channels
-    #TODO: Implement trial iterator and data augmentation
     def __init__(self, input_time=3000, fs=128, n_cha=8, filters_per_branch=24,
            scales_time=(500, 250, 125), dropout_rate=0.4, activation='elu',
            n_classes=2, learning_rate=0.001, ch_lateral=3,
            spatial_resnet_repetitions=1, residual=True, symmetric=True,
-                 gpu_acceleration=None):
+                 gpu_acceleration=False):
         # Super call
         super().__init__(fit=[], predict_proba=['y_pred'])
 
@@ -1347,8 +1347,7 @@ class EEGSym(components.ProcessingMethod):
         )
         return trial_iterator
 
-    def fit(self, X, y, fine_tuning=False, shuffle_before_fit=False,
-            augmentation=True, **kwargs):
+    def fit(self, X, y, fine_tuning=False, augmentation=True, **kwargs):
         """Fit the model. All additional keras parameters of class
         tensorflow.keras.Model will pass through. See keras documentation to
         know what can you do: https://keras.io/api/models/model_training_apis/.
@@ -1373,10 +1372,6 @@ class EEGSym(components.ProcessingMethod):
         fine_tuning: bool
             Set to True to use the default training parameters for fine
             tuning. False by default.
-        shuffle_before_fit: bool
-            If True, the data will be shuffled before training just once. Note
-            that if you use the keras native argument 'shuffle', the data is
-            shuffled each epoch.
         kwargs:
             Key-value arguments will be passed to the fit function of the model.
             This way, you can set your own training parameters using keras API.
@@ -1386,10 +1381,6 @@ class EEGSym(components.ProcessingMethod):
         if not tensorflow_integration.check_gpu_acceleration():
             warnings.warn('GPU acceleration is not available. The training '
                           'time is drastically reduced with GPU.')
-
-        # Shuffle the data before fitting
-        if shuffle_before_fit:
-            X, y = sk_utils.shuffle(X, y)
 
         # Creation of validation split
         val_split = kwargs['validation_split'] if \
@@ -1439,26 +1430,65 @@ class EEGSym(components.ProcessingMethod):
                                   validation_data=(X[val_idx], y[val_idx]),
                                   **kwargs)
 
-    def symmetric_channels(self, X, channels):
+    def sort_channels_by_y(self, channels, front_to_back=True):
+        """Sort a list of EEG channels based on their y-coordinate position in the
+        10-05 system.
+
+        Parameters
+        ------------
+        channels: list
+            List of EEG channel names.
+        front_to_back: bool, optional
+            Determines the sorting order, from front to back or from back to front.
+            Defaults to True.
+
+        Returns
+        ------------
+        sorted_channels: list
+            Sorted list of EEG channel names.
+
+        """
+        eeg_dictionary = get_standard_montage(standard='10-05', dim='3D',
+                                              coord_system='cartesian')
+        region_channels = {}
+        for channel in channels:
+            match = re.search(r'^[a-zA-Z]+(?=[\d|z|Z])', channel)
+            if match:
+                prefix = match.group()
+                if prefix not in region_channels:
+                    region_channels[prefix] = []
+                region_channels[prefix].append(channel)
+
+        sorted_channels = sorted(channels, key=lambda x: (np.mean(
+            [eeg_dictionary[ch.upper()]['y'] for ch in
+             region_channels[re.search(r'^[a-zA-Z]+(?=[\d|z|Z])', x).group()]]),
+                                                          abs(eeg_dictionary[
+                                                                  x.upper()][
+                                                                  'x'])),
+                                 reverse=front_to_back)
+        return sorted_channels
+    def symmetric_channels(self, X, channels, front_to_back=True):
         """This function takes a set of channels and puts them in a symmetric
         input needed to apply EEGSym.
         """
-        left = list()
-        right = list()
-        middle = list()
+        left, right, middle = [], [], []
         for channel in channels:
-            if channel[-1].isnumeric():
-                if int(channel[-1]) % 2 == 0:
-                    right.append(channel)
-                else:
-                    left.append(channel)
+            number = re.search(r"\d+", channel)
+            if number is not None:
+                (left if int(number[0]) % 2 else right).append(channel)
             else:
                 middle.append(channel)
+
+        left = self.sort_channels_by_y(left, front_to_back=front_to_back)
+        right = self.sort_channels_by_y(right, front_to_back=front_to_back)
+        middle = self.sort_channels_by_y(middle, front_to_back=front_to_back)
+
         ordered_channels = left + middle + right
-        index_channels = [channels.index(channel) for channel in
+        index_channels = [list(channels).index(channel) for channel in
                           ordered_channels]
-        return np.array(X)[:, :, index_channels], list(np.array(channels)[
-            index_channels])
+
+        return np.take(X, index_channels, axis=-1), \
+               np.take(channels, index_channels, axis=0)
 
     def predict_proba(self, X):
         """Model prediction scores for the given features.
@@ -1475,6 +1505,18 @@ class EEGSym(components.ProcessingMethod):
         # Predict
         with tf.device(tensorflow_integration.get_tf_device_name()):
             return self.model.predict(X)
+    def predict(self, X):
+        """Model prediction for the given features.
+
+        Parameters
+        ----------
+        X: np.ndarray
+            Feature matrix. If shape is [n_observ x n_samples x n_channels],
+            this matrix will be adapted to the input dimensions of EEG-Sym
+            [n_observ x n_samples x n_channels x 1]
+        """
+        y_prob = self.predict_proba(X)
+        return y_prob.argmax(axis=-1)
 
     def to_pickleable_obj(self):
         # Parameters
@@ -1500,7 +1542,7 @@ class EEGSym(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
-        pickleable_obj['kwargs']['gpu_acceleration'] = None
+        # pickleable_obj['kwargs']['gpu_acceleration'] = None
         model = cls(**pickleable_obj['kwargs'])
         model.model.set_weights(pickleable_obj['weights'])
         return model
