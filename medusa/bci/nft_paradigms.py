@@ -622,7 +622,6 @@ class PowerExtraction(components.ProcessingMethod):
         self.baseline_power = []
         self.thresholds = None
         self.right_ch_idx = right_ch_idx
-
     def set_baseline(self, signal, signal_artifacts):
         """
         This function sets the power baseline, given the already filtered EEG
