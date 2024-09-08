@@ -167,7 +167,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = self.raw_dataset.channel_set.l_cha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "spec_c1" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['spec_c1']
@@ -335,7 +335,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = self.channel_set.l_cha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "freq" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['freq']
@@ -535,7 +535,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = lcha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "time" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['time']
