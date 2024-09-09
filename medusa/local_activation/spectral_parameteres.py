@@ -1,8 +1,8 @@
 import numpy as np
 
 
-def band_power(psd, fs, target_band):
-    """This method computes the band power of the signal in the given
+def absolute_band_power(psd, fs, target_band):
+    """This method computes the absolute band power of the signal in the given
     band using the power spectral density (PSD).
 
     Parameters
@@ -22,7 +22,7 @@ def band_power(psd, fs, target_band):
     Returns
     -------
     powers : numpy 2D array
-        Power value for each epoch and channel. [n_epochs, n_channels]
+        RP value for eachh epoch and channel. [n_epochs, n_channels]
     """
     # To numpy arrays
     psd = np.array(psd)
@@ -42,6 +42,59 @@ def band_power(psd, fs, target_band):
                  (fs / (2 * freqs.shape[0]))
 
     return band_power
+
+
+def relative_band_power(psd, fs, target_band, baseline_band=None):
+    """This method computes the relative band power of the signal in the given
+    band using the power spectral density (PSD). Do not use this method on PSDs
+    that are already normalized! In this case, use absolute_band_power function.
+
+    Parameters
+    ----------
+    psd : numpy array
+        PSD with shape [n_epochs, n_samples, n_channels]. Some of these
+        dimensions may not exist in advance. In these case, create new axis
+        using np.newaxis. E.g., non-epoched single-channel psd with shape
+        [n_samples] can be passed to this function with psd[numpy.newaxis, ...,
+        numpy.newaxis]. Afterwards, you may use numpy.squeeze to eliminate
+        those axes.
+    fs : int
+        Sampling frequency of the signal
+    target_band : numpy nd array
+        Frequency band where to calculate the power in Hz. E.g., [8, 13]
+    baseline_band: numpy nd array or None
+        Frequency band where used as baseline in Hz. Leave to None to normalize
+        by the whole spectrum, which is preferred in most cases
+
+    Returns
+    -------
+    powers : numpy 2D array
+        RP value for each epoch and channel. [n_epochs, n_channels]
+    """
+    # To numpy arrays
+    psd = np.array(psd)
+
+    # Check errors
+    if len(psd.shape) != 3:
+        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
+                        'n_channels]')
+
+    # Calculate freqs array
+    freqs = np.linspace(0, fs/2, psd.shape[1])
+
+    # Compute power
+    psd_target_samp = \
+        np.logical_and(freqs >= target_band[0], freqs <= target_band[1])
+    psd_baseline_samp = \
+        np.logical_and(freqs >= baseline_band[0], freqs <= baseline_band[1]) \
+        if baseline_band is not None else np.ones_like(freqs).astype(int)
+    band_power = np.sum(psd[:, psd_target_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
+    baseline_power = np.sum(psd[:, psd_baseline_samp, :], axis=1) * \
+                 (fs / (2 * freqs.shape[0]))
+
+    return band_power / baseline_power
+
 
 def median_frequency(psd, fs, target_band=(1, 70)):
     """This method computes the median frequency (MF) of the signal in the given
