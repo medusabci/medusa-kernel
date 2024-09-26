@@ -490,7 +490,7 @@ class ICAData(SerializableComponent):
         return cls(**dict_data)
 
 
-class ArtifactRegression(components.ProcessingMethod):
+class ArtifactRegression(ProcessingMethod):
 
     def __init__(self):
         """
@@ -509,6 +509,11 @@ class ArtifactRegression(components.ProcessingMethod):
         The input signals (sig and art_sig) must be preprocessed (e.g.,
         band-pass filtering) before using them in this class for better
         performance and accuracy.
+
+        Alternative implementation:
+        self.coefs = np.linalg.lstsq(
+        art_sig.T @ art_sig, art_sig.T, rcond=None)[0] @ sig
+        sig = (sig.T - self.coefs.T @ art_sig.T).T
         """
         # Calling the superclass constructor and defining the inputs that
         # are transformed and fit by the method.
