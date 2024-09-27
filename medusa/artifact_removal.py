@@ -512,15 +512,16 @@ class ArtifactRegression(ProcessingMethod):
 
         Alternative implementation:
         self.coefs = np.linalg.lstsq(
-        art_sig.T @ art_sig, art_sig.T, rcond=None)[0] @ sig
+            art_sig.T @ art_sig, art_sig.T, rcond=None)[0] @ sig
         sig = (sig.T - self.coefs.T @ art_sig.T).T
         """
         # Calling the superclass constructor and defining the inputs that
         # are transformed and fit by the method.
-        super().__init__(transform_signal=['signal', 'artefacts_signal'],
-                         fit_transform_signal=['signal', 'artefacts_signal'])
+        super().__init__(transform=['signal', 'artefacts_signal'],
+                         fit_transform=['signal', 'artefacts_signal'])
         # Initialize the coefficient matrix (will be filled after fitting)
         self.coefs = None
+        self.is_fit = False
 
     def fit(self, sig, art_sig):
         """
@@ -547,15 +548,13 @@ class ArtifactRegression(ProcessingMethod):
             signal.
         """
         # Mean-center the signal
-        art_sig = art_sig - np.mean(art_sig, axis=-1,
-                                    keepdims=True)
+        art_sig = art_sig - np.mean(art_sig, axis=-1, keepdims=True)
         # Compute covariance of artifact signal
         cov_ref = art_sig.T @ art_sig
         # Regression coefficients for each signal channel
         n_sig_cha = sig.shape[1]
         n_art_sig_cha = art_sig.shape[1]
-        coefs = np.zeros((n_sig_cha,
-                          n_art_sig_cha))
+        coefs = np.zeros((n_sig_cha, n_art_sig_cha))
         # Process each signal channel separately to reduce memory load
         for c in range(n_sig_cha):
             # Mean-center the signal channel
@@ -567,8 +566,9 @@ class ArtifactRegression(ProcessingMethod):
                 cov_ref, art_sig.T @ sig_cha.T, rcond=None)[0].T
         # Store the regression coefficients
         self.coefs = coefs
+        self.is_fit = True
 
-    def transform_signal(self, sig, art_sig):
+    def transform(self, sig, art_sig):
         """
         Removes the artifacts from the signal using the previously computed
         coefficients.
@@ -588,8 +588,12 @@ class ArtifactRegression(ProcessingMethod):
         - sig: The main signal (e.g., EEG) to clean.
         - art_sig: The artifact signal (e.g., EOG) to regress out.
         """
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('Function fit_dataset must be called first!')
+        # Mean-center the artifact signal
         art_sig = art_sig - np.mean(art_sig, -1,
-                                    keepdims=True)  # Mean-center the artifact signal
+                                    keepdims=True)
         n_sig_cha = sig.shape[1]
 
         # Subtract the artifact contribution from each signal channel
@@ -600,7 +604,7 @@ class ArtifactRegression(ProcessingMethod):
 
         return sig  # Return the cleaned signal
 
-    def fit_transform_signal(self, sig, art_sig):
+    def fit_transform(self, sig, art_sig):
         """
         Combines the fit and transform steps into a single method.
 
