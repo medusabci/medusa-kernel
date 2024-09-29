@@ -283,6 +283,9 @@ def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
     right or left arrow, and by dragging the marker.
     """
 
+    # Deprecated warning
+    warnings.warn("This function is deprecated. Use "
+                  "medusa.analysis.time_plot instead")
 
     # Check signal dimensions
     signal = check_dimensions(signal)

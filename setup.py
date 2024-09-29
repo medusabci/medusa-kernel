@@ -38,7 +38,9 @@ setup(
     },
     python_requires='>=3.8, <3.11',
     package_data={
-        'medusa': ['meeg/*.tsv', 'local_activation/*.dll']
+        'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
+                   'analysis/time_plot/icons/*.png',
+                   'analysis/time_plot/time_plot.ui']
     },
     classifiers=[
         'Development Status :: 4 - Beta',
