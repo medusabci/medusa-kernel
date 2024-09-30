@@ -257,8 +257,11 @@ def time_to_sample_index_events(times, onsets):
     if len(onsets.shape) != 1:
         raise ValueError('Parameter onsets must be a 1D array')
 
-    rep_times = np.matlib.repmat(times, onsets.shape[0], 1).T
-    rep_onsets = np.matlib.repmat(onsets, times.shape[0], 1)
+    # rep_times = np.matlib.repmat(times, onsets.shape[0], 1).T
+    # rep_onsets = np.matlib.repmat(onsets, times.shape[0], 1)
+
+    rep_times = np.tile(times, (onsets.shape[0], 1)).T
+    rep_onsets = np.tile(onsets, (times.shape[0], 1))
 
     return np.argmin(np.abs(rep_times - rep_onsets), axis=0)
 
