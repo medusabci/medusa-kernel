@@ -854,8 +854,11 @@ class TimePlot(QtWidgets.QDialog, ui_file):
 class TimePlotManager:
 
     def __init__(self):
-        self.app = QApplication()
         self.time_plot = None
+        if not QApplication.instance():
+            self.app = QApplication()
+        else:
+            self.app = QtWidgets.QApplication.instance()
 
     def set_time_plot(self, time_plot_window):
         self.time_plot = time_plot_window
