@@ -91,7 +91,7 @@ class PlotCanvas(FigureCanvasQTAgg):
 class TimePlot(QtWidgets.QDialog, ui_file):
 
     def __init__(self, ch_to_show=None, zoom_multiplier=1.2, vis_step_s=2,
-                 units="μV"):
+                 units="μV", initial_zoom=1, initial_window_s=10):
         """
             Initializes the TimePlot window with the specified parameters for
             visualizing multi-channel time-series data.
@@ -121,13 +121,18 @@ class TimePlot(QtWidgets.QDialog, ui_file):
                 backward by 2 seconds.
             units : str, optional
                 Units of the plot. The default value is "μV".
+            initial_zoom : int, optional
+                Initial zoom. The default value is 1.
+            initial_window_s : float, optional
+                Initial visualization window span in seconds. The default
+                value is 10.0 s.
             """
         # Load the custom layout from UIC
         super().__init__()
         self.setupUi(self)
         self.dir = os.path.dirname(__file__)
         self.setWindowTitle("Time Plot")
-        self.setWindowIcon(QIcon("icons/medusa_task_icon.png"))
+        self.setWindowIcon(os.path.join(self.dir, 'icons/medusa_task_icon.png'))
         self.setWindowFlags(
             Qt.Window |
             Qt.WindowMinimizeButtonHint |
@@ -147,6 +152,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         self.zoom_multiplier = zoom_multiplier
         self.vis_step_s = vis_step_s
         self.units = units
+        self.initial_window_s = initial_window_s
 
         # Buttons
         icon_ff = QIcon(os.path.join(self.dir, 'icons/ff.png'))
@@ -191,7 +197,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
 
         # Initialization
         self.time_to_show = None
-        self.zoom = 1
+        self.zoom = initial_zoom
         self.current_offset = None
         self.current_vis_window = np.array([0, None])
         self.current_vis_ch = np.array([0, ch_to_show])
@@ -525,7 +531,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
 
         # If there is no window length, set it one for the first signal
         if self.time_to_show is None:
-            self.time_to_show = min(10, times[-1] - times[0])
+            self.time_to_show = min(self.initial_window_s, times[-1] - times[0])
             self.current_vis_window = (np.array([0, self.time_to_show]) +
                                        times[0])
         offset = np.arange(n_cha) * self.current_offset
@@ -553,6 +559,8 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         # Plot signal
         if color is None:
             color = self.default_colors[self.plot_count]
+        if reverse_channels:
+            signal = signal[:, ::-1]
         plot_handle = self.canvas.axes.plot(
             times, self.zoom * signal + offset, color, zorder=2
         )
@@ -609,6 +617,8 @@ class TimePlot(QtWidgets.QDialog, ui_file):
                                  "as a list.")
         else:
             ch_labels = ['%i' % i for i in range(1, n_cha + 1)]
+        if reverse_channels:
+            ch_labels = ch_labels[::-1]
 
         # Scale bar
         if self.scale_bar is None:
@@ -627,8 +637,6 @@ class TimePlot(QtWidgets.QDialog, ui_file):
             left=self.current_vis_window[0],
             right=self.current_vis_window[1]
         )
-        if reverse_channels:
-            self.canvas.axes.invert_yaxis()
         # self.canvas.figure.tight_layout()
 
         # Add data
