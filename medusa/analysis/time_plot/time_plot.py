@@ -913,7 +913,7 @@ if __name__ == '__main__':
         ch_labels=ch_labels,
         signal_label='First EEG'
     )
-    # time_plot_manager.show()
+    time_plot_manager.show()
 
     # Add another plot
     time_plot.add_plot(
