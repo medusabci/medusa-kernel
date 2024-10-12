@@ -40,7 +40,7 @@ def get_epochs(signal, epochs_length, stride=None, norm=None):
         signal, (epochs_length, n_cha))[::stride].squeeze()
     # Normalize
     if norm is not None:
-        epochs = normalize_epochs(epochs, norm)
+        epochs = normalize_epochs(epochs, norm=norm)
     return epochs
 
 
