@@ -11,7 +11,9 @@ eeg_channel_synonyms = {
     'T7': 'T3',
     'T8': 'T4',
     'T5': 'P7',
-    'T6': 'P8'
+    'T6': 'P8',
+    'A1': 'LPA',
+    'A2': 'RPA'
 }
 
 
