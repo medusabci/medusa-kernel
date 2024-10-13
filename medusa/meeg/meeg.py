@@ -69,7 +69,7 @@ class EEGChannelSet(components.SerializableComponent):
     """
 
     def __init__(self, reference_method='common', dim='2D',
-                 coord_system='spherical'):
+                 coord_system='cartesian'):
         """Constructor of class EEGChannelSet
 
         Parameters

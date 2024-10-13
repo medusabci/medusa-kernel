@@ -17,7 +17,9 @@ class EEGMontageHelper:
         with open(file_path, 'w') as file:
             file.write("label\tx\ty")
             for label, coords in self.channels.items():
-                file.write("\n%s\t%.4f\t%.4f" % (label, coords[0], coords[1]))
+                file.write("\n%s\t%.4f\t%.4f" % (label.upper(), coords[0],
+                                                 coords[
+                    1]))
         print(f"Data saved to {file_path}")
 
 def get_circle_three_points(p1_coords, p2_coords, p3_coords):

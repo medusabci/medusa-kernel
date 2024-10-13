@@ -1,20 +1,44 @@
 import csv, math, os
 
-# Synonyms
-eeg_channel_synonyms = {
-    'I1': 'O9',
-    'I2': 'O10',
-    'O9': 'I1',
-    'O10': 'I2',
-    'T3': 'T7',
-    'T4': 'T8',
-    'T7': 'T3',
-    'T8': 'T4',
-    'T5': 'P7',
-    'T6': 'P8',
-    'A1': 'LPA',
-    'A2': 'RPA'
-}
+EEG_10_10 = [
+    'NZ', 'FP1', 'FPZ', 'FP2', 'AF7', 'AFZ', 'AF8',
+    'F9', 'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8', 'F10',
+    'FT9', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'FT10',
+    'T9', 'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8', 'T10',
+    'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
+    'P9', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'P10',
+    'PO9', 'PO7', 'POZ', 'PO8', 'PO10', 'O1', 'OZ', 'O2',
+    'I1', 'IZ', 'I2', 'A1', 'A2', 'M1', 'M2'
+]
+
+EEG_10_20 = [
+    'NZ', 'FP1', 'FPZ', 'FP2',
+    'F7', 'F3', 'FZ', 'F4', 'F8',
+    'T7', 'C3', 'CZ', 'C4', 'T8',
+    'P7', 'P3', 'PZ', 'P4', 'P8',
+    'O1', 'OZ', 'O2',
+    'A1', 'A2', 'M1', 'M2'
+]
+
+EEG_10_05 = [
+    'T10', 'FT10', 'F10', 'NZ', 'F9', 'FT9', 'T9', 'TP9', 'P9', 'PO9',
+    'I1', 'IZ', 'I2', 'PO10', 'P10', 'TP10', 'FTT10H', 'FFT10H',
+    'FTT9H', 'FFT9H', 'TPP10H', 'PPO10H', 'POO10H', 'O2H', 'O1H',
+    'POO9H', 'PPO9H', 'TPP9H', 'T8', 'FT8', 'F8', 'AF8', 'FP2', 'FPZ',
+    'FP1', 'AF7', 'F7', 'FT7', 'T7', 'TP7', 'P7', 'PO7', 'O1', 'OZ',
+    'O2', 'PO8', 'P8', 'TP8', 'AFZ', 'FZ', 'FCZ', 'CZ', 'CPZ', 'PZ',
+    'POZ', 'C5', 'C3', 'C1', 'C2', 'C4', 'C6', 'AFP4', 'AFP3', 'AF4H',
+    'AF6H', 'AF3H', 'AF5H', 'AFF2H', 'AFF4H', 'AFF6H', 'AFF8H', 'AFF1H',
+    'AFF3H', 'AFF5H', 'AFF7H', 'F4', 'F2', 'F6', 'F3', 'F1', 'F5',
+    'FFC2H', 'FFC4H', 'FFC6H', 'FFT8H', 'FFC1H', 'FFC3H', 'FFC5H',
+    'FFT7H', 'FC4', 'FC2', 'FC6', 'FC3', 'FC1', 'FC5', 'FCC2H', 'FCC4H',
+    'FCC6H', 'FTT8H', 'FCC1H', 'FCC3H', 'FCC5H', 'FTT7H', 'CCP2H',
+    'CCP4H', 'CCP6H', 'TTP8H', 'CCPH', 'CCP3H', 'CCP5H', 'TTP7H', 'CP4',
+    'CP2', 'CP6', 'CP3', 'CP1', 'CP5', 'CPP2H', 'CPP4H', 'CPP6H', 'TPP8H',
+    'CPPH', 'CPP3H', 'CPP5H', 'TPP7H', 'P4', 'P2', 'P6', 'P3', 'P1', 'P5',
+    'PPO2H', 'PPO4H', 'PPO6H', 'PPO8H', 'PPOH', 'PPO3H', 'PPO5H', 'PPO7H',
+    'PO4H', 'PO6H', 'PO3H', 'PO5H', 'POO4', 'POO3', 'A1', 'A2', 'M1', 'M2'
+]
 
 
 def get_standard_montage(standard, dim, coord_system):
@@ -32,7 +56,7 @@ def get_standard_montage(standard, dim, coord_system):
 
     folder = os.path.dirname(__file__)
     montage = read_montage_file(
-        path='%s/eeg_standard_%s_%s.tsv' % (folder, standard, dim),
+        path='%s/eeg_standard_%s.tsv' % (folder, standard, dim),
         file_format='tsv', dim=dim, coord_system='cartesian')
 
     if coord_system == 'spherical':
