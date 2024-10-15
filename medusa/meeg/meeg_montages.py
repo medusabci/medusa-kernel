@@ -1,5 +1,14 @@
 import csv, math, os
 
+EEG_10_20 = [
+    'NZ', 'FP1', 'FPZ', 'FP2',
+    'F7', 'F3', 'FZ', 'F4', 'F8',
+    'T7', 'C3', 'CZ', 'C4', 'T8',
+    'P7', 'P3', 'PZ', 'P4', 'P8',
+    'O1', 'OZ', 'O2',
+    'A1', 'A2', 'M1', 'M2'
+]
+
 EEG_10_10 = [
     'NZ', 'FP1', 'FPZ', 'FP2', 'AF7', 'AFZ', 'AF8',
     'F9', 'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8', 'F10',
@@ -9,15 +18,6 @@ EEG_10_10 = [
     'P9', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'P10',
     'PO9', 'PO7', 'POZ', 'PO8', 'PO10', 'O1', 'OZ', 'O2',
     'I1', 'IZ', 'I2', 'A1', 'A2', 'M1', 'M2'
-]
-
-EEG_10_20 = [
-    'NZ', 'FP1', 'FPZ', 'FP2',
-    'F7', 'F3', 'FZ', 'F4', 'F8',
-    'T7', 'C3', 'CZ', 'C4', 'T8',
-    'P7', 'P3', 'PZ', 'P4', 'P8',
-    'O1', 'OZ', 'O2',
-    'A1', 'A2', 'M1', 'M2'
 ]
 
 EEG_10_05 = [
@@ -53,20 +53,26 @@ def get_standard_montage(standard, dim, coord_system):
     assert coord_system == 'cartesian' or coord_system == 'spherical', \
         'Incorrect input on coord_system parameter. Possible values ' \
         '{"cartesian", "spherical"}'
-
     folder = os.path.dirname(__file__)
-    montage = read_montage_file(
-        path='%s/eeg_standard_%s.tsv' % (folder, standard, dim),
+    eeg_channels = read_montage_file(
+        path='%s/eeg_standard_%s.tsv' % (folder, dim),
         file_format='tsv', dim=dim, coord_system='cartesian')
-
+    if standard == '10-20':
+        standard_channels = EEG_10_20
+    elif standard == '10-10':
+        standard_channels = EEG_10_10
+    elif standard == '10-05':
+        standard_channels = EEG_10_05
+    montage = {key: eeg_channels[key]
+               for key in standard_channels if key in eeg_channels}
     if coord_system == 'spherical':
-        montage = switch_coordinates_system(montage, dim, 'cartesian')
-
+        montage = switch_coordinates_system(
+            montage, dim, 'cartesian')
     return montage
 
 
 def switch_coordinates_system(montage, dim, coord_system):
-    """Switch the coordinates system of the montage. If the the coordinates are
+    """Switch the coordinates system of the montage. If the coordinates are
      cartesian, it switches to spherical and viceversa
 
     Parameters
@@ -151,7 +157,7 @@ def read_montage_file(path, file_format, dim, coord_system):
     coord_system: str
         For 2D, "cartesian" or "polar". For 3D "cartesian" or "spherical"
     """
-    # ACCEPTED PARAMSN
+    # ACCEPTED PARAMS
     file_formats = ['csv', 'tsv', 'eeglab', 'brainstorm']
     dims = ['2D', '3D']
     coord_systems = ['cartesian', 'spherical']
@@ -326,5 +332,6 @@ class UnlocatedChannel(Exception):
 
 
 if __name__ == '__main__':
-    montage = get_standard_montage('10-20', '2D', 'spherical')
+    montage = get_standard_montage(
+        '10-20', '2D', 'spherical')
     print(montage)
