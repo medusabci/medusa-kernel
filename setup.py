@@ -36,7 +36,7 @@ setup(
             'tensorflow-probability==0.16'
         ],
     },
-    python_requires='>=3.8, <3.11',
+    python_requires='>=3.8, <3.14',
     package_data={
         'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
                    'analysis/time_plot/icons/*.png',

@@ -193,9 +193,8 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
         Sx = ndimage.gaussian_filter(Sx, sigma=smooth_sigma)
 
     # Compute times and frequencies vectors
-    t_lo, t_hi = SFT.extent(len(signal))[:2]
+    t_lo, t_hi, f_lo, f_hi = SFT.extent(len(signal))
     times = np.arange(t_lo, t_hi, SFT.delta_t)
-    f_lo, f_hi = SFT.extent(len(signal))[2:]
     frequencies = np.arange(f_lo, f_hi, SFT.delta_f)
 
     return Sx, times, frequencies
@@ -214,7 +213,7 @@ def __compute_scales(N, filters_per_octave):
 
 def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
                     bandwidth_frequency=1.5, apply_detrend=True,
-                        apply_normalization=True, smooth=True,smooth_sigma=2):
+                    apply_normalization=True, smooth=True,smooth_sigma=2):
 
     """This method calculates the spectrogram of a signal from the Continuous
         Wavelet Transform (CWT) with complex Morlet wavelets.
@@ -398,4 +397,7 @@ def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
 
     return result[frequencies<=0.5*fs], times, frequencies[frequencies<=0.5*fs],\
         coif
+
+
+
 

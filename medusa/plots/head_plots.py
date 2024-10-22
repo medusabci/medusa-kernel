@@ -65,11 +65,11 @@ class TopographicPlot:
         Color bar limits. Index 0 contain the lower limit, whereas index 1 must
         contain the upper limit. if None, min and max values are used.
     """
-    def __init__(self, axes, channel_set, head_radius=0.76266,
+    def __init__(self, axes, channel_set, head_radius=1.0,
                  head_line_width=4.0, head_skin_color="#E8BEAC",
                  plot_channel_labels=False, plot_channel_points=True,
                  channel_radius_size=None, interpolate=True,
-                 extra_radius=0.29, interp_neighbors=3, interp_points=500,
+                 extra_radius=0, interp_neighbors=3, interp_points=500,
                  interp_contour_width=0.8, cmap="YlGnBu_r", clim=None,
                  label_color='w'):
 
@@ -167,7 +167,7 @@ class ConnectivityPlot:
         Color bar limits. Index 0 contain the lower limit, whereas index 1 must
         contain the upper limit. if None, min and max values are used.
     """
-    def __init__(self, axes, channel_set, head_radius=0.76266,
+    def __init__(self, axes, channel_set, head_radius=1.0,
                  head_line_width=4.0, head_skin_color="#E8BEAC",
                  plot_channel_labels=False, plot_channel_points=True,
                  channel_radius_size=0,  percentile_th=85,
@@ -219,7 +219,7 @@ class ConnectivityPlot:
             _remove_handles(self.plot_handles)
         self.plot_handles = None
 
-def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
+def plot_head(axes, channel_set, head_radius=1.0, head_line_width=4.0,
               head_skin_color="#E8BEAC", plot_channel_labels=False,
               plot_channel_points=True, channel_radius_size=None,
               label_color='w'):
@@ -665,8 +665,8 @@ if __name__ == "__main__":
 
     # Plot topography with no interpolation
     topo = TopographicPlot(axes=fig.axes[0], channel_set=channel_set,
-                           interpolate=False,plot_channel_points=True,
-                           channel_radius_size=None,plot_channel_labels=True,
+                           interpolate=False, plot_channel_points=True,
+                           channel_radius_size=None, plot_channel_labels=True,
                            label_color='r')
     topo.update(values=values)
     # Add colorbar
@@ -685,7 +685,7 @@ if __name__ == "__main__":
 
     # Plot topography with interpolation
     topo = TopographicPlot(axes=fig.axes[0], channel_set=channel_set,
-                           interpolate=True,plot_channel_points=True)
+                           interpolate=True, plot_channel_points=True)
     topo.update(values=values)
     # Add colorbar
     cbar_ax = fig.add_axes(
