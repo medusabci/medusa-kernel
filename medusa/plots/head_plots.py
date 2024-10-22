@@ -379,7 +379,7 @@ def plot_head(axes, channel_set, head_radius=0.76266, head_line_width=4.0,
     # Last considerations
     plot_lim = max(head_radius + 0.2, np.max(np.sqrt(ch_x**2 + ch_y**2)) + 0.2)
     axes.set_xlim([-plot_lim, plot_lim])
-    axes.set_ylim([-plot_lim, plot_lim])
+    axes.set_ylim([-plot_lim, plot_lim + 0.1])
     axes.set_aspect('equal', 'box')
     axes.set_yticklabels([])
     axes.set_xticklabels([])

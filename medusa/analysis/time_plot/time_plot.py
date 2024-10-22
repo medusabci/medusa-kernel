@@ -132,7 +132,8 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         self.setupUi(self)
         self.dir = os.path.dirname(__file__)
         self.setWindowTitle("Time Plot")
-        self.setWindowIcon(os.path.join(self.dir, 'icons/medusa_task_icon.png'))
+        self.setWindowIcon(QIcon(
+            os.path.join(self.dir, 'icons/medusa_task_icon.png')))
         self.setWindowFlags(
             Qt.Window |
             Qt.WindowMinimizeButtonHint |
@@ -384,7 +385,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
                 "Please, read carefully the time_plot documentation"
                 "to know how to define 'conditions_dict' properly.")
         cond_times = np.array(c_dict["conditions_times"])
-        if np.any(cond_times > times[-1]):
+        if cond_times[0] < times[0]:
             raise ValueError("Incorrect format of condition_timestamps. The "
                              "values must be referenced to the beginning of "
                              "the record, so that the first timestamp has "
@@ -416,7 +417,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
                              "Please, read carefully the time_plot documentation"
                              "to know how to define 'events_dict' properly.")
         events_timestamps = np.array(e_dict['events_times'])
-        if np.any(events_timestamps > times[-1]):
+        if events_timestamps[0] < times[0]:
             raise ValueError("Incorrect format of events_timestamps. "
                              "The values must be referenced to the beginning "
                              "of the record, so that the first timestamp has value 0.")
