@@ -80,7 +80,7 @@ def divide_arc(pvert, p2, r, c1, c2, ratio=0.5, right=True, anterior=True):
     """
     alpha = np.arcsin((p2[0] - pvert[0])/r)
     offset = 1.5 if anterior else 0.5
-    if right:
+    if right and anterior or not right and not anterior:
         x1 = c1 + r * np.cos(offset * np.pi + alpha * ratio)
         y1 = c2 + r * np.sin(offset * np.pi + alpha * ratio)
     else:
@@ -100,7 +100,7 @@ def add_channel_label(point_start, point_end, ratio, label, right, anterior):
                       right=right, anterior=anterior)
     ax.scatter(x, y, 20, 'k')
     eeg10_10.add_channel(label, x, y)
-    ax.text(x, y, label)
+    ax.text(x, y, label, fontsize=6)
 
 
 # Initialization
@@ -150,18 +150,18 @@ for i in zip(labels, px, py):
     eeg10_10.add_channel(i[0], float(i[1]), float(i[2]))
     ax.text(i[1], i[2], i[0])
 
-# FT7 arc
-p1 = (4/5 * np.cos(np.pi - np.pi/10), 4/5 * np.sin(np.pi - np.pi/10))
-p2 = (0, 1/5)
-p3 = (4/5 * np.cos(np.pi/10), 4/5 * np.sin(np.pi/10))
+# AF7 arc
+p1 = (4/5 * np.cos(np.pi - 3 * np.pi/10), 4/5 * np.sin(np.pi - 3 * np.pi/10))
+p2 = (0, 3/5)
+p3 = (4/5 * np.cos(3 * np.pi/10), 4/5 * np.sin(3 * np.pi/10))
 r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
-right_channels = [('FC4', 0.5), ('FC2', 0.25), ('FC6', 0.75)]
+right_channels = [('AF4', 0.5), ('AF2', 0.25), ('AF6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
-left_channels = [('FC3', 0.5), ('FC1', 0.25), ('FC5', 0.75)]
-for label, ratio in left_channels:
     add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+left_channels = [('AF3', 0.5), ('AF1', 0.25), ('AF5', 0.75)]
+for label, ratio in left_channels:
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # F7 arc
 p1 = (4/5 * np.cos(np.pi - 2 * np.pi/10), 4/5 * np.sin(np.pi - 2 * np.pi/10))
@@ -171,23 +171,23 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('F4', 0.5), ('F2', 0.25), ('F6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
 left_channels = [('F3', 0.5), ('F1', 0.25), ('F5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
-# AF7 arc
-p1 = (4/5 * np.cos(np.pi - 3 * np.pi/10), 4/5 * np.sin(np.pi - 3 * np.pi/10))
-p2 = (0, 3/5)
-p3 = (4/5 * np.cos(3 * np.pi/10), 4/5 * np.sin(3 * np.pi/10))
+# FT7 arc
+p1 = (4/5 * np.cos(np.pi - np.pi/10), 4/5 * np.sin(np.pi - np.pi/10))
+p2 = (0, 1/5)
+p3 = (4/5 * np.cos(np.pi/10), 4/5 * np.sin(np.pi/10))
 r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
-right_channels = [('AF4', 0.5), ('AF2', 0.25), ('AF6', 0.75)]
+right_channels = [('FC4', 0.5), ('FC2', 0.25), ('FC6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
-left_channels = [('AF3', 0.5), ('AF1', 0.25), ('AF5', 0.75)]
-for label, ratio in left_channels:
     add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+left_channels = [('FC3', 0.5), ('FC1', 0.25), ('FC5', 0.75)]
+for label, ratio in left_channels:
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # TP7 arc
 p1 = (4/5 * np.cos(np.pi + np.pi/10), 4/5 * np.sin(np.pi + np.pi/10))
@@ -197,10 +197,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('CP4', 0.5), ('CP2', 0.25), ('CP6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('CP3', 0.5), ('CP1', 0.25), ('CP5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # P7 arc
 p1 = (4/5 * np.cos(np.pi + 2 * np.pi/10), 4/5 * np.sin(np.pi + 2 * np.pi/10))
@@ -210,10 +210,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('P4', 0.5), ('P2', 0.25), ('P6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('P3', 0.5), ('P1', 0.25), ('P5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # PO7 arc
 p1 = (4/5 * np.cos(np.pi + 3 * np.pi/10), 4/5 * np.sin(np.pi + 3 * np.pi/10))
@@ -223,10 +223,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('PO4', 0.5), ('PO2', 0.25), ('PO6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('PO3', 0.5), ('PO1', 0.25), ('PO5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # Ears and mastoid
 a1 = (-1.1, 0.1)

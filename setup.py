@@ -27,7 +27,7 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'statsmodels',
+        'PySide6',
         'PyWavelets'
     ],
     extras_require={

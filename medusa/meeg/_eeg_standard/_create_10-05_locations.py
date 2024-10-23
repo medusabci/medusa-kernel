@@ -81,7 +81,7 @@ def divide_arc(pvert, p2, r, c1, c2, ratio=0.5, right=True, anterior=True):
     """
     alpha = np.arcsin((p2[0] - pvert[0])/r)
     offset = 1.5 if anterior else 0.5
-    if right:
+    if right and anterior or not right and not anterior:
         x1 = c1 + r * np.cos(offset * np.pi + alpha * ratio)
         y1 = c2 + r * np.sin(offset * np.pi + alpha * ratio)
     else:
@@ -101,11 +101,16 @@ def add_channel_label(point_start, point_end, ratio, label, right, anterior):
                       right=right, anterior=anterior)
     ax.scatter(x, y, 10, 'k')
     eeg10_05.add_channel(label, x, y)
-    ax.text(x, y, label, fontsize=6)
+    ax.text(x + xoff, y + yoff, label, fontsize=fontsize, ha="center",
+            color='r')
 
 
 # Initialization
-fig, ax = plt.subplots(1)
+fig = plt.figure(figsize=(5,5), dpi=300)
+ax = fig.add_subplot(111)
+fontsize = 5
+xoff = 0.01
+yoff = 0.02
 eeg10_05 = EEGMontageHelper()
 
 # Outer circle
@@ -117,7 +122,7 @@ labels = ["T10", "FT10", "F10", "", "", "Nz", "", "", "F9", "FT9", "T9",
           "TP9", "P9", "PO9", "I1", "Iz", "I2", "PO10", "P10", "TP10"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
-    ax.text(i[1], i[2], i[0], fontsize=6)
+    ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
 
 # Middle circle
 r = 4.5/5
@@ -134,7 +139,7 @@ labels = ["FTT10h", "FFT10h", "FTT9h", "FFT9h",
           "O1h", "POO9h", "PPO9h", "TPP9h"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
-    ax.text(i[1], i[2], i[0], fontsize=6)
+    ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
 
 # Inner circle
 r = 4/5
@@ -146,7 +151,7 @@ labels = ["T8", "FT8", "F8", "AF8", "Fp2", "Fpz", "Fp1", "AF7", "F7", "FT7",
           "T7", "TP7", "P7", "PO7", "O1", "Oz", "O2", "PO8", "P8", "TP8"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
-    ax.text(i[1], i[2], i[0], fontsize=6)
+    ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
 
 # Sagital line
 ax.plot([0,0], [-1, 1], 'k', linewidth=0.7)
@@ -156,7 +161,7 @@ ax.scatter(px, py, 10, 'k')
 labels = ["Nz", "Fpz", "AFz", "Fz", "FCz", "Cz", "CPz", "Pz", "POz", "Oz", "Iz"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
-    ax.text(i[1], i[2], i[0], fontsize=6)
+    ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
 
 # Coronal line
 ax.plot([-1, 1], [0,0], 'k', linewidth=0.7)
@@ -166,7 +171,7 @@ ax.scatter(px, py, 10, 'k')
 labels = ["T9", "T7", "C5", "C3", "C1", "Cz", "C2", "C4", "C6", "T8", "T10"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
-    ax.text(i[1], i[2], i[0], fontsize=6)
+    ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
 
 # AFpz arc
 v_off = 3.5                     # Vertex offset
@@ -191,10 +196,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('AF4h', 3/8), ('AF6h', 5/8)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
 left_channels = [('AF3h', 3/8), ('AF5h', 5/8)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # AFFzh arc
 v_off = 2.5                     # Vertex offset
@@ -219,10 +224,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('F4', 0.5), ('F2', 0.25), ('F6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
 left_channels = [('F3', 0.5), ('F1', 0.25), ('F5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # FFCzh arc
 v_off = 1.5                     # Vertex offset
@@ -247,10 +252,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('FC4', 0.5), ('FC2', 0.25), ('FC6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
 left_channels = [('FC3', 0.5), ('FC1', 0.25), ('FC5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # FCCzh arc
 v_off = 0.5                     # Vertex offset
@@ -278,7 +283,7 @@ plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('CCP2h', 1/8),('CCP4h', 3/8),('CCP6h', 5/8),('TTP8h', 7/8)]
 for label, ratio in right_channels:
     add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
-left_channels = [('CCPh', 1/8),('CCP3h', 3/8),('CCP5h', 5/8),('TTP7h', 7/8)]
+left_channels = [('CCP1h', 1/8),('CCP3h', 3/8),('CCP5h', 5/8),('TTP7h', 7/8)]
 for label, ratio in left_channels:
     add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
@@ -290,10 +295,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('CP4', 0.5), ('CP2', 0.25), ('CP6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('CP3', 0.5), ('CP1', 0.25), ('CP5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # CPPzh arc
 v_off = -1.5                     # Vertex offset
@@ -306,7 +311,7 @@ plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('CPP2h', 1/8),('CPP4h', 3/8),('CPP6h', 5/8),('TPP8h', 7/8)]
 for label, ratio in right_channels:
     add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
-left_channels = [('CPPh', 1/8),('CPP3h', 3/8),('CPP5h', 5/8),('TPP7h', 7/8)]
+left_channels = [('CPP1h', 1/8),('CPP3h', 3/8),('CPP5h', 5/8),('TPP7h', 7/8)]
 for label, ratio in left_channels:
     add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
@@ -318,10 +323,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('P4', 0.5), ('P2', 0.25), ('P6', 0.75)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('P3', 0.5), ('P1', 0.25), ('P5', 0.75)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # PPOzh arc
 v_off = -2.5                     # Vertex offset
@@ -334,7 +339,7 @@ plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('PPO2h', 1/8),('PPO4h', 3/8),('PPO6h', 5/8),('PPO8h', 7/8)]
 for label, ratio in right_channels:
     add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
-left_channels = [('PPOh', 1/8),('PPO3h', 3/8),('PPO5h', 5/8),('PPO7h', 7/8)]
+left_channels = [('PPO1h', 1/8),('PPO3h', 3/8),('PPO5h', 5/8),('PPO7h', 7/8)]
 for label, ratio in left_channels:
     add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
@@ -346,10 +351,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('PO4h', 3/8), ('PO6h', 5/8)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('PO3h', 3/8), ('PO5h', 5/8)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # POOz arc
 v_off = -3.5                     # Vertex offset
@@ -376,7 +381,7 @@ ax.scatter([a1[0], a2[0], m1[0], m2[0]],
            [a1[1], a2[1], m1[1], m2[1]], 10, 'k')
 for i in ears:
     eeg10_05.add_channel(i[0], float(i[1][0]), float(i[1][1]))
-    ax.text(i[1][0], i[1][1], i[0], fontsize=6)
+    ax.text(i[1][0], i[1][1], i[0], fontsize=fontsize)
 
 
 # Plot

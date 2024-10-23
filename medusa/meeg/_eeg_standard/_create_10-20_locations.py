@@ -80,7 +80,7 @@ def divide_arc(pvert, p2, r, c1, c2, ratio=0.5, right=True, anterior=True):
     """
     alpha = np.arcsin((p2[0] - pvert[0])/r)
     offset = 1.5 if anterior else 0.5
-    if right:
+    if right and anterior or not right and not anterior:
         x1 = c1 + r * np.cos(offset * np.pi + alpha * ratio)
         y1 = c2 + r * np.sin(offset * np.pi + alpha * ratio)
     else:
@@ -150,10 +150,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('F4', 0.5)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
 left_channels = [('F3', 0.5)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=True)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=True)
 
 # P7 arc
 p1 = (4/5 * np.cos(np.pi + 2 * np.pi/10), 4/5 * np.sin(np.pi + 2 * np.pi/10))
@@ -163,10 +163,10 @@ r, c1, c2 = get_circle_three_points(p1, p2, p3)
 plot_circle(ax, r=r, cx=c1, cy=c2)
 right_channels = [('P4', 0.5)]
 for label, ratio in right_channels:
-    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
 left_channels = [('P3', 0.5)]
 for label, ratio in left_channels:
-    add_channel_label(p2, p3, ratio, label, right=True, anterior=False)
+    add_channel_label(p2, p3, ratio, label, right=False, anterior=False)
 
 # Ears and mastoid
 a1 = (-1.1, 0.1)
