@@ -135,8 +135,8 @@ px = r*np.cos(ang_array)
 py = r*np.sin(ang_array)
 ax.scatter(px, py, 10, 'k')
 labels = ["FTT10h", "FFT10h", "FTT9h", "FFT9h",
-          "TPP10h", "PPO10h", "POO10h", "O2h",
-          "O1h", "POO9h", "PPO9h", "TPP9h"]
+          "TPP10h", "PPO10h", "POO10h", "OI2h",
+          "OI1h", "POO9h", "PPO9h", "TPP9h"]
 for i in zip(labels, px, py):
     eeg10_05.add_channel(i[0], float(i[1]), float(i[2]))
     ax.text(i[1]+xoff, i[2]+yoff, i[0], fontsize=fontsize, ha="center", color="r")
