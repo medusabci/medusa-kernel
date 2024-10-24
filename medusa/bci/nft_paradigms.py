@@ -1004,7 +1004,7 @@ class NeurofeedbackData(components.ExperimentData):
 
     def __init__(self, run_onsets, run_durations, run_success, run_pauses,
                  run_restarts, medusa_nft_app_settings, nft_values, nft_times,
-                 nft_baseline, ** kwargs):
+                 nft_baseline, **kwargs):
 
         self.run_onsets = run_onsets
         self.run_durations = run_durations
