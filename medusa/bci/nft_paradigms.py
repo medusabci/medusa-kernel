@@ -998,7 +998,7 @@ class NeurofeedbackData(components.ExperimentData):
 
     def __init__(self, run_onsets, run_durations, run_success, run_pauses,
                  run_restarts, medusa_nft_app_settings, nft_values, nft_times,
-                 nft_baseline):
+                 nft_baseline, **kwargs):
 
         self.run_onsets = run_onsets
         self.run_durations = run_durations
@@ -1009,6 +1009,10 @@ class NeurofeedbackData(components.ExperimentData):
         self.nft_values = nft_values
         self.nft_times = nft_times
         self.nft_baseline = nft_baseline
+
+        # Optional attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def to_serializable_obj(self):
         rec_dict = self.__dict__
