@@ -570,7 +570,7 @@ def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
     # Init handles
     handles = dict()
 
-    mask = np.abs(adj_mat) >= np.percentile(np.abs(adj_mat), percentile_th)
+    mask = np.abs(adj_mat) >= np.nanpercentile(np.abs(adj_mat), percentile_th)
 
     # Get connectivity values
     values_indx = np.triu_indices(adj_mat.shape[0],1)
