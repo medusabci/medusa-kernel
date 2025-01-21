@@ -363,7 +363,8 @@ def plot_head(axes, channel_set, head_radius=1.0, head_line_width=4.0,
     # Plot channels points
     if plot_channel_points:
         handle = axes.scatter(ch_x, ch_y, head_line_width*3.5, facecolors='w',
-                              edgecolors='k', zorder=12)
+                              edgecolors='k', zorder=12,
+                              linewidths=head_line_width/2)
         handles['ch-points'] = handle
 
     # Plot channels labels

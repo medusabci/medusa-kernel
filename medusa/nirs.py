@@ -7,7 +7,7 @@ class NIRS(components.BiosignalData):
     """
 
     def __init__(self, times, signal, fs, channel_set, **kwargs):
-        """EMG constructor
+        """NIRS constructor
 
         Parameters
         ----------
