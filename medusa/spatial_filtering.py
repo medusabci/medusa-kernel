@@ -814,7 +814,7 @@ class CCA(components.ProcessingMethod):
         cca.r = dict_data['r']
         return cca
 
-class TRCA (components.ProcessingMethod):
+class TRCA(components.ProcessingMethod):
     """
     The class TRCA performs a Task-related Component Analysis filtering. First,
     function fit() should be called to train the spatial filters. Then, spatial
@@ -834,7 +834,7 @@ class TRCA (components.ProcessingMethod):
         Fits the TRCA spatial filter given the input matrices data and
         Parameters
         ----------
-        x : {(epochs ,samples/epoch, channels) ndarray}
+        x : {(epochs ,samples, channels) ndarray}
             Input matrix, usually data with concatenated epochs.
         """
         self.w = self.trca(x)
@@ -880,13 +880,13 @@ class TRCA (components.ProcessingMethod):
         Enhancing detection of SSVEPs for a high-speed brain speller using task-related
         component analysis, IEEE Transactions on Biomedical Engineering, 65, 2018
         """
-        #X shape (Num Epochs, Samples per epoch, Channels)
+        # X shape (Num Epochs, Samples per epoch, Channels)
         Nt = np.shape(X)[0]
         Ns = np.shape(X)[1]
         Nc = np.shape(X)[2]
         S = np.zeros((Nc,Ns))
 
-        #Definition of S (cross covariance through epochs)
+        # Definition of S (cross covariance through epochs)
         for k in range(Nt):
             S = S + np.transpose(X[k,:,:])
         S=np.matmul(S,np.transpose(S))
@@ -895,13 +895,13 @@ class TRCA (components.ProcessingMethod):
 
         S = (1 / ((Nt - 1) * Nt * Ns)) * S
 
-        #Definition of Q (Covariance matrix of continuous data)
+        # Definition of Q (Covariance matrix of continuous data)
         X = X.reshape((Nt * Ns, Nc))
         Ns = np.shape(X)[0]
         Q = (1 / Ns) * np.matmul(np.transpose(X), X)
 
-        #Eigenvalues and vectors of Q^-1 S
+        # Eigenvalues and vectors of Q^-1 S
         eigVal, eigVect = slinalg.eigh(S, Q)
 
-        #Return eigenvector related to greater eigenvalue
+        # Return eigenvector related to greater eigenvalue
         return eigVect[:, np.where(eigVal == max(eigVal))[0][0]]
