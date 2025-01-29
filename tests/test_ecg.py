@@ -1,4 +1,5 @@
 import numpy as np
+import json
 
 # Import the ECG module (assuming it's saved as 'ecg_module.py')
 from medusa.ecg import *
@@ -48,6 +49,10 @@ def test_ecg_channel_set():
     ecg_set.set_ground("RL")
     assert ecg_set.ground == "RL", "Ground setting failed"
     print("✅ Ground setting test passed!")
+
+    # Test serialization
+    ser_str = json.dumps(ecg_set.to_serializable_obj())
+    print("✅ Serialization test passed!")
 
 
 # Function to test ECG class

@@ -218,7 +218,7 @@ class ECGChannelSet(components.SerializableComponent):
                 ground = {'label': l_ground,
                           'descr': montage[l_ground]}
             else:
-                raise meeg.ChannelNotFound(l_ground)
+                raise ChannelNotFound(l_ground)
         else:
             ground = None
         # Check channels
@@ -365,6 +365,8 @@ class ECG(components.BiosignalData):
         for key in rec_dict.keys():
             if type(rec_dict[key]) == np.ndarray:
                 rec_dict[key] = rec_dict[key].tolist()
+            if type(rec_dict[key]) == ECGChannelSet:
+                rec_dict[key] = rec_dict[key].to_serializable_obj()
         return rec_dict
 
     @classmethod
