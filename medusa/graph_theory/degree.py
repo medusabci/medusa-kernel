@@ -4,61 +4,6 @@ import warnings, os
 # External imports
 import numpy as np
 
-# Medusa imports
-from medusa import tensorflow_integration
-
-# Extras
-if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
-    import tensorflow as tf
-
-def __aux_symm_triu_gpu(W):
-    N = tf.shape(W)
-    aux = tf.subtract(tf.linalg.band_part(tf.ones(N), 0, -1),tf.linalg.band_part(tf.ones(N), 0, 0))
-    W = tf.math.multiply(W,tf.cast(aux,tf.float64))
-    W = tf.math.add(W,tf.transpose(W))
-    W = tf.math.divide(tf.math.reduce_sum(W,axis=0),2)
-    return W
-
-
-def __aux_no_match_gpu(W):
-    in_degree = tf.math.reduce_sum(W,axis=0)
-    out_degree = tf.math.reduce_sum(W,axis=1)
-    W = tf.math.add(in_degree, out_degree)
-    return W    
-
-
-def __degree_gpu(W):
-    """
-    Calculates node degree (also called strength in weighted networks) using GPU
-
-    Parameters
-    ----------
-    W : numpy 2D matrix
-        Graph matrix. ChannelsXChannels.
-        
-    Returns
-    -------
-    nodal_degree : numpy array
-        Nodal degree.      
-
-    """
-    W = tf.math.divide(tf.math.round(tf.math.multiply(W,10000000000)),10000000000)
-    W = W - tf.cast(tf.eye(tf.shape(W)[0]),tf.float64)    
-    
-    check_symmetry = tf.reduce_all(tf.math.equal(W,tf.transpose(W)))
-    check_symmetry = tf.cond(
-        tf.math.reduce_sum(tf.subtract(tf.linalg.band_part(W, -1, 0),tf.linalg.band_part(W, 0, 0))) == 0,
-        lambda: 1, lambda: check_symmetry)
-    check_symmetry = tf.cond(
-        tf.reduce_all(tf.math.equal(W,-tf.transpose(W))),
-        lambda: 2, lambda: check_symmetry)
-        
-    nodal_degree = tf.switch_case(tf.cast(check_symmetry,tf.int32), 
-                branch_fns={0: lambda: __aux_no_match_gpu(W), 1: lambda: __aux_symm_triu_gpu(W), 2: lambda: -tf.math.reduce_sum(W,axis=0)})     
-      
-    return nodal_degree
-
-
 def __aux_symm_triu_cpu(W):
     N = np.shape(W)[0]
     aux = np.ones((N,N))
@@ -111,7 +56,7 @@ def __degree_cpu(W):
     return nodal_degree
 
 
-def degree(W, mode):
+def degree(W):
     """
     Calculates the graph degree.
 
@@ -131,9 +76,5 @@ def degree(W, mode):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')
 
-    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
-            tensorflow_integration.check_tf_config(autoconfig=True):
-        nodal_degree = __degree_gpu(W)
-    else:
-        nodal_degree = __degree_cpu(W)
+    nodal_degree = __degree_cpu(W)
     return nodal_degree

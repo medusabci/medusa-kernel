@@ -1,63 +1,47 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import random_split, DataLoader, TensorDataset
+# Built-in imports
+import os, warnings
+
+# External imports
 from tqdm import tqdm
 
-from classification_utils import *
-import numpy as np
+# Medusa imports
+from medusa import components
+from medusa.classification_utils import *
+from medusa import pytorch_integration
+
+# Extras
+if os.environ.get("MEDUSA_TORCH_INTEGRATION") == "1":
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torch.utils.data import random_split, DataLoader, TensorDataset
+else:
+    raise pytorch_integration.TorchExtrasNotInstalled()
 
 
-class EarlyStopping:
+class EEGInceptionV1(components.ProcessingMethod):
+    """
+    EEG-Inception as described in Santamaría-Vázquez et al. 2020 [1]. This
+    model is specifically designed for EEG classification tasks.
 
-    def __init__(self, mode='min', min_delta=0.001, patience=20, verbose=True):
-        # Init attributes
-        self.mode = mode
-        self.min_delta = min_delta
-        self.patience=patience
-        self.verbose = verbose
-        # Init states
-        self.best_loss = float('inf')
-        self.best_epoch = 0
-        self.best_params = None
-        self.patience_counter = 0
-
-    def check_epoch(self, n_epoch, epoch_loss, epoch_params=None):
-        # Check if updates are needed
-        if self.mode == 'min':
-            update_params = epoch_loss < self.best_loss
-            update_state = epoch_loss < self.best_loss - self.min_delta
-        elif self.mode == 'max':
-            update_params = epoch_loss > self.best_loss
-            update_state = epoch_loss > self.best_loss + self.min_delta
-        else:
-            raise ValueError('Mode must be min or max')
-        # Update state
-        if update_state:
-            self.best_loss = epoch_loss
-            self.best_epoch = n_epoch
-            self.patience_counter = 0
-            if self.verbose:
-                print(f"\nEarly stopping: New best loss {self.best_loss:.4f} "
-                      f"at epoch {n_epoch+1}. Resetting patience.")
-        else:
-            self.patience_counter += 1
-       # Update params
-        if update_params:
-            self.best_params = epoch_params
-        # Check patience
-        if self.patience_counter >= self.patience:
-            return True, self.best_params
-        else:
-            return False, self.best_params
-
-
-class EEGInceptionV1:
-
+    References
+    ----------
+    [1] Santamaría-Vázquez, E., Martínez-Cagigal, V., Vaquerizo-Villar, F., &
+    Hornero, R. (2020). EEG-Inception: A Novel Deep Convolutional Neural Network
+    for Assistive ERP-based Brain-Computer Interfaces. IEEE Transactions on
+    Neural Systems and Rehabilitation Engineering.
+    """
     def __init__(self, input_time=1000, fs=128, n_cha=8, filters_per_branch=8,
                  scales_time=(500, 250, 125), dropout_rate=0.25, n_classes=2,
-                 learning_rate=0.001):
+                 learning_rate=0.001, device_name=None):
+        # Super call
+        super().__init__(fit=[], predict_proba=['y_pred'])
 
+        # Pytorch config
+        self.device = pytorch_integration.config_pytorch(
+            device_name=device_name)
+
+        # Attributes
         self.input_time = input_time
         self.fs = fs
         self.n_cha = n_cha
@@ -66,7 +50,6 @@ class EEGInceptionV1:
         self.dropout_rate = dropout_rate
         self.n_classes = n_classes
         self.learning_rate = learning_rate
-
         self.input_samples = int(input_time * fs / 1000)
         self.scales_samples = [int(s * fs / 1000) for s in scales_time]
 
@@ -77,12 +60,12 @@ class EEGInceptionV1:
             scales_samples=self.scales_samples,
             filters_per_branch=self.filters_per_branch,
             dropout_rate=self.dropout_rate,
-            n_classes=self.n_classes
-        )
+            n_classes=self.n_classes)
 
     class __PtModel(nn.Module):
 
-        def __init__(self, input_samples, n_cha, scales_samples, filters_per_branch, dropout_rate, n_classes):
+        def __init__(self, input_samples, n_cha, scales_samples,
+                     filters_per_branch, dropout_rate, n_classes):
 
             super().__init__()
 
@@ -132,10 +115,12 @@ class EEGInceptionV1:
             # Block 4: Output Block
             self.block4_1 = nn.Sequential(
                 nn.Conv2d(filters_per_branch * len(scales_samples),
-                          int(filters_per_branch * len(scales_samples) / 2), (8, 1),
+                          int(filters_per_branch *
+                              len(scales_samples) / 2), (8, 1),
                           padding='same',
                           bias=False),
-                nn.BatchNorm2d(int(filters_per_branch * len(scales_samples) / 2)),
+                nn.BatchNorm2d(int(filters_per_branch *
+                                   len(scales_samples) / 2)),
                 nn.ELU(),
                 nn.AvgPool2d((2, 1)),
                 nn.Dropout(dropout_rate)
@@ -143,10 +128,12 @@ class EEGInceptionV1:
 
             self.block4_2 = nn.Sequential(
                 nn.Conv2d(int(filters_per_branch * len(scales_samples) / 2),
-                          int(filters_per_branch * len(scales_samples) / 4), (4, 1),
+                          int(filters_per_branch *
+                              len(scales_samples) / 4), (4, 1),
                           padding='same',
                           bias=False),
-                nn.BatchNorm2d(int(filters_per_branch * len(scales_samples) / 4)),
+                nn.BatchNorm2d(int(filters_per_branch *
+                                   len(scales_samples) / 4)),
                 nn.ELU(),
                 nn.AvgPool2d((2, 1)),
                 nn.Dropout(dropout_rate)
@@ -154,7 +141,9 @@ class EEGInceptionV1:
 
             # Output Layer
             self.flatten = nn.Flatten()
-            self.fc = nn.Linear(int(filters_per_branch * len(scales_samples) / 4) * (input_samples // 32), n_classes)
+            self.fc = nn.Linear(
+                int(filters_per_branch * len(scales_samples) / 4) *
+                (input_samples // 32), n_classes)
 
         def forward(self, x):
             # Block 1
@@ -182,14 +171,13 @@ class EEGInceptionV1:
             return F.log_softmax(out, dim=1)
 
     def transform_data(self, X, y=None):
-
         # Transform X
         if len(X.shape) == 3:
             X = np.expand_dims(X, axis=1)
         X = torch.tensor(X, dtype=torch.float32)
         # Check dimensions
-        assert len(X.shape) == 4, "X must be a 4D tensor (n_observ x 1 x n_samples x n_channels)"
-
+        assert len(X.shape) == 4, ("X must be a 4D tensor "
+                                   "(n_observ x 1 x n_samples x n_channels)")
         # Transform y
         if y is not None:
             if len(y.shape) == 1:
@@ -203,27 +191,22 @@ class EEGInceptionV1:
         else:
             return X
 
-    def print_device_info(self, device):
-        device_name = torch.cuda.get_device_name(device) if device.type == 'cuda' else 'CPU'
-        print(f"Selected device: {device_name}")
-
-    def fit(self, X, y, validation_split=None, device_type='auto', verbose=True, **kwargs):
-        # Set device
-        if device_type == 'auto':
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            device = torch.device(device_type)
-        self.print_device_info(device)
+    def fit(self, X, y, validation_split=None, verbose=True, **kwargs):
+        # Check GPU
+        if not pytorch_integration.check_gpu_acceleration():
+            pytorch_integration.warn_gpu_not_available()
         # Check dimensions and transform data if necessary
         X, y = self.transform_data(X, y)
         # Create dataset and optionally split into training and validation
         dataset = TensorDataset(X, y)
         if validation_split is not None:
             validation = True
-            assert 0 < validation_split < 1, "Validation split must be between 0 and 1."
+            assert 0 < validation_split < 1, ("Validation split must be "
+                                              "between 0 and 1.")
             val_size = int(len(dataset) * validation_split)
             train_size = len(dataset) - val_size
-            train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+            train_dataset, val_dataset = random_split(
+                dataset, [train_size, val_size])
         else:
             validation = False
             train_size = len(dataset)
@@ -233,11 +216,14 @@ class EEGInceptionV1:
         shuffle = kwargs.get("shuffle", True)
         epochs = kwargs.get('epochs', 500)
         # Create DataLoaders
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=shuffle)
         if validation:
-            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle)
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=shuffle)
         # Set optimizer
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.learning_rate)
         criterion = nn.CrossEntropyLoss()
         # Set early stopping
         early_stopping = EarlyStopping(mode='min',
@@ -245,7 +231,7 @@ class EEGInceptionV1:
                                        patience=10,
                                        verbose=False)
         # Send model to device
-        self.model.to(device)
+        self.model.to(self.device)
         # Training loop
         for n_epoch, epoch in enumerate(range(epochs)):
             # Train phase
@@ -255,7 +241,7 @@ class EEGInceptionV1:
             loop = tqdm(train_loader)
             for n_batch, (inputs, labels) in enumerate(loop):
                 # Send data to device
-                inputs, labels = inputs.to(device), labels.to(device)
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
                 # Training phase
                 optimizer.zero_grad()
                 outputs = self.model(inputs)
@@ -275,7 +261,8 @@ class EEGInceptionV1:
                         with torch.no_grad():
                             for inputs, labels in val_loader:
                                 # Send data to device
-                                inputs, labels = inputs.to(device), labels.to(device)
+                                inputs = inputs.to(self.device)
+                                labels = labels.to(self.device)
                                 # Validation phase
                                 outputs = self.model(inputs)
                                 loss = criterion(outputs, labels)
@@ -284,7 +271,8 @@ class EEGInceptionV1:
                         val_loss /= len(val_loader)
                         if verbose:
                             loop.set_description(f'Epoch [{epoch + 1}/{epochs}]')
-                            loop.set_postfix(train_loss=f'{train_loss:.4f}', val_loss=f'{val_loss:.4f}')
+                            loop.set_postfix(train_loss=f'{train_loss:.4f}',
+                                             val_loss=f'{val_loss:.4f}')
                     else:
                         train_loss /= len(train_loader)
                         if verbose:
@@ -292,23 +280,19 @@ class EEGInceptionV1:
                             loop.set_postfix(train_loss=f'{train_loss:.4f}')
             # Check early stopping
             monitored_loss = val_loss if validation else train_loss
-            stop, best_params = early_stopping.check_epoch(n_epoch, monitored_loss, self.get_weights())
+            stop, best_params = early_stopping.check_epoch(
+                n_epoch, monitored_loss, self.get_weights())
             if stop:
                 self.set_weights(best_params)
-                print(f"Early stopping triggered at epoch {n_epoch + 1}. Best weights restored.")
+                print(f"Early stopping triggered at epoch "
+                      f"{n_epoch + 1}. Best weights restored.")
                 break
 
     def predict_proba(self, X, device_type='cuda'):
-        # Set device
-        if device_type == 'auto':
-            device = torch.device('cpu')
-        else:
-            device = torch.device(device_type)
-        self.print_device_info(device)
         # Transform data
-        X = self.transform_data(X).to(device)
+        X = self.transform_data(X).to(self.device)
         # Predict
-        self.model.to(device)
+        self.model.to(self.device)
         self.model.eval()
         with torch.no_grad():
             outputs = self.model(X)
