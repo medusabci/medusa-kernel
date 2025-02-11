@@ -102,7 +102,7 @@ def __aec_ort_cpu(data):
     w_threads = []
     for epoch in env:
         t = medusa.components.ThreadWithReturnValue(target=__aec_ort_comp_aux,
-                                                    args=(epoch,n_cha,'cpu',))
+                                                    args=(epoch,n_cha,))
         w_threads.append(t)
         t.start()
 
