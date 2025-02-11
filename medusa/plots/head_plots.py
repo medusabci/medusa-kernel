@@ -629,19 +629,20 @@ def _get_cartesian_coordinates(channel_set):
         ch_x,ch_y = np.array(ch_x),np.array(ch_y)
     return ch_x, ch_y
 
-
 def _remove_handles(handles):
-    """ Utility function to remove all matplotlib handles. """
-    for h in handles.values():
-        if isinstance(h, list):
-            for h2 in h:
-                h2.remove()
-        else:
-            if isinstance(h, matplotlib.contour.QuadContourSet):
-                for h2 in h.collections:
-                    h2.remove()
-            else:
-                h.remove()
+    """Recursively remove all matplotlib handles from a dictionary or list."""
+    if isinstance(handles, dict):
+        for h in handles.values():
+            _remove_handles(h)  # Recursively process dictionary values
+    elif isinstance(handles, list):
+        for h in handles:
+            _remove_handles(h)  # Recursively process list elements
+    elif hasattr(handles, 'remove'):
+        handles.remove()
+    elif isinstance(handles, matplotlib.contour.QuadContourSet):
+        # Legacy from older versions from matplotlib (remove in the future)
+        for h in handles.collections:
+            h.remove()  # Remove contour collections
 
 
 if __name__ == "__main__":

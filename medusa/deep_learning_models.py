@@ -171,20 +171,31 @@ class EEGInceptionV1(components.ProcessingMethod):
             return F.log_softmax(out, dim=1)
 
     def transform_data(self, X, y=None):
+        # Convert X to numpy array if not already
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+
         # Transform X
         if len(X.shape) == 3:
             X = np.expand_dims(X, axis=1)
         X = torch.tensor(X, dtype=torch.float32)
+
         # Check dimensions
         assert len(X.shape) == 4, ("X must be a 4D tensor "
                                    "(n_observ x 1 x n_samples x n_channels)")
-        # Transform y
+
+        # Transform y if provided
         if y is not None:
+            # Convert y to numpy array if not already
+            if not isinstance(y, np.ndarray):
+                y = np.array(y)
+
             if len(y.shape) == 1:
                 y = np.expand_dims(y, axis=-1)
             if y.shape[1] != self.n_classes:
                 y = one_hot_labels(y)
             y = torch.tensor(y, dtype=torch.float32)
+
             # Check dimensions
             assert len(y.shape) == 2, "y must be a 2D tensor (n_observ x 1)"
             return X, y

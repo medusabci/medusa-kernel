@@ -30,7 +30,7 @@ setup(
         'PySide6',
         'PyWavelets'
     ],
-    python_requires='>=3.8, <3.13',
+    python_requires='>=3.10, <3.14',
     package_data={
         'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
                    'analysis/time_plot/icons/*.png',
