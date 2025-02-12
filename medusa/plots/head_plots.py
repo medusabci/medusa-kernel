@@ -570,11 +570,11 @@ def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
     # Init handles
     handles = dict()
 
-    mask = np.abs(adj_mat) >= np.nanpercentile(np.abs(adj_mat), percentile_th)
-
     # Get connectivity values
-    values_indx = np.triu_indices(adj_mat.shape[0],1)
+    values_indx = np.triu_indices(adj_mat.shape[0], 1)
     conn_values = (adj_mat)[values_indx]
+    threshold = np.nanpercentile(np.abs(conn_values), percentile_th)
+    mask = np.abs(adj_mat) >= threshold
     conn_values = conn_values[mask[values_indx]]
 
     # Map connectivity values to colors
@@ -587,8 +587,12 @@ def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
     handles['color-mesh'] = mapper
 
     # Connectivity line widths
-    widths = 3 * (np.ones(len(conn_values)) * np.abs(conn_values) - clim[0])/\
-             (clim[1] - clim[0])
+    if clim[1] == clim[0]:
+        widths = 3 * (np.ones(len(conn_values)) * np.abs(conn_values))
+    else:
+        widths = 3 * (
+                    np.ones(len(conn_values)) * np.abs(conn_values) - clim[0]) / \
+                 (clim[1] - clim[0])
 
     ch_x, ch_y = _get_cartesian_coordinates(channel_set)
 
