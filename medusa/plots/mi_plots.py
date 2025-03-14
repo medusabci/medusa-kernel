@@ -99,7 +99,7 @@ class MIPlots:
             axs_to_plot = list()
             fig = plt.figure(figsize=(7.5, 3), dpi=300)
             l_ = len(ch_to_plot)
-            for c in range(ch_to_plot):
+            for c in range(l_):
                 gs = fig.add_gridspec(3, l_, wspace=0.2, hspace=0.2,
                                       height_ratios=[1, 1])
                 axs_to_plot.append({'spec_c1': fig.add_subplot(gs[0, c]),
@@ -275,7 +275,7 @@ class MIPlots:
             axs_to_plot = list()
             fig = plt.figure(figsize=(7.5, 3), dpi=300)
             l_ = len(ch_to_plot)
-            for c in range(ch_to_plot):
+            for c in range(l_):
                 gs = fig.add_gridspec(3, l_, wspace=0.2, hspace=0.2,
                                       height_ratios=[1, 0.1, 0.1])
                 axs_to_plot.append({'freq': fig.add_subplot(gs[0, c]),
