@@ -401,7 +401,7 @@ class EEGNet(components.ProcessingMethod):
         self.learning_rate = learning_rate
 
         # Initialize model
-        self.model = self.__PtModel(nb_classes=self.nb_classes,
+        self.model = self.__PtModel(n_classes=self.n_classes,
                                     n_cha=self.n_cha,
                                     samples=self.samples,
                                     dropout_rate=self.dropout_rate,
