@@ -1035,7 +1035,7 @@ class CMDModelCCA(SSVEPSpellerModel):
                         # Get trial info (todo: check paradigm conf)
                         m = int(np.squeeze(np.unique(
                             x_info['matrix_idx'][idx_t])))
-                        trial_unit = '0'
+                        trial_unit = 0
                         trial_cmd_info = \
                             x_info['commands_info'][r_cnt][m][trial_unit]
                         # Get correlations with reference signals
