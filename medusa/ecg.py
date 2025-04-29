@@ -45,7 +45,8 @@ ECG_12LEADS = {
 
 
 def get_standard_montage(standard, channel_mode):
-    """Retrieves the electrode placements or lead configurations for a given ECG standard.
+    """Retrieves the electrode placements or lead configurations for a given
+    ECG standard.
 
     Parameters
     ----------
