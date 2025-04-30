@@ -2179,14 +2179,14 @@ class CMDModelEEGInception(ERPSpellerModel):
 
     def configure(self, cnn_n_cha=8, fine_tuning=False,
                   shuffle_before_fit=True, validation_split=0.2,
-                  init_weights_path=None, gpu_acceleration=True):
+                  init_weights_path=None, device_name='cuda'):
         self.settings = {
             'cnn_n_cha': cnn_n_cha,
             'fine_tuning': fine_tuning,
             'shuffle_before_fit': shuffle_before_fit,
             'validation_split': validation_split,
             'init_weights_path': init_weights_path,
-            'gpu_acceleration': gpu_acceleration
+            'device_name': device_name
         }
         # Update state
         self.is_configured = True
@@ -2198,7 +2198,7 @@ class CMDModelEEGInception(ERPSpellerModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGInceptionv1
+        from medusa.deep_learning_models import EEGInceptionV1
         # Preprocessing (bandpass IIR filter [0.5, 45] Hz + CAR)
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=(0.5, 45)))
@@ -2208,16 +2208,16 @@ class CMDModelEEGInception(ERPSpellerModel):
                             target_fs=128, concatenate_channels=False)
         )
         # Feature classification
-        clf = EEGInceptionv1(
+        clf = EEGInceptionV1(
             input_time=1000,
             fs=128,
             n_cha=self.settings['cnn_n_cha'],
             filters_per_branch=8,
             scales_time=(500, 250, 125),
             dropout_rate=0.25,
-            activation='elu', n_classes=2,
+            n_classes=2,
             learning_rate=0.001,
-            gpu_acceleration=self.settings['gpu_acceleration'])
+            device_name=self.settings['device_name'])
         if self.settings['init_weights_path'] is not None:
             clf.load_weights(self.settings['init_weights_path'])
         self.add_method('clf_method', clf)
@@ -2367,14 +2367,14 @@ class CSDModelEEGInception(ERPSpellerModel):
 
     def configure(self, cnn_n_cha=8, fine_tuning=False,
                   shuffle_before_fit=True, validation_split=0.2,
-                  init_weights_path=None, gpu_acceleration=True):
+                  init_weights_path=None, device_name='cuda'):
         self.settings = {
             'cnn_n_cha': cnn_n_cha,
             'fine_tuning': fine_tuning,
             'shuffle_before_fit': shuffle_before_fit,
             'validation_split': validation_split,
             'init_weights_path': init_weights_path,
-            'gpu_acceleration': gpu_acceleration
+            'device_name': device_name
         }
         # Update state
         self.is_configured = True
@@ -2386,7 +2386,7 @@ class CSDModelEEGInception(ERPSpellerModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGInceptionv1
+        from medusa.deep_learning_models import EEGInceptionV1
         # Preprocessing (bandpass IIR filter [0, 10] Hz + CAR)
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=(0.5, 45)))
@@ -2397,16 +2397,16 @@ class CSDModelEEGInception(ERPSpellerModel):
                                       concatenate_channels=False)
         )
         # Feature classification
-        clf = EEGInceptionv1(
+        clf = EEGInceptionV1(
             input_time=1000,
             fs=128,
             n_cha=self.settings['cnn_n_cha'],
             filters_per_branch=8,
             scales_time=(500, 250, 125),
             dropout_rate=0.25,
-            activation='elu', n_classes=2,
+            n_classes=2,
             learning_rate=0.001,
-            gpu_acceleration=self.settings['gpu_acceleration'])
+            device_name=self.settings['device_name'])
         if self.settings['init_weights_path'] is not None:
             clf.load_weights(self.settings['init_weights_path'])
         self.add_method('clf_method', clf)

@@ -8,7 +8,7 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='1.3.1',
+    version='1.4.0',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
@@ -27,26 +27,20 @@ setup(
         'h5py',
         'dill',
         'tqdm',
-        'statsmodels'
+        'PySide6',
+        'PyWavelets'
     ],
-    extras_require={
-        'TF': [
-            'tensorflow<2.11',
-            'tensorflow-probability==0.16'
-        ],
-    },
-    python_requires='>=3.8, <3.11',
+    python_requires='>=3.10, <3.14',
     package_data={
-        'medusa': ['meeg/*.tsv', 'local_activation/*.dll']
+        'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
+                   'analysis/time_plot/icons/*.png',
+                   'analysis/time_plot/time_plot.ui']
     },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Topic :: Scientific/Engineering',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
     ],
     description='Advanced biosignal processing toolbox',
     long_description=long_description,

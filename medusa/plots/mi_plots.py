@@ -99,7 +99,7 @@ class MIPlots:
             axs_to_plot = list()
             fig = plt.figure(figsize=(7.5, 3), dpi=300)
             l_ = len(ch_to_plot)
-            for c in range(ch_to_plot):
+            for c in range(l_):
                 gs = fig.add_gridspec(3, l_, wspace=0.2, hspace=0.2,
                                       height_ratios=[1, 1])
                 axs_to_plot.append({'spec_c1': fig.add_subplot(gs[0, c]),
@@ -167,7 +167,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = self.raw_dataset.channel_set.l_cha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "spec_c1" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['spec_c1']
@@ -275,7 +275,7 @@ class MIPlots:
             axs_to_plot = list()
             fig = plt.figure(figsize=(7.5, 3), dpi=300)
             l_ = len(ch_to_plot)
-            for c in range(ch_to_plot):
+            for c in range(l_):
                 gs = fig.add_gridspec(3, l_, wspace=0.2, hspace=0.2,
                                       height_ratios=[1, 0.1, 0.1])
                 axs_to_plot.append({'freq': fig.add_subplot(gs[0, c]),
@@ -335,7 +335,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = self.channel_set.l_cha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "freq" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['freq']
@@ -535,7 +535,7 @@ class MIPlots:
                 raise ValueError('Channel ' + ch_to_plot[n] + ' is missing!')
             i = lcha.index(ch_to_plot[n])
 
-            with plt.style.context('seaborn'):
+            with plt.style.context('seaborn-v0_8'):
                 # Averaged curves
                 if "time" in axs_to_plot[n]:
                     ax1 = axs_to_plot[n]['time']

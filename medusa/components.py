@@ -249,6 +249,138 @@ class SerializableComponent(ABC):
             cmp = dill.load(f)
         return cmp
 
+class CheckTreeStructure:
+    """
+    CheckTreeStructure is a helper class that provides validation methods for ensuring the structure and data of items
+    in a TreeDict are correct.
+    """
+    def validate_default_value(self, default_value):
+        # Validate that the default_value is one of the allowed types
+        valid_types = (str, int, float, bool, list)
+        if not isinstance(default_value, valid_types):
+            print(f"Error: 'default_value' must be of type: string, int, float, bool, list.")
+            return False
+        return True
+
+    def validate_info(self, info):
+        # Validate that 'info' is a string, otherwise keep it as None
+        if info is not None and not isinstance(info, str):
+            print("Warning: 'info' must be a string describing the element. Keeping it as None.")
+            return None
+        return info
+
+    def validate_input_format(self, input_format, default_value=None, value_options=None):
+        # Validate that 'input_format' is one of the allowed types and meets specific requirements
+        valid_formats = ['checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox']
+
+        input_format = input_format.lower() if input_format is not None else None
+
+        if input_format is not None and (input_format not in valid_formats or not isinstance(input_format, str)):
+            print("Warning: 'input_format' must be one of the following options: 'CheckBox', 'SpinBox', 'DoubleSpinBox', 'LineEdit', 'ComboBox'. Keeping it as None.")
+            return None
+
+        if input_format == "combobox" and value_options is None:
+            print("Warning: 'ComboBox' requires 'value_options' to be specified. Keeping input format as None.")
+            return None
+        if input_format == "checkbox" and not isinstance(default_value, bool):
+            print("Warning: 'CheckBox' requires 'default_value' to be a boolean (True/False). Keeping input format as None.")
+            return None
+        if input_format == "spinbox" and not isinstance(default_value, int):
+            print("Warning: 'SpinBox' requires 'default_value' to be an integer. Keeping input format as None.")
+            return None
+        if input_format == "doublespinbox" and not isinstance(default_value, float):
+            print("Warning: 'DoubleSpinBox' requires 'default_value' to be a float. Keeping input format as None.")
+            return None
+
+        return input_format
+
+    def validate_value_range(self, value_range):
+        # Validate that 'value_range' is a list or array with exactly two elements
+        if value_range is not None:
+            if not (isinstance(value_range, list)):
+                print(
+                    "Warning: 'value_range' must be a list with exactly two elements determining the upper and lower limits the value can acquire. Keeping range without bounds.")
+                return None
+            if len(value_range) != 2:
+                print("Warning: 'value_range' must have exactly two elements: upper and lower limits the value can acquire. Keeping range without bounds.")
+                return None
+        return value_range
+
+    def validate_value_options(self, value_options):
+        # Validate that 'value_options' is a list
+        if value_options is not None and not isinstance(value_options, list):
+            print("Warning: 'value_options' must be a list containing the available options. The list will be kept empty.")
+            return None
+        return value_options
+
+class TreeDict(CheckTreeStructure):
+    """
+    TreeDict is a utility class for building and managing hierarchical tree structures in a JSON-compatible format.
+    """
+    def __init__(self, tree=None):
+        # Initialize the tree structure.
+        # If a tree is provided, use it; otherwise, start with an empty list.
+        self.tree = tree if tree is not None else []
+
+    def add_item(self, key, default_value=None, info=None, input_format=None, value_range=None, value_options=None):
+        """
+        Adds a new item (or sub-item) to the current tree structure.
+
+        Parameters:
+            key (str): The key name of the item.
+            default_value (str, int, float, bool or list, optional): Default value for this item.
+            info (str, optional): Help text or description to be displayed.
+            input_format (str, optional): UI control type ('checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox').
+            value_range (list, optional): List indicating the [min, max] for numeric inputs.
+            value_options (list, optional): A list of allowed options (used for combobox).
+
+        Returns:
+            TreeDict: A new TreeDict instance wrapping the added item.
+        """
+
+        # Ensure the key is a string, convert if necessary
+        if key is not None:
+            if not isinstance(key, str):
+                try:
+                    key = str(key)
+                except Exception as e:
+                    print(f"Error: 'key' must be a string. Cannot convert {key} to string.")
+                    return None
+
+        # Validate all provided values using inherited methods from CheckTreeStructure
+        if default_value is not None and not self.validate_default_value(default_value):
+            return None
+        info = self.validate_info(info)
+        input_format = self.validate_input_format(input_format)
+        value_range = self.validate_value_range(value_range)
+        value_options = self.validate_value_options(value_options)
+
+        # Build the item dictionary with all non-None fields
+        item = {
+            'key': key,
+            'default_value': default_value,
+            'info': info,
+            'input_format': input_format,
+            'value_range': value_range,
+            'value_options': value_options,
+        }
+
+        # Remove any keys with None values to keep the dictionary clean
+        item = {k: v for k, v in item.items() if v is not None}
+
+        # Add the new item to the tree depending on its type
+        if isinstance(self.tree, dict):
+            # If this is a branch, append to its 'items' list (create it if necessary)
+            self.tree.setdefault('items', []).append(item)
+        elif isinstance(self.tree, list):
+            # If this is a top-level list, simply append the item
+            self.tree.append(item)
+
+        return TreeDict(item)
+
+    def to_dict(self):
+        """Returns the tree dict created."""
+        return self.tree
 
 class SettingsTreeItem(SerializableComponent):
     """General class to represent settings.

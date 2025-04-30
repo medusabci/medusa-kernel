@@ -1,36 +1,27 @@
 # Built-in imports
-import warnings
-import os
-import re
+import os, warnings
 
 # External imports
-import sklearn.utils as sk_utils
-import numpy as np
+from tqdm import tqdm
 
 # Medusa imports
 from medusa import components
-from medusa import classification_utils
-from medusa import tensorflow_integration
-from medusa.meeg import get_standard_montage
+from medusa.classification_utils import *
+from medusa import pytorch_integration
 
 # Extras
-if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
-    import tensorflow as tf
-    import tensorflow.keras as keras
-    from tensorflow.keras.layers import Activation, Input, Flatten
-    from tensorflow.keras.layers import Dropout, BatchNormalization
-    from tensorflow.keras.layers import Conv2D, AveragePooling2D
-    from tensorflow.keras.layers import DepthwiseConv2D, Dense
-    from tensorflow.keras.layers import SpatialDropout2D, SeparableConv2D
-    from tensorflow.keras.layers import Conv3D, AveragePooling3D, Add
-    from tensorflow.keras.constraints import max_norm
-    from tensorflow.keras.callbacks import EarlyStopping
+if os.environ.get("MEDUSA_TORCH_INTEGRATION") == "1":
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torch.utils.data import random_split, DataLoader, TensorDataset
 else:
-    raise tensorflow_integration.TFExtrasNotInstalled()
+    raise pytorch_integration.TorchExtrasNotInstalled()
 
 
-class EEGInceptionv1(components.ProcessingMethod):
-    """EEG-Inception as described in Santamaría-Vázquez et al. 2020 [1]. This
+class EEGInceptionV1(components.ProcessingMethod):
+    """
+    EEG-Inception as described in Santamaría-Vázquez et al. 2020 [1]. This
     model is specifically designed for EEG classification tasks.
 
     References
@@ -40,256 +31,294 @@ class EEGInceptionv1(components.ProcessingMethod):
     for Assistive ERP-based Brain-Computer Interfaces. IEEE Transactions on
     Neural Systems and Rehabilitation Engineering.
     """
+
     def __init__(self, input_time=1000, fs=128, n_cha=8, filters_per_branch=8,
-                 scales_time=(500, 250, 125), dropout_rate=0.25,
-                 activation='elu', n_classes=2, learning_rate=0.001,
-                 gpu_acceleration=None):
+                 scales_time=(500, 250, 125), dropout_rate=0.25, n_classes=2,
+                 learning_rate=0.001, device_name=None):
         # Super call
         super().__init__(fit=[], predict_proba=['y_pred'])
 
-        # Tensorflow config
-        if gpu_acceleration is None:
-            tensorflow_integration.check_tf_config(autoconfig=True)
-        else:
-            tensorflow_integration.config_tensorflow(gpu_acceleration)
-        if tensorflow_integration.check_gpu_acceleration():
-            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-        tf.keras.backend.set_image_data_format('channels_last')
+        # Pytorch config
+        self.device = pytorch_integration.config_pytorch(
+            device_name=device_name)
 
-        # Parameters
+        # Attributes
         self.input_time = input_time
         self.fs = fs
         self.n_cha = n_cha
         self.filters_per_branch = filters_per_branch
         self.scales_time = scales_time
         self.dropout_rate = dropout_rate
-        self.activation = activation
         self.n_classes = n_classes
         self.learning_rate = learning_rate
-
-        # Useful variables
         self.input_samples = int(input_time * fs / 1000)
         self.scales_samples = [int(s * fs / 1000) for s in scales_time]
 
-        # Create model
-        self.model = self.__keras_model()
-        # Create training callbacks
-        self.training_callbacks = list()
-        self.training_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.001,
-                          mode='min',
-                          patience=20,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
-        # Create fine-tuning callbacks
-        self.fine_tuning_callbacks = list()
-        self.fine_tuning_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.0001,
-                          mode='min',
-                          patience=10,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
+        # Initialize model
+        self.model = self.__PtModel(
+            input_samples=self.input_samples,
+            n_cha=self.n_cha,
+            scales_samples=self.scales_samples,
+            filters_per_branch=self.filters_per_branch,
+            dropout_rate=self.dropout_rate,
+            n_classes=self.n_classes)
 
-    def __keras_model(self):
-        # ============================= INPUT ================================ #
-        input_layer = Input((self.input_samples, self.n_cha, 1))
-        # ================ BLOCK 1: SINGLE-CHANNEL ANALYSIS ================== #
-        b1_units = list()
-        for i in range(len(self.scales_samples)):
-            unit = Conv2D(filters=self.filters_per_branch,
-                          kernel_size=(self.scales_samples[i], 1),
-                          kernel_initializer='he_normal',
-                          padding='same')(input_layer)
-            unit = BatchNormalization()(unit)
-            unit = Activation(self.activation)(unit)
-            unit = Dropout(self.dropout_rate)(unit)
+    class __PtModel(nn.Module):
 
-            b1_units.append(unit)
+        def __init__(self, input_samples, n_cha, scales_samples,
+                     filters_per_branch, dropout_rate, n_classes):
+            super().__init__()
 
-        # Concatenation
-        b1_out = keras.layers.concatenate(b1_units, axis=3)
-        b1_out = AveragePooling2D((2, 1))(b1_out)
+            self.scales_samples = scales_samples
+            self.filters_per_branch = filters_per_branch
+            self.dropout_rate = dropout_rate
+            self.n_classes = n_classes
 
-        # ================= BLOCK 2: SPATIAL FILTERING ======================= #
-        b2_unit = DepthwiseConv2D((1, self.n_cha),
-                                  use_bias=False,
-                                  depth_multiplier=2,
-                                  depthwise_constraint=max_norm(1.))(b1_out)
-        b2_unit = BatchNormalization()(b2_unit)
-        b2_unit = Activation(self.activation)(b2_unit)
-        b2_unit = Dropout(self.dropout_rate)(b2_unit)
-        b2_out = AveragePooling2D((2, 1))(b2_unit)
+            # Block 1: Single-Channel Analysis
+            self.block1 = nn.ModuleList([
+                nn.Sequential(
+                    nn.Conv2d(1, filters_per_branch, (scale, 1),
+                              padding='same'),
+                    nn.BatchNorm2d(filters_per_branch),
+                    nn.ELU(),
+                    nn.Dropout(dropout_rate)
+                ) for scale in scales_samples
+            ])
+            self.pool1 = nn.AvgPool2d((2, 1))
 
-        # ================ BLOCK 3: MULTI-CHANNEL ANALYSIS =================== #
-        b3_units = list()
-        for i in range(len(self.scales_samples)):
-            unit = Conv2D(filters=self.filters_per_branch,
-                          kernel_size=(int(self.scales_samples[i] / 4), 1),
-                          kernel_initializer='he_normal',
-                          use_bias=False,
-                          padding='same')(b2_out)
-            unit = BatchNormalization()(unit)
-            unit = Activation(self.activation)(unit)
-            unit = Dropout(self.dropout_rate)(unit)
+            # Block 2: Spatial Filtering
+            self.block2 = nn.Sequential(
+                nn.Conv2d(filters_per_branch * len(scales_samples),
+                          filters_per_branch * len(scales_samples) * 2,
+                          (1, n_cha),
+                          groups=filters_per_branch * len(scales_samples),
+                          bias=False),
+                nn.BatchNorm2d(filters_per_branch * len(scales_samples) * 2),
+                nn.ELU(),
+                nn.Dropout(dropout_rate),
+            )
+            self.pool2 = nn.AvgPool2d((2, 1))
 
-            b3_units.append(unit)
+            # Block 3: Multi-Channel Analysis
+            self.block3 = nn.ModuleList([
+                nn.Sequential(
+                    nn.Conv2d(filters_per_branch * len(scales_samples) * 2,
+                              filters_per_branch, (scale // 4, 1),
+                              padding='same',
+                              bias=False),
+                    nn.BatchNorm2d(filters_per_branch),
+                    nn.ELU(),
+                    nn.Dropout(dropout_rate)
+                ) for scale in scales_samples
+            ])
+            self.pool3 = nn.AvgPool2d((2, 1))
 
-        # Concatenate + Average pooling
-        b3_out = keras.layers.concatenate(b3_units, axis=3)
-        b3_out = AveragePooling2D((2, 1))(b3_out)
+            # Block 4: Output Block
+            self.block4_1 = nn.Sequential(
+                nn.Conv2d(filters_per_branch * len(scales_samples),
+                          int(filters_per_branch * len(scales_samples) / 2),
+                          (8, 1),
+                          padding='same',
+                          bias=False),
+                nn.BatchNorm2d(
+                    int(filters_per_branch * len(scales_samples) / 2)),
+                nn.ELU(),
+                nn.AvgPool2d((2, 1)),
+                nn.Dropout(dropout_rate)
+            )
 
-        # ==================== BLOCK 4: OUTPUT-BLOCK ========================= #
-        b4_u1 = Conv2D(filters=int(self.filters_per_branch *
-                                   len(self.scales_samples) / 2),
-                       kernel_size=(8, 1),
-                       kernel_initializer='he_normal',
-                       use_bias=False,
-                       padding='same')(b3_out)
-        b4_u1 = BatchNormalization()(b4_u1)
-        b4_u1 = Activation(self.activation)(b4_u1)
-        b4_u1 = AveragePooling2D((2, 1))(b4_u1)
-        b4_u1 = Dropout(self.dropout_rate)(b4_u1)
+            self.block4_2 = nn.Sequential(
+                nn.Conv2d(int(filters_per_branch * len(scales_samples) / 2),
+                          int(filters_per_branch * len(scales_samples) / 4),
+                          (4, 1),
+                          padding='same',
+                          bias=False),
+                nn.BatchNorm2d(int(filters_per_branch *
+                                   len(scales_samples) / 4)),
+                nn.ELU(),
+                nn.AvgPool2d((2, 1)),
+                nn.Dropout(dropout_rate)
+            )
 
-        b4_u2 = Conv2D(filters=int(self.filters_per_branch *
-                                   len(self.scales_samples) / 4),
-                       kernel_size=(4, 1),
-                       kernel_initializer='he_normal',
-                       use_bias=False,
-                       padding='same')(b4_u1)
-        b4_u2 = BatchNormalization()(b4_u2)
-        b4_u2 = Activation(self.activation)(b4_u2)
-        b4_u2 = AveragePooling2D((2, 1))(b4_u2)
-        b4_out = Dropout(self.dropout_rate)(b4_u2)
+            # Output Layer
+            self.flatten = nn.Flatten()
+            self.fc = nn.Linear(
+                int(filters_per_branch * len(scales_samples) / 4) *
+                (input_samples // 32), n_classes)
 
-        # =========================== OUTPUT ================================= #
-        # Output layer
-        output_layer = Flatten()(b4_out)
-        output_layer = Dense(self.n_classes, activation='softmax')(output_layer)
-        # ============================ MODEL ================================= #
-        # Optimizer
-        optimizer = keras.optimizers.Adam(learning_rate=self.learning_rate,
-                                          beta_1=0.9, beta_2=0.999,
-                                          amsgrad=False)
-        # Create and compile model
-        model = keras.models.Model(inputs=input_layer,
-                                   outputs=output_layer)
-        model.compile(loss='categorical_crossentropy',
-                      optimizer=optimizer,
-                      metrics=['accuracy'])
+        def forward(self, x):
+            # Block 1
+            b1_outputs = [unit(x) for unit in self.block1]
+            b1_out = torch.cat(b1_outputs, dim=1)
+            b1_out = self.pool1(b1_out)
 
-        return model
+            # Block 2
+            b2_out = self.block2(b1_out)
+            b2_out = self.pool2(b2_out)
 
-    @staticmethod
-    def transform_data(X, y=None):
-        """Transforms input data to the correct dimensions for EEG-Inception
+            # Block 3
+            b3_outputs = [unit(b2_out) for unit in self.block3]
+            b3_out = torch.cat(b3_outputs, dim=1)
+            b3_out = self.pool3(b3_out)
 
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        y: np.ndarray
-            Labels array. If labels are in categorical format, they will be
-            converted to one-hot encoding.
-        """
-        if len(X.shape) == 3 or X.shape[-1] != 1:
-            X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
-        if y is None:
-            return X
-        else:
-            if len(y.shape) == 1 or y.shape[-1] == 1:
-                y = classification_utils.one_hot_labels(y)
+            # Block 4
+            b4_out = self.block4_1(b3_out)
+            b4_out = self.block4_2(b4_out)
+
+            # Output Layer
+            out = self.flatten(b4_out)
+            out = self.fc(out)
+
+            return F.log_softmax(out, dim=1)
+
+    def transform_data(self, X, y=None):
+        # Convert X to numpy array if not already
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+
+        # Transform X
+        if len(X.shape) == 3:
+            X = np.expand_dims(X, axis=1)
+        X = torch.tensor(X, dtype=torch.float32)
+
+        # Check dimensions
+        assert len(X.shape) == 4, ("X must be a 4D tensor "
+                                   "(n_observ x 1 x n_samples x n_channels)")
+
+        # Transform y if provided
+        if y is not None:
+            # Convert y to numpy array if not already
+            if not isinstance(y, np.ndarray):
+                y = np.array(y)
+
+            if len(y.shape) == 1:
+                y = np.expand_dims(y, axis=-1)
+            if y.shape[1] != self.n_classes:
+                y = one_hot_labels(y)
+            y = torch.tensor(y, dtype=torch.float32)
+
+            # Check dimensions
+            assert len(y.shape) == 2, "y must be a 2D tensor (n_observ x 1)"
             return X, y
-
-    def fit(self, X, y, fine_tuning=False, shuffle_before_fit=False, **kwargs):
-        """Fit the model. All additional keras parameters of class
-        tensorflow.keras.Model will pass through. See keras documentation to
-        know what can you do: https://keras.io/api/models/model_training_apis/.
-
-        If no parameters are specified, some default options are set [1]:
-
-            - Epochs: 100 if fine_tuning else 500
-            - Batch size: 32 if fine_tuning else 1024
-            - Callbacks: self.fine_tuning_callbacks if fine_tuning else
-                self.training_callbacks
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        y: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        fine_tuning: bool
-            Set to True to use the default training parameters for fine
-            tuning. False by default.
-        shuffle_before_fit: bool
-            If True, the data will be shuffled before training just once. Note
-            that if you use the keras native argument 'shuffle', the data is
-            shuffled each epoch.
-        kwargs:
-            Key-value arguments will be passed to the fit function of the model.
-            This way, you can set your own training parameters using keras API.
-            See https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-        """
-        # Check numpy arrays
-        X = np.array(X)
-        y = np.array(y)
-        # Check GPU
-        if not tensorflow_integration.check_gpu_acceleration():
-            warnings.warn('GPU acceleration is not available. The training '
-                          'time is drastically reduced with GPU.')
-        # Shuffle the data before fitting
-        if shuffle_before_fit:
-            X, y = sk_utils.shuffle(X, y)
-        # Training parameters
-        if not fine_tuning:
-            # Rewrite default values
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 500
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 1024
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.training_callbacks
         else:
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 100
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 32
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.fine_tuning_callbacks
+            return X
 
-        # Transform data if necessary
+    def fit(self, X, y, validation_data=None, validation_split=None,
+            verbose=True, **kwargs):
+        # Check GPU
+        if not pytorch_integration.check_gpu_acceleration():
+            pytorch_integration.warn_gpu_not_available()
+        # Check dimensions and transform data if necessary
         X, y = self.transform_data(X, y)
-        # Fit
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            return self.model.fit(X, y, **kwargs)
+        # Create dataset and optionally split into training and validation
+        dataset = TensorDataset(X, y)
+        # Use validation_data if provided
+        if validation_data is not None:
+            validation = True
+            X_val, y_val = validation_data
+            X_val, y_val = self.transform_data(X_val, y_val)
+            val_dataset = TensorDataset(X_val, y_val)
+            train_dataset = dataset
+            train_size = len(dataset)
+        elif validation_split is not None:
+            validation = True
+            assert 0 < validation_split < 1, "Validation split must be between 0 and 1."
+            val_size = int(len(dataset) * validation_split)
+            train_size = len(dataset) - val_size
+            train_dataset, val_dataset = random_split(dataset,
+                                                      [train_size, val_size])
+        else:
+            validation = False
+            train_dataset = dataset
+            train_size = len(dataset)
+        # Get training info from kwargs
+        batch_size = kwargs.get("batch_size", max(train_size // 16, 1024))
+        shuffle = kwargs.get("shuffle", True)
+        epochs = kwargs.get('epochs', 500)
+        # Create DataLoaders
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=shuffle)
+        if validation:
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=shuffle)
+        # Set optimizer
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.learning_rate)
+        criterion = nn.CrossEntropyLoss()
+        # Set early stopping
+        early_stopping = EarlyStopping(mode='min',
+                                       min_delta=0.005,
+                                       patience=10,
+                                       verbose=False)
+        # Send model to device
+        self.model.to(self.device)
+        # Training loop
+        for n_epoch, epoch in enumerate(range(epochs)):
+            # Train phase
+            self.model.train()
+            train_loss = 0.0
+            # Batches
+            loop = tqdm(train_loader)
+            for n_batch, (inputs, labels) in enumerate(loop):
+                # Send data to device
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                # Training phase
+                optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+                # Print info
+                if n_batch + 1 < len(loop):
+                    if verbose:
+                        loop.set_description(f'Epoch [{epoch + 1}/{epochs}]')
+                        loop.set_postfix(train_loss=train_loss / (n_batch + 1))
+                else:
+                    if validation:
+                        self.model.eval()
+                        val_loss = 0.0
+                        with torch.no_grad():
+                            for inputs, labels in val_loader:
+                                # Send data to device
+                                inputs = inputs.to(self.device)
+                                labels = labels.to(self.device)
+                                # Validation phase
+                                outputs = self.model(inputs)
+                                loss = criterion(outputs, labels)
+                                val_loss += loss.item()
+                        train_loss /= len(train_loader)
+                        val_loss /= len(val_loader)
+                        if verbose:
+                            loop.set_description(
+                                f'Epoch [{epoch + 1}/{epochs}]')
+                            loop.set_postfix(train_loss=f'{train_loss:.4f}',
+                                             val_loss=f'{val_loss:.4f}')
+                    else:
+                        train_loss /= len(train_loader)
+                        if verbose:
+                            loop.set_description(
+                                f'Epoch [{epoch + 1}/{epochs}]')
+                            loop.set_postfix(train_loss=f'{train_loss:.4f}')
+            # Check early stopping
+            monitored_loss = val_loss if validation else train_loss
+            stop, best_params = early_stopping.check_epoch(
+                n_epoch, monitored_loss, self.get_weights())
+            if stop:
+                self.set_weights(best_params)
+                print(f"Early stopping triggered at epoch "
+                      f"{n_epoch + 1}. Best weights restored.")
+                break
 
     def predict_proba(self, X):
-        """Model prediction scores for the given features.
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        """
-        # Check numpy arrays
-        X = np.array(X)
-        # Transform data if necessary
-        X = self.transform_data(X)
+        # Transform data
+        X = self.transform_data(X).to(self.device)
         # Predict
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            return self.model.predict(X)
+        self.model.to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(X)
+            return torch.exp(outputs).to('cpu').numpy()
 
     def to_pickleable_obj(self):
         # Parameters
@@ -300,11 +329,10 @@ class EEGInceptionv1(components.ProcessingMethod):
             'filters_per_branch': self.filters_per_branch,
             'scales_time': self.scales_time,
             'dropout_rate': self.dropout_rate,
-            'activation': self.activation,
             'n_classes': self.n_classes,
             'learning_rate': self.learning_rate,
         }
-        weights = self.model.get_weights()
+        weights = self.get_weights()
         # Pickleable object
         pickleable_obj = {
             'kwargs': kwargs,
@@ -314,22 +342,24 @@ class EEGInceptionv1(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
-        pickleable_obj['kwargs']['gpu_acceleration'] = None
+        pickleable_obj['kwargs']['device_name'] = None
         model = cls(**pickleable_obj['kwargs'])
-        model.model.set_weights(pickleable_obj['weights'])
+        model.set_weights(pickleable_obj['weights'])
         return model
 
     def set_weights(self, weights):
-        return self.model.set_weights(weights)
+        if not isinstance(weights, dict):
+            raise TypeError("Weights must be a state dictionary (OrderedDict).")
+        self.model.load_state_dict(weights)
 
     def get_weights(self):
-        return self.model.get_weights()
+        return self.model.state_dict()
 
     def save_weights(self, path):
-        return self.model.save_weights(path)
+        torch.save(self.model.state_dict(), path)
 
-    def load_weights(self, weights_path):
-        return self.model.load_weights(weights_path)
+    def load_weights(self, path):
+        self.model.load_state_dict(torch.load(path))
 
 
 class EEGNet(components.ProcessingMethod):
@@ -345,25 +375,20 @@ class EEGNet(components.ProcessingMethod):
     for EEG-based brain–computer interfaces. Journal of neural engineering,
     15(5), 056013.
     """
-    def __init__(self, nb_classes, n_cha=64, samples=128, dropout_rate=0.5,
+
+    def __init__(self, n_classes, n_cha=64, samples=128, dropout_rate=0.5,
                  kern_length=64, F1=8, D=2, F2=16, norm_rate=0.25,
-                 dropout_type='Dropout', learning_rate=0.001,
-                 gpu_acceleration=None):
+                 dropout_type='Dropout', learning_rate=0.001, device_name=None):
 
         # Super call
         super().__init__(fit=[], predict_proba=['y_pred'])
 
-        # Tensorflow config
-        if gpu_acceleration is None:
-            tensorflow_integration.check_tf_config(autoconfig=True)
-        else:
-            tensorflow_integration.config_tensorflow(gpu_acceleration)
-        if tensorflow_integration.check_gpu_acceleration():
-            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-        tf.keras.backend.set_image_data_format('channels_last')
+        # Pytorch config
+        self.device = pytorch_integration.config_pytorch(
+            device_name=device_name)
 
         # Parameters
-        self.nb_classes = nb_classes
+        self.n_classes = n_classes
         self.n_cha = n_cha
         self.samples = samples
         self.dropout_rate = dropout_rate
@@ -375,32 +400,20 @@ class EEGNet(components.ProcessingMethod):
         self.dropout_type = dropout_type
         self.learning_rate = learning_rate
 
-        # Create model
-        self.model = self.__keras_model()
+        # Initialize model
+        self.model = self.__PtModel(n_classes=self.n_classes,
+                                    n_cha=self.n_cha,
+                                    samples=self.samples,
+                                    dropout_rate=self.dropout_rate,
+                                    kern_length=self.kern_length,
+                                    F1=self.F1,
+                                    D=self.D,
+                                    F2=self.F2,
+                                    norm_rate=self.norm_rate,
+                                    dropout_type=self.dropout_type)
 
-        # Create training callbacks
-        self.training_callbacks = list()
-        self.training_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.001,
-                          mode='min',
-                          patience=20,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
-        # Create fine-tuning callbacks
-        self.fine_tuning_callbacks = list()
-        self.fine_tuning_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.0001,
-                          mode='min',
-                          patience=10,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
-
-    def __keras_model(self):
-        """ Keras Implementation of EEGNet
+    class __PtModel(nn.Module):
+        """ Pytorch Implementation of EEGNet
         http://iopscience.iop.org/article/10.1088/1741-2552/aace8c/meta
         Note that this implements the newest version of EEGNet and NOT the
         earlier version (version v1 and v2 on arxiv). We strongly recommend
@@ -444,74 +457,149 @@ class EEGNet(components.ProcessingMethod):
         and F2 > F1 * D for overcomplete). We believe the main parameters to
         focus on are F1 and D.
 
-        Inputs:
-
-          nb_classes      : int, number of classes to classify
-          Chans, Samples  : number of channels and time points in the EEG data
-          dropoutRate     : dropout fraction
-          kernLength      : length of temporal convolution in first layer. We
-                            found that setting this to be half the sampling
-                            rate worked well in practice. For the SMR dataset in
-                            particular since the data was high-passed at 4Hz
-                            we used a kernel length of 32.
-          F1, F2          : number of temporal filters (F1) and number of
-                            pointwise filters (F2) to learn. Default: F1 = 8,
-                            F2 = F1 * D.
-          D               : number of spatial filters to learn within each
-                            temporal convolution. Default: D = 2
-          dropoutType     : Either SpatialDropout2D or Dropout, passed as a
-                            string.
+        Parameters:
+              n_classes    : int, number of classes to classify
+              n_cha        : int, number of EEG channels
+              samples      : int, number of time points in the EEG data
+              dropout_rate : float, dropout fraction
+              kern_length  : int, length of the temporal convolution kernel in block 1
+              F1           : int, number of temporal filters (first conv layer)
+              D            : int, number of spatial filters per temporal filter (depth multiplier)
+              F2           : int, number of pointwise filters in the separable conv (often F2 = F1 * D)
+              norm_rate    : float, maximum norm constraint value (note: not automatically enforced)
+              dropout_type : string, either 'SpatialDropout2D' or 'Dropout'
         """
 
-        if self.dropout_type == 'SpatialDropout2D':
-            dropout_type = SpatialDropout2D
-        elif self.dropout_type == 'Dropout':
-            dropout_type = Dropout
-        else:
-            raise ValueError('dropoutType must be one of SpatialDropout2D '
-                             'or Dropout, passed as a string.')
+        def __init__(self, n_classes, n_cha, samples, dropout_rate,
+                     kern_length,
+                     F1, D, F2, norm_rate, dropout_type='Dropout'):
 
-        input1 = Input(shape=(self.n_cha, self.samples, 1))
+            super().__init__()
 
-        ##################################################################
-        block1 = Conv2D(self.F1, (1, self.kern_length), padding='same',
-                        input_shape=(self.n_cha, self.samples, 1),
-                        use_bias=False)(input1)
-        block1 = BatchNormalization()(block1)
-        block1 = DepthwiseConv2D((self.n_cha, 1), use_bias=False,
-                                 depth_multiplier=self.D,
-                                 depthwise_constraint=max_norm(1.))(block1)
-        block1 = BatchNormalization()(block1)
-        block1 = Activation('elu')(block1)
-        block1 = AveragePooling2D((1, 4))(block1)
-        block1 = dropout_type(self.dropout_rate)(block1)
+            self.n_classes = n_classes
+            self.n_cha = n_cha
+            self.samples = samples
+            self.dropout_rate = dropout_rate
+            self.kern_length = kern_length
+            self.F1 = F1
+            self.D = D
+            self.F2 = F2
+            self.norm_rate = norm_rate
+            self.dropout_type = dropout_type
 
-        block2 = SeparableConv2D(self.F2, (1, 16),
-                                 use_bias=False, padding='same')(block1)
-        block2 = BatchNormalization()(block2)
-        block2 = Activation('elu')(block2)
-        block2 = AveragePooling2D((1, 8))(block2)
-        block2 = dropout_type(self.dropout_rate)(block2)
+            # Choose the dropout layer type: Dropout2d mimics SpatialDropout2D
+            if dropout_type == 'SpatialDropout2D':
+                dropout_layer = nn.Dropout2d
+            elif dropout_type == 'Dropout':
+                dropout_layer = nn.Dropout
+            else:
+                raise ValueError(
+                    "dropoutType must be one of 'SpatialDropout2D' or 'Dropout'.")
 
-        flatten = Flatten(name='flatten')(block2)
+            # ---------------------
+            # Block 1: Temporal + Depthwise Convolution
+            # ---------------------
+            # Input expected shape: (batch, 1, n_cha, samples)
+            # 1. Temporal convolution with kernel size (1, kern_length)
+            self.conv1 = nn.Conv2d(
+                in_channels=1,
+                out_channels=F1,
+                kernel_size=(kern_length, 1),
+                padding='same',
+                # requires PyTorch 1.10+; otherwise compute appropriate padding
+                bias=False
+            )
+            self.bn1 = nn.BatchNorm2d(F1)
 
-        dense = Dense(self.nb_classes, name='dense',
-                      kernel_constraint=max_norm(self.norm_rate))(flatten)
-        softmax = Activation('softmax', name='softmax')(dense)
+            # 2. Depthwise convolution to learn spatial filters.
+            #    Here, groups=F1 makes this a depthwise conv, and we set out_channels = F1 * D.
+            self.depthwise = nn.Conv2d(
+                in_channels=F1,
+                out_channels=F1 * D,
+                kernel_size=(1, n_cha),
+                bias=False,
+                groups=F1
+            )
+            self.bn2 = nn.BatchNorm2d(F1 * D)
+            self.elu1 = nn.ELU()
+            self.pool1 = nn.AvgPool2d(kernel_size=(4, 1))
+            self.dropout1 = dropout_layer(dropout_rate)
 
-        # Create and compile model
-        model = keras.models.Model(inputs=input1, outputs=softmax)
-        optimizer = keras.optimizers.Adam(learning_rate=self.learning_rate,
-                                          beta_1=0.9, beta_2=0.999,
-                                          amsgrad=False)
-        model.compile(loss='categorical_crossentropy',
-                      optimizer=optimizer,
-                      metrics=['accuracy'])
+            # ---------------------
+            # Block 2: Separable Convolution
+            # ---------------------
+            # Separable conv = depthwise conv followed by a pointwise conv.
+            # The depthwise part:
+            self.depthwise2 = nn.Conv2d(
+                in_channels=F1 * D,
+                out_channels=F1 * D,
+                kernel_size=(16, 1),
+                padding='same',  # same padding to preserve the time dimension
+                groups=F1 * D,
+                bias=False
+            )
+            # The pointwise part:
+            self.pointwise2 = nn.Conv2d(
+                in_channels=F1 * D,
+                out_channels=F2,
+                kernel_size=(1, 1),
+                bias=False
+            )
+            self.bn3 = nn.BatchNorm2d(F2)
+            self.elu2 = nn.ELU()
+            self.pool2 = nn.AvgPool2d(kernel_size=(8, 1))
+            self.dropout2 = dropout_layer(dropout_rate)
 
-        return model
+            # ---------------------
+            # Fully Connected Layer
+            # ---------------------
+            # After Block 1:
+            #   - The temporal dimension (width) becomes samples / 4 (via AvgPool2d with kernel (1,4)).
+            # After Block 2:
+            #   - The temporal dimension becomes (samples/4) / 8 = samples/32.
+            # The output of block2 has shape (batch, F2, 1, samples/32), so the flattened
+            # feature size is F2 * (samples // 32).
+            self.flatten = nn.Flatten()
+            self.fc = nn.Linear(in_features=F2 * (samples // 32),
+                                out_features=n_classes)
 
-    @staticmethod
-    def transform_data(X, y=None):
+        def forward(self, x):
+            # x should have shape: (batch, 1, n_cha, samples)
+            # ---------------------
+            # Block 1
+            # ---------------------
+            x = self.conv1(x)  # Shape: (batch, F1, n_cha, samples)
+            x = self.bn1(x)
+            x = self.depthwise(
+                x)  # Convolution across all channels; shape becomes (batch, F1*D, 1, samples)
+            x = self.bn2(x)
+            x = self.elu1(x)
+            x = self.pool1(
+                x)  # Reduces the temporal dimension: shape -> (batch, F1*D, 1, samples/4)
+            x = self.dropout1(x)
+
+            # ---------------------
+            # Block 2
+            # ---------------------
+            x = self.depthwise2(
+                x)  # Depthwise part of separable conv; shape remains (batch, F1*D, 1, samples/4)
+            x = self.pointwise2(
+                x)  # Pointwise conv; shape: (batch, F2, 1, samples/4)
+            x = self.bn3(x)
+            x = self.elu2(x)
+            x = self.pool2(
+                x)  # Further reduces the temporal dimension: (batch, F2, 1, samples/32)
+            x = self.dropout2(x)
+
+            # ---------------------
+            # Fully Connected Classification Layer
+            # ---------------------
+            x = self.flatten(x)  # Flatten to shape: (batch, F2 * (samples//32))
+            x = self.fc(x)
+
+            return F.log_softmax(x, dim=1)
+
+    def transform_data(self, X, y=None):
         """Transforms input data to the correct dimensions for EEG-Inception
 
         Parameters
@@ -524,105 +612,158 @@ class EEGNet(components.ProcessingMethod):
             Labels array. If labels are in categorical format, they will be
             converted to one-hot encoding.
         """
-        if len(X.shape) == 3 or X.shape[-1] != 1:
-            X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
-            X = np.swapaxes(X, 1, 2)
-        if y is None:
-            return X
-        else:
-            if len(y.shape) == 1 or y.shape[-1] == 1:
-                y = classification_utils.one_hot_labels(y)
+        # Convert X to numpy array if not already
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+
+        # Transform X
+        if len(X.shape) == 3:
+            X = np.expand_dims(X, axis=1)
+        X = torch.tensor(X, dtype=torch.float32)
+
+        # Check dimensions
+        assert len(X.shape) == 4, ("X must be a 4D tensor "
+                                   "(n_observ x 1 x n_samples x n_channels)")
+
+        # Transform y if provided
+        if y is not None:
+            # Convert y to numpy array if not already
+            if not isinstance(y, np.ndarray):
+                y = np.array(y)
+
+            if len(y.shape) == 1:
+                y = np.expand_dims(y, axis=-1)
+            if y.shape[1] != self.n_classes:
+                y = one_hot_labels(y)
+            y = torch.tensor(y, dtype=torch.float32)
+
+            # Check dimensions
+            assert len(y.shape) == 2, "y must be a 2D tensor (n_observ x 1)"
             return X, y
-
-    def fit(self, X, y, fine_tuning=False, shuffle_before_fit=False, **kwargs):
-        """Fit the model. All additional keras parameters of class
-        tensorflow.keras.Model will pass through. See keras documentation to
-        know what can you do: https://keras.io/api/models/model_training_apis/.
-
-        If no parameters are specified, some default options are set [1]:
-
-            - Epochs: 100 if fine_tuning else 500
-            - Batch size: 32 if fine_tuning else 1024
-            - Callbacks: self.fine_tuning_callbacks if fine_tuning else
-                self.training_callbacks
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        y: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        fine_tuning: bool
-            Set to True to use the default training parameters for fine
-            tuning. False by default.
-        shuffle_before_fit: bool
-            If True, the data will be shuffled before training.
-        kwargs:
-            Key-value arguments will be passed to the fit function of the model.
-            This way, you can set your own training parameters for keras.
-            See https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-        """
-        # Check numpy arrays
-        X = np.array(X)
-        y = np.array(y)
-        # Check GPU
-        if not tensorflow_integration.check_gpu_acceleration():
-            warnings.warn('GPU acceleration is not available. The training '
-                          'time is drastically reduced with GPU.')
-
-        # Shuffle the data before fitting
-        if shuffle_before_fit:
-            X, y = sk_utils.shuffle(X, y)
-
-        # Training parameters
-        if not fine_tuning:
-            # Rewrite default values
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 500
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 1024
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.training_callbacks
         else:
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 100
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 32
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.fine_tuning_callbacks
+            return X
 
-        # Transform data if necessary
+    def fit(self, X, y, validation_data=None, validation_split=None,
+            verbose=True, **kwargs):
+        # Check GPU
+        if not pytorch_integration.check_gpu_acceleration():
+            pytorch_integration.warn_gpu_not_available()
+        # Check dimensions and transform data if necessary
         X, y = self.transform_data(X, y)
-        # Fit
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            return self.model.fit(X, y, **kwargs)
+        # Create dataset and optionally split into training and validation
+        dataset = TensorDataset(X, y)
+        # Use validation_data if provided
+        if validation_data is not None:
+            validation = True
+            X_val, y_val = validation_data
+            X_val, y_val = self.transform_data(X_val, y_val)
+            val_dataset = TensorDataset(X_val, y_val)
+            train_dataset = dataset
+            train_size = len(dataset)
+        elif validation_split is not None:
+            validation = True
+            assert 0 < validation_split < 1, "Validation split must be between 0 and 1."
+            val_size = int(len(dataset) * validation_split)
+            train_size = len(dataset) - val_size
+            train_dataset, val_dataset = random_split(dataset,
+                                                      [train_size, val_size])
+        else:
+            validation = False
+            train_dataset = dataset
+            train_size = len(dataset)
+        # Get training info from kwargs
+        batch_size = kwargs.get("batch_size", max(train_size // 16, 1024))
+        shuffle = kwargs.get("shuffle", True)
+        epochs = kwargs.get('epochs', 500)
+        # Create DataLoaders
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=shuffle)
+        if validation:
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=shuffle)
+        # Set optimizer
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.learning_rate)
+        criterion = nn.CrossEntropyLoss()
+        # Set early stopping
+        early_stopping = EarlyStopping(mode='min',
+                                       min_delta=0.005,
+                                       patience=10,
+                                       verbose=False)
+        # Send model to device
+        self.model.to(self.device)
+        # Training loop
+        for n_epoch, epoch in enumerate(range(epochs)):
+            # Train phase
+            self.model.train()
+            train_loss = 0.0
+            # Batches
+            loop = tqdm(train_loader)
+            for n_batch, (inputs, labels) in enumerate(loop):
+                # Send data to device
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                # Training phase
+                optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+                # Print info
+                if n_batch + 1 < len(loop):
+                    if verbose:
+                        loop.set_description(f'Epoch [{epoch + 1}/{epochs}]')
+                        loop.set_postfix(train_loss=train_loss / (n_batch + 1))
+                else:
+                    if validation:
+                        self.model.eval()
+                        val_loss = 0.0
+                        with torch.no_grad():
+                            for inputs, labels in val_loader:
+                                # Send data to device
+                                inputs = inputs.to(self.device)
+                                labels = labels.to(self.device)
+                                # Validation phase
+                                outputs = self.model(inputs)
+                                loss = criterion(outputs, labels)
+                                val_loss += loss.item()
+                        train_loss /= len(train_loader)
+                        val_loss /= len(val_loader)
+                        if verbose:
+                            loop.set_description(
+                                f'Epoch [{epoch + 1}/{epochs}]')
+                            loop.set_postfix(train_loss=f'{train_loss:.4f}',
+                                             val_loss=f'{val_loss:.4f}')
+                    else:
+                        train_loss /= len(train_loader)
+                        if verbose:
+                            loop.set_description(
+                                f'Epoch [{epoch + 1}/{epochs}]')
+                            loop.set_postfix(train_loss=f'{train_loss:.4f}')
+            # Check early stopping
+            monitored_loss = val_loss if validation else train_loss
+            stop, best_params = early_stopping.check_epoch(
+                n_epoch, monitored_loss, self.get_weights())
+            if stop:
+                self.set_weights(best_params)
+                print(f"Early stopping triggered at epoch "
+                      f"{n_epoch + 1}. Best weights restored.")
+                break
 
     def predict_proba(self, X):
-        """Model prediction scores for the given features.
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        """
-        # Check numpy arrays
-        X = np.array(X)
-        # Transform data if necessary
-        X = self.transform_data(X)
+        # Transform data
+        X = self.transform_data(X).to(self.device)
         # Predict
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            return self.model.predict(X)
+        self.model.to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(X)
+            return torch.exp(outputs).to('cpu').numpy()
 
     def to_pickleable_obj(self):
         # Key data
         kwargs = {
-            'nb_classes': self.nb_classes,
+            'n_classes': self.n_classes,
             'n_cha': self.n_cha,
             'samples': self.samples,
             'dropout_rate': self.dropout_rate,
@@ -634,7 +775,7 @@ class EEGNet(components.ProcessingMethod):
             'dropout_type': self.dropout_type,
             'learning_rate': self.learning_rate
         }
-        weights = self.model.get_weights()
+        weights = self.get_weights()
         # Pickleable object
         pickleable_obj = {
             'kwargs': kwargs,
@@ -644,918 +785,21 @@ class EEGNet(components.ProcessingMethod):
 
     @classmethod
     def from_pickleable_obj(cls, pickleable_obj):
-        pickleable_obj['kwargs']['gpu_acceleration'] = None
+        pickleable_obj['kwargs']['device_name'] = None
         model = cls(**pickleable_obj['kwargs'])
-        model.model.set_weights(pickleable_obj['weights'])
+        model.set_weights(pickleable_obj['weights'])
         return model
 
     def set_weights(self, weights):
-        return self.model.set_weights(weights)
+        if not isinstance(weights, dict):
+            raise TypeError("Weights must be a state dictionary (OrderedDict).")
+        self.model.load_state_dict(weights)
 
     def get_weights(self):
-        return self.model.get_weights()
+        return self.model.state_dict()
 
     def save_weights(self, path):
-        return self.model.save_weights(path)
+        torch.save(self.model.state_dict(), path)
 
-    def load_weights(self, weights_path):
-        return self.model.load_weights(weights_path)
-
-
-class EEGSym(components.ProcessingMethod):
-    """EEGSym as described in Pérez-Velasco et al. 2022 [1]. This
-    model is specifically designed for EEG classification tasks.
-
-    References
-    ----------
-    [1] Pérez-Velasco, S., Santamaría-Vázquez, E., Martínez-Cagigal, V.,
-    Marcos-Martínez, D., & Hornero, R. (2022). EEGSym: Overcoming Intersubject
-    Variability in Motor Imagery Based BCIs with Deep Learning. IEEE
-    Transactions on Neural Systems and Rehabilitation Engineering.
-    """
-    def __init__(self, input_time=3000, fs=128, n_cha=8, filters_per_branch=24,
-           scales_time=(500, 250, 125), dropout_rate=0.4, activation='elu',
-           n_classes=2, learning_rate=0.001, ch_lateral=3,
-           spatial_resnet_repetitions=1, residual=True, symmetric=True,
-                 gpu_acceleration=False):
-        # Super call
-        super().__init__(fit=[], predict_proba=['y_pred'])
-
-        # Tensorflow config
-        if gpu_acceleration is None:
-            tensorflow_integration.check_tf_config(autoconfig=True)
-        else:
-            tensorflow_integration.config_tensorflow(gpu_acceleration)
-        if tensorflow_integration.check_gpu_acceleration():
-            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-        tf.keras.backend.set_image_data_format('channels_last')
-
-        # Parameters
-        self.input_time = input_time
-        self.fs = fs
-        self.n_cha = n_cha
-        self.filters_per_branch = filters_per_branch
-        self.scales_time = scales_time
-        self.dropout_rate = dropout_rate
-        self.activation = activation
-        self.n_classes = n_classes
-        self.learning_rate = learning_rate
-        self.ch_lateral = ch_lateral
-        self.spatial_resnet_repetitions = spatial_resnet_repetitions
-        self.residual = residual
-        self.symmetric = symmetric
-        self.initialized = False
-
-        # Useful variables
-        self.input_samples = int(input_time * fs / 1000)
-        self.scales_samples = [int(s * fs / 1000) for s in scales_time]
-
-        # Create model
-        self.model = self.__keras_model()
-        # Create training callbacks
-        self.training_callbacks = list()
-        self.training_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.001,
-                          mode='min',
-                          patience=20,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
-        # Create fine-tuning callbacks
-        self.fine_tuning_callbacks = list()
-        self.fine_tuning_callbacks.append(
-            EarlyStopping(monitor='val_loss',
-                          min_delta=0.0001,
-                          mode='min',
-                          patience=10,
-                          verbose=1,
-                          restore_best_weights=True)
-        )
-
-    def __keras_model(self):
-        # ============================= INPUT ================================ #
-        # ==================================================================== #
-        input_layer = Input((self.input_samples, self.n_cha, 1))
-        input = tf.expand_dims(input_layer, axis=1)
-        ncha = self.n_cha
-        if self.symmetric:
-            superposition = False
-            if self.ch_lateral < self.n_cha // 2:
-                superposition = True
-            ncha = self.n_cha - self.ch_lateral
-
-            left_idx = list(range(self.ch_lateral))
-            ch_left = tf.gather(input, indices=left_idx, axis=-2)
-            right_idx = list(np.array(left_idx) + int(ncha))
-            ch_right = tf.gather(input, indices=right_idx, axis=-2)
-
-            if superposition:
-                central_idx = list(
-                    np.array(range(ncha - self.ch_lateral)) +
-                    self.ch_lateral)
-                ch_central = tf.gather(input, indices=central_idx, axis=-2)
-
-                left_init = keras.layers.concatenate((ch_left, ch_central),
-                                                     axis=-2)
-                right_init = keras.layers.concatenate((ch_right, ch_central),
-                                                      axis=-2)
-            else:
-                left_init = ch_left
-                right_init = ch_right
-
-            input = keras.layers.concatenate((left_init, right_init), axis=1)
-            division = 2
-        else:
-            division = 1
-        # ================ GENERAL INCEPTION/RESIDUAL MODULE ================= #
-        # ==================================================================== #
-
-        # ====================== TEMPOSPATIAL ANALYSIS ======================= #
-        # ==================================================================== #
-        # ========================== Inception (x2) ========================== #
-        b1_out = self.general_module([input],
-                                scales_samples=self.scales_samples,
-                                filters_per_branch=self.filters_per_branch,
-                                ncha=ncha,
-                                activation=self.activation,
-                                dropout_rate=self.dropout_rate, average=2,
-                                spatial_resnet_repetitions=
-                                self.spatial_resnet_repetitions,
-                                residual=self.residual, init=True)
-
-        b2_out = self.general_module(b1_out, scales_samples=[int(x / 4) for x in
-                                                        self.scales_samples],
-                                filters_per_branch=self.filters_per_branch,
-                                ncha=ncha,
-                                activation=self.activation,
-                                dropout_rate=self.dropout_rate, average=2,
-                                spatial_resnet_repetitions=
-                                self.spatial_resnet_repetitions,
-                                residual=self.residual)
-        # ============================== Residual (x3) =========================== #
-        b3_u1 = self.general_module(b2_out, scales_samples=[16],
-                               filters_per_branch=int(
-                                   self.filters_per_branch * len(
-                                       self.scales_samples) / 2),
-                               ncha=ncha,
-                               activation=self.activation,
-                               dropout_rate=self.dropout_rate, average=2,
-                               spatial_resnet_repetitions=
-                               self.spatial_resnet_repetitions,
-                               residual=self.residual)
-        b3_u1 = self.general_module(b3_u1,
-                               scales_samples=[8],
-                               filters_per_branch=int(
-                                   self.filters_per_branch * len(
-                                       self.scales_samples) / 2),
-                               ncha=ncha,
-                               activation=self.activation,
-                               dropout_rate=self.dropout_rate, average=2,
-                               spatial_resnet_repetitions=
-                               self.spatial_resnet_repetitions,
-                               residual=self.residual)
-        b3_u2 = self.general_module(b3_u1, scales_samples=[4],
-                               filters_per_branch=int(
-                                   self.filters_per_branch * len(
-                                       self.scales_samples) / 4),
-                               ncha=ncha,
-                               activation=self.activation,
-                               dropout_rate=self.dropout_rate, average=2,
-                               spatial_resnet_repetitions=
-                               self.spatial_resnet_repetitions,
-                               residual=self.residual)
-
-        t_red = b3_u2[0]
-        for _ in range(1):
-            t_red_temp = t_red
-            t_red_temp = Conv3D(kernel_size=(1, 4, 1),
-                                filters=int(self.filters_per_branch * len(
-                                    self.scales_samples) / 4),
-                                use_bias=False,
-                                strides=(1, 1, 1),
-                                kernel_initializer='he_normal',
-                                padding='same')(t_red_temp)
-            t_red_temp = BatchNormalization()(t_red_temp)
-            t_red_temp = Activation(self.activation)(t_red_temp)
-            t_red_temp = Dropout(self.dropout_rate)(t_red_temp)
-
-            if self.residual:
-                t_red = Add()([t_red, t_red_temp])
-            else:
-                t_red = t_red_temp
-
-        t_red = AveragePooling3D((1, 2, 1))(t_red)
-        # ========================= CHANNEL MERGING ========================== #
-        # ==================================================================== #
-        ch_merg = t_red
-        if self.residual:
-            for _ in range(2):
-                ch_merg_temp = ch_merg
-                ch_merg_temp = Conv3D(kernel_size=(division, 1, ncha),
-                                      filters=int(self.filters_per_branch * len(
-                                          self.scales_samples) / 4),
-                                      use_bias=False,
-                                      strides=(1, 1, 1),
-                                      kernel_initializer='he_normal',
-                                      padding='valid')(ch_merg_temp)
-                ch_merg_temp = BatchNormalization()(ch_merg_temp)
-                ch_merg_temp = Activation(self.activation)(ch_merg_temp)
-                ch_merg_temp = Dropout(self.dropout_rate)(ch_merg_temp)
-
-                ch_merg = Add()([ch_merg, ch_merg_temp])
-
-            ch_merg = Conv3D(kernel_size=(division, 1, ncha),
-                             filters=int(
-                                 self.filters_per_branch * len(
-                                     self.scales_samples) / 4),
-                             groups=int(
-                                 self.filters_per_branch * len(
-                                     self.scales_samples) / 8),
-                             use_bias=False,
-                             padding='valid')(ch_merg)
-            ch_merg = BatchNormalization()(ch_merg)
-            ch_merg = Activation(self.activation)(ch_merg)
-            ch_merg = Dropout(self.dropout_rate)(ch_merg)
-        else:
-            if self.symmetric:
-                ch_merg = Conv3D(kernel_size=(division, 1, 1),
-                                 filters=int(
-                                     self.filters_per_branch * len(
-                                         self.scales_samples) / 4),
-                                 groups=int(
-                                     self.filters_per_branch * len(
-                                         self.scales_samples) / 8),
-                                 use_bias=False,
-                                 padding='valid')(ch_merg)
-                ch_merg = BatchNormalization()(ch_merg)
-                ch_merg = Activation(self.activation)(ch_merg)
-                ch_merg = Dropout(self.dropout_rate)(ch_merg)
-        # ========================== TEMPORAL MERGING ============================ #
-        # ======================================================================== #
-        t_merg = ch_merg
-        for _ in range(1):
-            if self.residual:
-                t_merg_temp = t_merg
-                t_merg_temp = Conv3D(kernel_size=(1, self.input_samples // 64,
-                                                  1),
-                                     filters=int(self.filters_per_branch * len(
-                                         self.scales_samples) / 4),
-                                     use_bias=False,
-                                     strides=(1, 1, 1),
-                                     kernel_initializer='he_normal',
-                                     padding='valid')(t_merg_temp)
-                t_merg_temp = BatchNormalization()(t_merg_temp)
-                t_merg_temp = Activation(self.activation)(t_merg_temp)
-                t_merg_temp = Dropout(self.dropout_rate)(t_merg_temp)
-
-                t_merg = Add()([t_merg, t_merg_temp])
-            else:
-                t_merg_temp = t_merg
-                t_merg_temp = Conv3D(kernel_size=(1, self.input_samples // 64, 1),
-                                     filters=int(self.filters_per_branch * len(
-                                         self.scales_samples) / 4),
-                                     use_bias=False,
-                                     strides=(1, 1, 1),
-                                     kernel_initializer='he_normal',
-                                     padding='same')(t_merg_temp)
-                t_merg_temp = BatchNormalization()(t_merg_temp)
-                t_merg_temp = Activation(self.activation)(t_merg_temp)
-                t_merg_temp = Dropout(self.dropout_rate)(t_merg_temp)
-                t_merg = t_merg_temp
-
-        t_merg = Conv3D(kernel_size=(1, self.input_samples // 64, 1),
-                        filters=int(
-                            self.filters_per_branch * len(
-                                self.scales_samples) / 4) * 2,
-                        groups=int(
-                            self.filters_per_branch * len(
-                                self.scales_samples) / 4),
-                        use_bias=False,
-                        padding='valid')(t_merg)
-        t_merg = BatchNormalization()(t_merg)
-        t_merg = Activation(self.activation)(t_merg)
-        t_merg = Dropout(self.dropout_rate)(t_merg)
-        # =============================== OUTPUT ================================= #
-        output = t_merg
-        for _ in range(4):
-            output_temp = output
-            output_temp = Conv3D(kernel_size=(1, 1, 1),
-                                 filters=int(self.filters_per_branch * len(
-                                     self.scales_samples) / 2),
-                                 use_bias=False,
-                                 strides=(1, 1, 1),
-                                 kernel_initializer='he_normal',
-                                 padding='valid')(output_temp)
-            output_temp = BatchNormalization()(output_temp)
-            output_temp = Activation(self.activation)(output_temp)
-            output_temp = Dropout(self.dropout_rate)(output_temp)
-            if self.residual:
-                output = Add()([output, output_temp])
-            else:
-                output = output_temp
-        output = Flatten()(output)
-        output_layer = Dense(self.n_classes, activation='softmax')(output)
-        # ============================ MODEL ================================= #
-        # Optimizer
-        optimizer = keras.optimizers.Adam(learning_rate=self.learning_rate,
-                                          beta_1=0.9, beta_2=0.999,
-                                          amsgrad=False)
-        # Create and compile model
-        model = keras.models.Model(inputs=input_layer,
-                                   outputs=output_layer)
-        model.compile(loss='categorical_crossentropy',
-                      optimizer=optimizer,
-                      metrics=['accuracy'])
-
-        return model
-
-    @staticmethod
-    def general_module(input, scales_samples, filters_per_branch, ncha,
-                       activation, dropout_rate, average,
-                       spatial_resnet_repetitions=1, residual=True,
-                       init=False):
-        """General inception/residual module.
-
-            This function returns the input with the operations of a
-            inception or residual module from the publication applied.
-
-            Parameters
-            ----------
-            input : list
-                List of input blocks to the module.
-            scales_samples : list
-                List of samples size of the temporal operations kernels.
-            filters_per_branch : int
-                Number of filters in each Inception branch. The number should be
-                multiplies of 8.
-            ncha :
-                Number of input channels.
-            activation : str
-                Activation
-            dropout_rate : float
-                Dropout rate
-            spatial_resnet_repetitions: int
-                Number of repetitions of the operations of spatial analysis at
-                each step of the spatiotemporal analysis. In the original
-                publication this value was set to 1 and not tested its
-                variations.
-            residual : Bool
-                If the residual operations are present in EEGSym architecture.
-            init : Bool
-                If the module is the first one applied to the input, to apply a
-                channel merging operation if the architecture does not include
-                residual operations.
-
-            Returns
-            -------
-            block_out : list
-                List of outputs modules
-        """
-        block_units = list()
-        unit_conv_t = list()
-        unit_batchconv_t = list()
-
-        for i in range(len(scales_samples)):
-            unit_conv_t.append(Conv3D(filters=filters_per_branch,
-                                      kernel_size=(1, scales_samples[i], 1),
-                                      kernel_initializer='he_normal',
-                                      padding='same'))
-            unit_batchconv_t.append(BatchNormalization())
-
-        if ncha != 1:
-            unit_dconv = list()
-            unit_batchdconv = list()
-            unit_conv_s = list()
-            unit_batchconv_s = list()
-            for i in range(spatial_resnet_repetitions):
-                # 3D Implementation of DepthwiseConv
-                unit_dconv.append(Conv3D(kernel_size=(1, 1, ncha),
-                                         filters=filters_per_branch * len(
-                                             scales_samples),
-                                         groups=filters_per_branch * len(
-                                             scales_samples),
-                                         use_bias=False,
-                                         padding='valid'))
-                unit_batchdconv.append(BatchNormalization())
-
-                unit_conv_s.append(Conv3D(kernel_size=(1, 1, ncha),
-                                          filters=filters_per_branch,
-                                          # groups=filters_per_branch,
-                                          use_bias=False,
-                                          strides=(1, 1, 1),
-                                          kernel_initializer='he_normal',
-                                          padding='valid'))
-                unit_batchconv_s.append(BatchNormalization())
-
-            unit_conv_1 = Conv3D(kernel_size=(1, 1, 1),
-                                 filters=filters_per_branch,
-                                 use_bias=False,
-                                 kernel_initializer='he_normal',
-                                 padding='valid')
-            unit_batchconv_1 = BatchNormalization()
-
-        # Temporal analysis stage of the module
-        for j in range(len(input)):
-            block_side_units = list()
-            for i in range(len(scales_samples)):
-                unit = input[j]
-                unit = unit_conv_t[i](unit)
-
-                unit = unit_batchconv_t[i](unit)
-                unit = Activation(activation)(unit)
-                unit = Dropout(dropout_rate)(unit)
-
-                block_side_units.append(unit)
-            block_units.append(block_side_units)
-        # Concatenation of possible inception modules
-        block_out = list()
-        for j in range(len(input)):
-            if len(block_units[j]) != 1:
-                block_out.append(
-                    keras.layers.concatenate(block_units[j], axis=-1))
-                block_out_temp = input[j]
-            else:
-                block_out.append(block_units[j][0])
-                block_out_temp = input[j]
-                block_out_temp = unit_conv_1(block_out_temp)
-                block_out_temp = unit_batchconv_1(block_out_temp)
-                block_out_temp = Activation(activation)(block_out_temp)
-                block_out_temp = Dropout(dropout_rate)(block_out_temp)
-
-            if residual:
-                block_out[j] = Add()([block_out[j], block_out_temp])
-            else:
-                block_out[j] = block_out_temp
-
-            if average != 1:
-                block_out[j] = AveragePooling3D((1, average, 1))(block_out[j])
-
-        # Spatial analysis stage of the module
-        if ncha != 1:
-            for i in range(spatial_resnet_repetitions):
-                block_out_temp = list()
-                for j in range(len(input)):
-                    if len(scales_samples) != 1:
-                        if residual:
-                            block_out_temp.append(block_out[j])
-
-                            block_out_temp[j] = unit_dconv[i](block_out_temp[j])
-
-                            block_out_temp[j] = unit_batchdconv[i](
-                                block_out_temp[j])
-                            block_out_temp[j] = Activation(activation)(
-                                block_out_temp[j])
-                            block_out_temp[j] = Dropout(dropout_rate)(
-                                block_out_temp[j])
-
-                            block_out[j] = Add()(
-                                [block_out[j], block_out_temp[j]])
-
-                        elif init:
-                            block_out[j] = unit_dconv[i](block_out[j])
-                            block_out[j] = unit_batchdconv[i](block_out[j])
-                            block_out[j] = Activation(activation)(block_out[j])
-                            block_out[j] = Dropout(dropout_rate)(block_out[j])
-                    else:
-                        if residual:
-                            block_out_temp.append(block_out[j])
-
-                            block_out_temp[j] = unit_conv_s[i](
-                                block_out_temp[j])
-                            block_out_temp[j] = unit_batchconv_s[i](
-                                block_out_temp[j])
-                            block_out_temp[j] = Activation(activation)(
-                                block_out_temp[j])
-                            block_out_temp[j] = Dropout(dropout_rate)(
-                                block_out_temp[j])
-
-                            block_out[j] = Add()(
-                                [block_out[j], block_out_temp[j]])
-        return block_out
-
-    @staticmethod
-    def transform_data(X, y=None):
-        """Transforms input data to the correct dimensions for EEGSym
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        y: np.ndarray
-            Labels array. If labels are in categorical format, they will be
-            converted to one-hot encoding.
-        """
-        if len(X.shape) == 3 or X.shape[-1] != 1:
-            X = X.reshape((X.shape[0], X.shape[1], X.shape[2], 1))
-        if y is None:
-            return X
-        else:
-            if len(y.shape) == 1 or y.shape[-1] == 1:
-                y = classification_utils.one_hot_labels(y)
-            return X, y
-
-    def preprocessing_function(self, augmentation=True):
-        """Custom Data Augmentation for EEGSym.
-
-            Parameters
-            ----------
-            augmentation : Bool
-                If the augmentation is performed to the input.
-
-            Returns
-            -------
-            data_augmentation : function
-                Data augmentation performed to each trial
-        """
-
-        def data_augmentation(trial):
-            """Custom Data Augmentation for EEGSym.
-
-                Parameters
-                ----------
-                trial : tf.tensor
-                    Input of the
-
-                Returns
-                -------
-                data_augmentation : keras.models.Model
-                    Data augmentation performed to each trial
-            """
-
-            samples, ncha, _ = trial.shape
-
-            augmentations = dict()
-            augmentations["patch_perturbation"] = 0
-            augmentations["random_shift"] = 0
-            augmentations["hemisphere_perturbation"] = 0
-            augmentations["no_augmentation"] = 0
-
-            # selectionables = ["patch_perturbation", "random_shift",
-            #                   "hemisphere_perturbation", "no_augmentation"]
-            # We eliminate hemisphere_perturbation due to it being very
-            # dependant on the channels introduced
-            selectionables = ["patch_perturbation", "random_shift",
-                              "no_augmentation"]
-            probabilities = None
-
-            if augmentation:
-                selection = np.random.choice(selectionables, p=probabilities)
-                augmentations[selection] = 1
-
-                method = np.random.choice((0, 2))
-                std = 'self'
-                # elif data_augmentation == 1:  # Random shift
-                for _ in range(augmentations["random_shift"]):  # Random shift
-                    # Select position where to erase that timeframe
-                    position = 0
-                    if position == 0:
-                        samples_shifted = np.random.randint(low=1, high=int(
-                            samples * 0.5 / 3))
-                    else:
-                        samples_shifted = np.random.randint(low=1, high=int(
-                            samples * 0.1 / 3))
-
-                    if method == 0:
-                        shifted_samples = np.zeros((samples_shifted, ncha, 1))
-                    else:
-                        if std == 'self':
-                            std_applied = np.std(trial)
-                        else:
-                            std_applied = std
-                        center = 0
-                        shifted_samples = np.random.normal(center, std_applied,
-                                                           (samples_shifted,
-                                                            ncha,
-                                                            1))
-                    if position == 0:
-                        trial = np.concatenate((shifted_samples, trial),
-                                               axis=0)[:samples]
-                    else:
-                        trial = np.concatenate((trial, shifted_samples),
-                                               axis=0)[samples_shifted:]
-
-                for _ in range(
-                        augmentations[
-                            "patch_perturbation"]):  # Patch perturbation
-                    channels_affected = np.random.randint(low=1, high=ncha - 1)
-                    pct_max = 1
-                    pct_min = 0.2
-                    pct_erased = np.random.uniform(low=pct_min, high=pct_max)
-                    # Select time to be erased acording to pct_erased
-                    # samples_erased = np.min((int(samples*ncha*pct_erased//channels_affected), samples))#np.random.randint(low=1, high=samples//3)
-                    samples_erased = int(samples * pct_erased)
-                    # Select position where to erase that timeframe
-                    if samples_erased != samples:
-                        samples_idx = np.arange(
-                            samples_erased) + np.random.randint(
-                            samples - samples_erased)
-                    else:
-                        samples_idx = np.arange(samples_erased)
-                    # Select indexes to erase (always keep at least a channel)
-                    channel_idx = np.random.permutation(np.arange(ncha))[
-                                  :channels_affected]
-                    channel_idx.sort()
-                    for channel in channel_idx:
-                        if method == 0:
-                            trial[samples_idx, channel] = 0
-                        else:
-                            if std == 'self':
-                                std_applied = np.std(trial[:, channel]) \
-                                              * np.random.uniform(low=0.01,
-                                                                  high=2)
-                            else:
-                                std_applied = std
-                            center = 0
-                            trial[samples_idx, channel] += \
-                                np.random.normal(center, std_applied,
-                                                 trial[samples_idx, channel,
-                                                 :].shape)
-                            # Standarize the channel again after the change
-                            temp_trial_ch_mean = np.mean(trial[:, channel],
-                                                         axis=0)
-                            temp_trial_ch_std = np.std(trial[:, channel],
-                                                       axis=0)
-                            trial[:, channel] = (trial[:,
-                                                 channel] - temp_trial_ch_mean) / temp_trial_ch_std
-
-                for _ in range(augmentations["hemisphere_perturbation"]):
-                    # Select side to mix/change for noise
-                    left_right = np.random.choice((0, 1))
-                    if method == 0:
-                        if left_right == 1:
-                            channel_idx = np.arange(ncha)[:int((ncha / 2) - 1)]
-                            channel_mix = np.random.permutation(
-                                channel_idx.copy())
-                        else:
-                            channel_idx = np.arange(ncha)[-int((ncha / 2) - 1):]
-                            channel_mix = np.random.permutation(
-                                channel_idx.copy())
-                        temp_trial = trial.copy()
-                        for channel, channel_mixed in zip(channel_idx,
-                                                          channel_mix):
-                            temp_trial[:, channel] = trial[:, channel_mixed]
-                        trial = temp_trial
-                    else:
-                        if left_right == 1:
-                            channel_idx = np.arange(ncha)[:int((ncha / 2) - 1)]
-                        else:
-                            channel_idx = np.arange(ncha)[-int((ncha / 2) - 1):]
-                        for channel in channel_idx:
-                            trial[:, channel] = np.random.normal(0, 1,
-                                                                 trial[:,
-                                                                 channel].shape)
-
-            return trial
-
-        return data_augmentation
-
-    def trial_iterator(self, X, y, batch_size=32, shuffle=True,
-                       augmentation=True):
-        """Custom trial iterator to pretrain EEGSym.
-
-            Parameters
-            ----------
-            X : tf.tensor
-                Input tensor of  EEG features.
-            y : tf.tensor
-                Input tensor of  labels.
-            batch_size : int
-                Number of features in each batch.
-            shuffle : Bool
-                If the features are shuffled at each training epoch.
-            augmentation : Bool
-                If the augmentation is performed to the input.
-
-            Returns
-            -------
-            trial_iterator : tf.keras.preprocessing.image.NumpyArrayIterator
-                Iterator used to train the model.
-        """
-
-        trial_data_generator = tf.keras.preprocessing.image.ImageDataGenerator(
-            preprocessing_function=self.preprocessing_function(
-                augmentation=augmentation))
-
-        trial_iterator = tf.keras.preprocessing.image.NumpyArrayIterator(
-            X, y, trial_data_generator, batch_size=batch_size, shuffle=shuffle,
-            sample_weight=None,
-            seed=None, data_format=None, save_to_dir=None, save_prefix='',
-            save_format='png', subset=None, dtype=None
-        )
-        return trial_iterator
-
-    def fit(self, X, y, fine_tuning=False, augmentation=True, **kwargs):
-        """Fit the model. All additional keras parameters of class
-        tensorflow.keras.Model will pass through. See keras documentation to
-        know what can you do: https://keras.io/api/models/model_training_apis/.
-
-        If no parameters are specified, some default options are set [1]:
-
-            - Epochs: 100 if fine_tuning else 500
-            - Batch size: 32 if fine_tuning else 2048
-            - Callbacks: self.fine_tuning_callbacks if fine_tuning else
-                self.training_callbacks
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        y: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Inception
-            [n_observ x n_samples x n_channels x 1]
-        fine_tuning: bool
-            Set to True to use the default training parameters for fine
-            tuning. False by default.
-        kwargs:
-            Key-value arguments will be passed to the fit function of the model.
-            This way, you can set your own training parameters using keras API.
-            See https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-        """
-        # Check GPU
-        if not tensorflow_integration.check_gpu_acceleration():
-            warnings.warn('GPU acceleration is not available. The training '
-                          'time is drastically reduced with GPU.')
-
-        # Creation of validation split
-        val_split = kwargs['validation_split'] if \
-                'validation_split' in kwargs else 0.4
-
-        val_idx = None
-        train_idx = None
-        for i, label in enumerate(np.unique(y)):
-            idx = np.where((y == label))[0]
-            np.random.shuffle(idx)
-            val_idx_label = int(np.round(len(idx) * val_split))
-
-            val_idx = np.concatenate((val_idx, idx[:val_idx_label]), axis=0) \
-                if val_idx is not None else np.array(idx[:val_idx_label])
-            train_idx = np.concatenate((train_idx, idx[val_idx_label:]), axis=0) \
-                if train_idx is not None else np.array(idx[val_idx_label:])
-
-        # Training parameters
-        if not fine_tuning:
-            # Rewrite default values
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 500
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 32
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.training_callbacks
-        else:
-            kwargs['epochs'] = kwargs['epochs'] if \
-                'epochs' in kwargs else 100
-            kwargs['batch_size'] = kwargs['batch_size'] if \
-                'batch_size' in kwargs else 32
-            kwargs['callbacks'] = kwargs['callbacks'] if \
-                'callbacks' in kwargs else self.fine_tuning_callbacks
-        if self.initialized:
-            for layer in self.model.layers[:-1]:
-                layer.trainable = False
-        # Transform data if necessary
-        X, y = self.transform_data(X, y)
-        # Fit
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            # return self.model.fit(X, y, **kwargs)
-            return self.model.fit(self.trial_iterator(X[train_idx],
-                                                      y[train_idx],
-                                                      batch_size=kwargs[
-                                                          'batch_size'],
-                                                      augmentation=augmentation),
-                                  validation_data=(X[val_idx], y[val_idx]),
-                                  **kwargs)
-
-    def sort_channels_by_y(self, channels, front_to_back=True):
-        """Sort a list of EEG channels based on their y-coordinate position in the
-        10-05 system.
-
-        Parameters
-        ------------
-        channels: list
-            List of EEG channel names.
-        front_to_back: bool, optional
-            Determines the sorting order, from front to back or from back to front.
-            Defaults to True.
-
-        Returns
-        ------------
-        sorted_channels: list
-            Sorted list of EEG channel names.
-
-        """
-        eeg_dictionary = get_standard_montage(standard='10-05', dim='3D',
-                                              coord_system='cartesian')
-        region_channels = {}
-        for channel in channels:
-            match = re.search(r'^[a-zA-Z]+(?=[\d|z|Z])', channel)
-            if match:
-                prefix = match.group()
-                if prefix not in region_channels:
-                    region_channels[prefix] = []
-                region_channels[prefix].append(channel)
-
-        sorted_channels = sorted(channels, key=lambda x: (np.mean(
-            [eeg_dictionary[ch.upper()]['y'] for ch in
-             region_channels[re.search(r'^[a-zA-Z]+(?=[\d|z|Z])', x).group()]]),
-                                                          abs(eeg_dictionary[
-                                                                  x.upper()][
-                                                                  'x'])),
-                                 reverse=front_to_back)
-        return sorted_channels
-    def symmetric_channels(self, X, channels, front_to_back=True):
-        """This function takes a set of channels and puts them in a symmetric
-        input needed to apply EEGSym.
-        """
-        left, right, middle = [], [], []
-        for channel in channels:
-            number = re.search(r"\d+", channel)
-            if number is not None:
-                (left if int(number[0]) % 2 else right).append(channel)
-            else:
-                middle.append(channel)
-
-        left = self.sort_channels_by_y(left, front_to_back=front_to_back)
-        right = self.sort_channels_by_y(right, front_to_back=front_to_back)
-        middle = self.sort_channels_by_y(middle, front_to_back=front_to_back)
-
-        ordered_channels = left + middle + right
-        index_channels = [list(channels).index(channel) for channel in
-                          ordered_channels]
-
-        return np.take(X, index_channels, axis=-1), \
-               np.take(channels, index_channels, axis=0)
-
-    def predict_proba(self, X):
-        """Model prediction scores for the given features.
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Sym
-            [n_observ x n_samples x n_channels x 1]
-        """
-        # Transform data if necessary
-        X = self.transform_data(X)
-        # Predict
-        with tf.device(tensorflow_integration.get_tf_device_name()):
-            return self.model.predict(X)
-    def predict(self, X):
-        """Model prediction for the given features.
-
-        Parameters
-        ----------
-        X: np.ndarray
-            Feature matrix. If shape is [n_observ x n_samples x n_channels],
-            this matrix will be adapted to the input dimensions of EEG-Sym
-            [n_observ x n_samples x n_channels x 1]
-        """
-        y_prob = self.predict_proba(X)
-        return y_prob.argmax(axis=-1)
-
-    def to_pickleable_obj(self):
-        # Parameters
-        kwargs = {
-            'input_time': self.input_time,
-            'fs': self.fs,
-            'n_cha': self.n_cha,
-            'filters_per_branch': self.filters_per_branch,
-            'scales_time': self.scales_time,
-            'dropout_rate': self.dropout_rate,
-            'activation': self.activation,
-            'n_classes': self.n_classes,
-            'learning_rate': self.learning_rate,
-            'ch_lateral': self.ch_lateral
-        }
-        weights = self.model.get_weights()
-        # Pickleable object
-        pickleable_obj = {
-            'kwargs': kwargs,
-            'weights': weights
-        }
-        return pickleable_obj
-
-    @classmethod
-    def from_pickleable_obj(cls, pickleable_obj):
-        # pickleable_obj['kwargs']['gpu_acceleration'] = None
-        model = cls(**pickleable_obj['kwargs'])
-        model.model.set_weights(pickleable_obj['weights'])
-        return model
-
-    def set_weights(self, weights):
-        return self.model.set_weights(weights)
-
-    def get_weights(self):
-        return self.model.get_weights()
-
-    def save_weights(self, path):
-        return self.model.save_weights(path)
-
-    def load_weights(self, weights_path):
-        self.initialized = True
-        return self.model.load_weights(weights_path)
+    def load_weights(self, path):
+        self.model.load_state_dict(torch.load(path))

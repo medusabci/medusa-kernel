@@ -6,64 +6,85 @@ points but can be useful for a quick plot. Enjoy!
 
 @author: Eduardo Santamaría-Vázquez
 """
-from medusa import frequency_filtering, spatial_filtering
-from medusa import epoching
-from medusa import components
-import matplotlib.pyplot as plt
+from medusa.bci import erp_spellers
 import numpy as np
 import copy
 
 
-def plot_erp_from_erp_speller_runs(erp_speller_runs, channel,
-                                   window=(0, 1000), plot=True):
-    data = copy.copy(erp_speller_runs)
-    # Error handling. Data can be a list of ERPData instances or an ERPData instance
-    if not isinstance(data, list):
-        data = [data]
-    # Load data
-    trials_erp_epochs = list()
-    trials_noerp_epochs = list()
-    for d in data:
-        if not isinstance(d, components.Recording):
-            raise ValueError("")
-        # Preprocessing
-        filter = frequency_filtering.FIRFilter(
-            order=500, cutoff=[0.5, 30], btype="bandpass", width=None,
-            window='hamming', scale=True, filt_method='filtfilt', axis=0)
-        d.eeg.signal = filter.fit_transform(d.eeg.signal, d.eeg.fs)
-        d.eeg.signal = spatial_filtering.car(d.eeg.signal)
-        # Extract epochs
-        epochs = epoching.get_epochs_of_events(timestamps=d.eeg.times,
-                                               signal=d.eeg.signal,
-                                               onsets=d.erpspellerdata.onsets,
-                                               fs=d.eeg.fs,
-                                               w_epoch_t=window,
-                                               w_baseline_t=[-200, 0],
-                                               norm='z')
-        # Epochs
-        erp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 1
-        noerp_epochs_idx = np.array(d.erpspellerdata.erp_labels) == 0
-        erp_epochs = epochs[erp_epochs_idx, :, :]
-        noerp_epochs = epochs[noerp_epochs_idx, :, :]
+def plot_erp_from_erp_speller_dataset(erp_speller_dataset, channel, axes,
+                                      window=(0, 1000)):
+    """
+    Plots Event-Related Potentials (ERPs) from an ERP Speller dataset.
 
-        # Save
-        trials_erp_epochs.append(erp_epochs)
-        trials_noerp_epochs.append(noerp_epochs)
+    Parameters
+    ----------
+    erp_speller_dataset : ERPDataset
+        The ERP Speller dataset containing EEG data and relevant information.
 
-    # To numpy array
-    trials_erp_epochs = np.array(trials_erp_epochs)
-    trials_noerp_epochs = np.array(trials_noerp_epochs)
+    channel : str
+        The name of the EEG channel to be plotted.
 
+    axes : matplotlib.axes.Axes
+        The Matplotlib axes on which the ERP plot will be displayed.
+
+    window : tuple, optional
+        The time window for which the ERPs will be plotted, specified as a tuple
+        (start_time, end_time). Default is (0, 1000) milliseconds.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The Matplotlib axes on which the ERP plot is displayed.
+
+    Raises
+    ------
+    ValueError
+        If the dataset is missing essential information or if the dataset mode
+        is not set to 'train'.
+
+    Notes
+    -----
+    This function performs standard preprocessing and feature extraction on the
+    input ERP Speller dataset and then plots the ERPs based on the specified
+    channel and time window.
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> from your_module import ERPDataset, plot_erp_from_erp_speller_dataset
+
+    >>> # Assuming erp_speller_dataset is an instance of ERPDataset
+    >>> fig, ax = plt.subplots()
+    >>> plot_erp_from_erp_speller_dataset(erp_speller_dataset, channel='Fz', axes=ax)
+
+    """
+    # Check errors
+    if erp_speller_dataset.fs is None:
+        raise ValueError('Define the fs of the dataset')
+    if erp_speller_dataset.channel_set is None:
+        raise ValueError('Define the channel set of the dataset')
+    if erp_speller_dataset.experiment_mode != 'train':
+        raise ValueError('The dataset mode must be train')
+    # Create copy of the dataset
+    dataset = copy.deepcopy(erp_speller_dataset)
+    # Standard preprocessing
+    preprocessing_pipeline = erp_spellers.StandardPreprocessing(cutoff=(1, 30))
+    dataset = preprocessing_pipeline.fit_transform_dataset(dataset)
+    # Standard feature extraction
+    feat_extraction_pipeline = erp_spellers.StandardFeatureExtraction(
+        concatenate_channels=False, target_fs=None)
+    x, x_info = feat_extraction_pipeline.transform_dataset(dataset)
+    erp_labels = np.array(x_info['erp_labels'])
     # Call plot ERP
-    return plot_erp(erp_epochs=trials_erp_epochs,
-                    noerp_epochs=trials_noerp_epochs,
+    return plot_erp(axes=axes,
+                    erp_epochs=x[erp_labels==1, :, :],
+                    noerp_epochs=x[erp_labels==0, :, :],
                     channel=channel,
-                    window=window,
-                    plot=plot)
+                    window=window)
 
 
-def plot_erp(erp_epochs, noerp_epochs, channel, window=(0, 1000),
-             error_measure="C95", plot=True):
+def plot_erp(axes, erp_epochs, noerp_epochs, channel, window=(0, 1000),
+             error_measure="C95"):
     """Function designed to quickly plot an ERP with 95% confidence interval.
     It does offer limited functions that will be improved in the future.
 
@@ -72,6 +93,8 @@ def plot_erp(erp_epochs, noerp_epochs, channel, window=(0, 1000),
 
     Parameters
     ----------
+    axes : matplotlib.Axes.axes
+        Matplotlib axes in which the ERP will be displayed into.
     erp_epochs: numpy.ndarray
         Epochs that contain ERPs (go epochs)
     noerp_epochs: numpy.ndarray
@@ -109,15 +132,13 @@ def plot_erp(erp_epochs, noerp_epochs, channel, window=(0, 1000),
     trials_noerp_dev_pos, trials_noerp_dev_neg = \
         compute_dev_epochs(noerp_epochs, measure=error_measure)
 
-    if plot:
-        # Plot the data
-        t = np.linspace(window[0], window[1], trials_erp_mean.shape[0])
-        plt.plot(t, trials_erp_mean)
-        plt.fill_between(t, trials_erp_dev_neg, trials_erp_dev_pos, alpha=0.3)
-        plt.plot(t, trials_noerp_mean)
-        plt.fill_between(t, trials_noerp_dev_neg, trials_noerp_dev_pos,
-                         alpha=0.3)
-        plt.show()
+    # Plot the data
+    t = np.linspace(window[0], window[1], trials_erp_mean.shape[0])
+    axes.plot(t, trials_erp_mean)
+    axes.fill_between(t, trials_erp_dev_neg, trials_erp_dev_pos, alpha=0.3)
+    axes.plot(t, trials_noerp_mean)
+    axes.fill_between(t, trials_noerp_dev_neg, trials_noerp_dev_pos,
+                      alpha=0.3)
 
     # Return data
     plot_data = dict()

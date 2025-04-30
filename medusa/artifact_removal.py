@@ -5,11 +5,11 @@ from matplotlib.figure import Figure
 from scipy.signal import welch
 
 # Medusa imports
-from medusa.plots.head_plots import plot_head,plot_topography
+from medusa.plots.head_plots import TopographicPlot
 from medusa.meeg.meeg import EEGChannelSet
 from medusa import epoching
 from medusa.plots.timeplot import time_plot
-from medusa.components import SerializableComponent
+from medusa.components import SerializableComponent, ProcessingMethod
 
 
 def reject_noisy_epochs(epochs, signal_mean, signal_std, k=4, n_samp=2,
@@ -333,12 +333,10 @@ class ICA:
         for r in axes:
             for c in r:
                 if ic_c < n_components:
-                    plot_head(axes=c, channel_set=self.channel_set,
-                              interp_points=300,linewidth=1.5)
-                    plot_topography(axes=c,channel_set=self.channel_set,
-                                    values=components[:, ic_c],
-                                    interp_points=300,cmap=cmap,
-                                    show_colorbar=False,plot_extra=0)
+                    topo = TopographicPlot(axes=c,channel_set=self.channel_set,
+                                    interp_points=300,head_line_width=1.5,
+                                    cmap=cmap,extra_radius=0)
+                    topo.update(values=components[:, ic_c])
                     c.set_title(self.ica_labels[ic_c])
                     ic_c += 1
                 else:
@@ -395,12 +393,10 @@ class ICA:
             ax_4 =fig.add_subplot(3, 1, 3)
 
             # Topoplot
-            plot_head(axes=ax_1, channel_set=self.channel_set,
-                      interp_points=300, linewidth=1.5)
-            plot_topography(axes=ax_1, channel_set=self.channel_set,
-                            values=components[:, component[ii]],
-                            interp_points=300, cmap=cmap,
-                            show_colorbar=False, plot_extra=0)
+            topo = TopographicPlot(axes=ax_1, channel_set=self.channel_set,
+                                   interp_points=300, head_line_width=1.5,
+                                   cmap=cmap, extra_radius=0)
+            topo.update(values=components[:, component[ii]])
             ax_1.set_title(self.ica_labels[component[ii]])
 
             stacked_source = np.reshape(
@@ -492,3 +488,135 @@ class ICAData(SerializableComponent):
     @classmethod
     def from_serializable_obj(cls, dict_data):
         return cls(**dict_data)
+
+
+class ArtifactRegression(ProcessingMethod):
+
+    def __init__(self):
+        """
+        Initialize the artifact regression method.
+
+        This class implements a method to remove artifacts (e.g., EOG signals)
+        from time series data (e.g., EEG signals). The artifacts must be
+        recorded simultaneously with the signal, and this method attempts to
+        regress out the artifacts from the main signal.
+
+        Attributes:
+        - self.coefs: Stores the regression coefficients after fitting the
+            model.
+
+        Notes:
+        The input signals (sig and art_sig) must be preprocessed (e.g.,
+        band-pass filtering) before using them in this class for better
+        performance and accuracy.
+
+        Alternative implementation:
+        self.coefs = np.linalg.lstsq(
+            art_sig.T @ art_sig, art_sig.T, rcond=None)[0] @ sig
+        sig = (sig.T - self.coefs.T @ art_sig.T).T
+        """
+        # Calling the superclass constructor and defining the inputs that
+        # are transformed and fit by the method.
+        super().__init__(transform=['signal', 'artefacts_signal'],
+                         fit_transform=['signal', 'artefacts_signal'])
+        # Initialize the coefficient matrix (will be filled after fitting)
+        self.coefs = None
+        self.is_fit = False
+
+    def fit(self, sig, art_sig):
+        """
+        Fits the artifact regression model by computing regression coefficients
+        for removing the artifacts from the signal.
+
+        This method performs a linear regression for each signal channel to
+        estimate how much of the artifact is present in each channel. The
+        regression coefficients (self.coefs) are computed using the least
+        squares solution for each channel.
+
+        Steps
+        1. Remove the mean from the artifact signal for normalization.
+        2. Compute the covariance matrix of the artifact signal.
+        3. For each signal channel:
+           - Remove the mean from the signal.
+           - Perform a least squares fit to estimate the regression
+                coefficients.
+
+        Parameters
+        ----------
+        sig : The main signal (e.g., EEG) that contains the artifacts.
+        art_sig : The artifact signal (e.g., EOG) recorded alongside the main
+            signal.
+        """
+        # Mean-center the signal
+        art_sig = art_sig - np.mean(art_sig, axis=-1, keepdims=True)
+        # Compute covariance of artifact signal
+        cov_ref = art_sig.T @ art_sig
+        # Regression coefficients for each signal channel
+        n_sig_cha = sig.shape[1]
+        n_art_sig_cha = art_sig.shape[1]
+        coefs = np.zeros((n_sig_cha, n_art_sig_cha))
+        # Process each signal channel separately to reduce memory load
+        for c in range(n_sig_cha):
+            # Mean-center the signal channel
+            sig_cha = sig[:, c]
+            sig_cha = sig_cha - np.mean(sig_cha, -1, keepdims=True)
+            sig_cha = sig_cha.reshape(1, -1)
+            # Perform the least squares regression to estimate coefficients
+            coefs[c] = np.linalg.lstsq(
+                cov_ref, art_sig.T @ sig_cha.T, rcond=None)[0].T
+        # Store the regression coefficients
+        self.coefs = coefs
+        self.is_fit = True
+
+    def transform(self, sig, art_sig):
+        """
+        Removes the artifacts from the signal using the previously computed
+        coefficients.
+
+        This method applies the regression coefficients (self.coefs) to remove
+        the artifacts from each channel of the signal. It subtracts the artifact
+        contribution from each signal channel.
+
+        Steps:
+        1. Mean-center the artifact signal.
+        2. For each signal channel:
+           - Subtract the estimated artifact component using the regression
+                coefficients.
+
+        Parameters:
+        -----------
+        - sig: The main signal (e.g., EEG) to clean.
+        - art_sig: The artifact signal (e.g., EOG) to regress out.
+        """
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('Function fit_dataset must be called first!')
+        # Mean-center the artifact signal
+        art_sig = art_sig - np.mean(art_sig, -1,
+                                    keepdims=True)
+        n_sig_cha = sig.shape[1]
+
+        # Subtract the artifact contribution from each signal channel
+        for c in range(n_sig_cha):
+            sig_cha = sig[:, c]
+            # Remove artifact contribution using pre-computed coefficients
+            sig_cha -= (self.coefs[c] @ art_sig.T).reshape(sig_cha.shape)
+
+        return sig  # Return the cleaned signal
+
+    def fit_transform(self, sig, art_sig):
+        """
+        Combines the fit and transform steps into a single method.
+
+        Parameters:
+        - sig: The main signal to clean.
+        - art_sig: The artifact signal to regress out.
+
+        This method first fits the regression model to estimate the coefficients,
+        then applies those coefficients to remove the artifacts from the signal.
+
+        Returns:
+        - The cleaned signal with the artifacts removed.
+        """
+        self.fit(sig, art_sig)  # Fit the regression model
+        return self.transform_signal(sig, art_sig)  # Apply the transformation

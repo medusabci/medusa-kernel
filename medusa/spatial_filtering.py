@@ -813,3 +813,95 @@ class CCA(components.ProcessingMethod):
         cca.wy = dict_data['wy']
         cca.r = dict_data['r']
         return cca
+
+class TRCA(components.ProcessingMethod):
+    """
+    The class TRCA performs a Task-related Component Analysis filtering. First,
+    function fit() should be called to train the spatial filters. Then, spatial
+    filters could be used to project testing data. After fit(), the following
+    attributes are computed:
+
+    Attributes
+    ----------
+    w : {(channels, 1) ndarray}
+        Spatial filter obtained.
+    """
+    def __int__(self):
+        self.w=None
+
+    def fit(self, x):
+        """
+        Fits the TRCA spatial filter given the input matrices data and
+        Parameters
+        ----------
+        x : {(epochs ,samples, channels) ndarray}
+            Input matrix, usually data with concatenated epochs.
+        """
+        self.w = self.trca(x)
+
+    def project(self, data):
+        """
+        Projects the input data matrix using the given spatial filter. Note that
+        the spatial filter will have dimensions [no. channels x 1].
+
+        Parameters
+        ----------
+        data : {(samples, channels) ndarray}
+            Testing data matrix. The number of channels must be the same as the
+            no. channels used to train.
+        Returns
+        -------
+        projected_data : {(samples, ) ndarray}
+            Projected data along the selected spatial filter.
+        """
+        return np.matmul(data, self.w)
+
+    @staticmethod
+    def trca(X):
+        """
+        Computes the task related component analysis (TRCA) for the data matrix
+        X (dimensions epochs-by-samples/epoch-by-channels) and Y (dimensions N-by-P2).
+
+        Parameters
+        ----------
+        X : {(epochs ,samples/epoch, channels) ndarray}
+            Input matrix with dimensions N-by-P1. Rows are observations and cols
+            are variables.
+        Returns
+        -------
+        w : {(channels, 1) ndarray}
+            Spatial filter.
+        References
+        -------
+        [1] Tanaka, H., Group task-related component analysis (GTRCA): A multivariate
+        method for inter-trial reproducibility and inter-subject similarity
+        maximization for EEG data analysis, Scientific Reports, 10, 2020.
+        [2] Nakanishi, M., Wang, Y., Chen, X., Wang, Y.T., Gao, X., Jung, T.P.,
+        Enhancing detection of SSVEPs for a high-speed brain speller using task-related
+        component analysis, IEEE Transactions on Biomedical Engineering, 65, 2018
+        """
+        # X shape (Num Epochs, Samples per epoch, Channels)
+        Nt = np.shape(X)[0]
+        Ns = np.shape(X)[1]
+        Nc = np.shape(X)[2]
+        S = np.zeros((Nc,Ns))
+
+        # Definition of S (cross covariance through epochs)
+        for k in range(Nt):
+            S = S + np.transpose(X[k,:,:])
+        S=np.matmul(S,np.transpose(S))
+        for k in range(Nt):
+            S = S - np.matmul(np.transpose(X[k,:,:]), X[k,:,:])
+
+        S = (1 / ((Nt - 1) * Nt * Ns)) * S
+
+        # Definition of Q (Covariance matrix of continuous data)
+        X = X.reshape((Nt * Ns, Nc))
+        Ns = np.shape(X)[0]
+        Q = (1 / Ns) * np.matmul(np.transpose(X), X)
+
+        # Eigenvalues and vectors of Q^-1 S
+        eigVal, eigVect = slinalg.eigh(S, Q)
+
+        # Return eigenvector related to greater eigenvalue
+        return eigVect[:, np.where(eigVal == max(eigVal))[0][0]]

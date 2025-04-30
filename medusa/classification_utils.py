@@ -92,3 +92,87 @@ def k_fold_split(x, y, k, keys=None, shuffle=False):
         k_fold_iter.append(split)
     return k_fold_iter
 
+
+class EarlyStopping:
+    """
+    Implements early stopping to terminate training when a monitored metric
+    stops improving.
+
+    Parameters
+    ----------
+    mode : {'min', 'max'}, optional
+        Determines whether the monitored metric should be minimized or
+        maximized.
+        - 'min' (default): Training stops when the metric does not decrease.
+        - 'max': Training stops when the metric does not increase.
+    min_delta : float, optional
+        The minimum change in the monitored metric to qualify as an improvement.
+        Defaults to 0.001.
+    patience : int, optional
+        Number of epochs to wait after the last improvement before stopping
+        training. Defaults to 20.
+    verbose : bool, optional
+        If True, prints messages when the best metric is updated or when
+        patience runs out. Defaults to True.
+    """
+    def __init__(self, mode='min', min_delta=0.001, patience=20, verbose=True):
+        # Init attributes
+        self.mode = mode
+        self.min_delta = min_delta
+        self.patience=patience
+        self.verbose = verbose
+        # Init states
+        self.best_loss = float('inf')
+        self.best_epoch = 0
+        self.best_params = None
+        self.patience_counter = 0
+
+    def check_epoch(self, n_epoch, epoch_loss, epoch_params=None):
+        """
+        Checks whether training should stop based on the given epoch's loss.
+
+        Parameters
+        ----------
+        n_epoch : int
+            The current epoch number.
+        epoch_loss : float
+            The loss value for the current epoch.
+        epoch_params : dict, optional
+            The parameters at the current epoch (e.g., model state dictionary).
+
+        Returns
+        -------
+        bool
+            True if training should stop, False otherwise.
+        dict or None
+            The best parameters recorded during training, or None if no
+            improvement was found.
+        """
+        # Check if updates are needed
+        if self.mode == 'min':
+            update_params = epoch_loss < self.best_loss
+            update_state = epoch_loss < self.best_loss - self.min_delta
+        elif self.mode == 'max':
+            update_params = epoch_loss > self.best_loss
+            update_state = epoch_loss > self.best_loss + self.min_delta
+        else:
+            raise ValueError('Mode must be min or max')
+        # Update state
+        if update_state:
+            self.best_loss = epoch_loss
+            self.best_epoch = n_epoch
+            self.patience_counter = 0
+            if self.verbose:
+                print(f"\nEarly stopping: New best loss {self.best_loss:.4f} "
+                      f"at epoch {n_epoch+1}. Resetting patience.")
+        else:
+            self.patience_counter += 1
+       # Update params
+        if update_params:
+            self.best_params = epoch_params
+        # Check patience
+        if self.patience_counter >= self.patience:
+            return True, self.best_params
+        else:
+            return False, self.best_params
+

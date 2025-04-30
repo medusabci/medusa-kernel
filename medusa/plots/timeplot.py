@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use('QtAgg')
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
@@ -284,6 +283,9 @@ def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
     right or left arrow, and by dragging the marker.
     """
 
+    # Deprecated warning
+    warnings.warn("This function is deprecated. Use "
+                  "medusa.analysis.time_plot instead")
 
     # Check signal dimensions
     signal = check_dimensions(signal)
@@ -465,6 +467,11 @@ def time_plot(signal, times=None, fs=1.0, ch_labels=None, time_to_show=None,
     if show_epoch_lines:
         __plot_epochs_lines(axes, blocks, samples_per_block, fs,
                             min_val, max_val)
+
+    warnings.warn("In order to enjoy all the available options of the "
+                            "time_plot function, it is necessary to have an "
+                            "interactive backend compatible with matplotlib "
+                            "enabled.")
     return fig, axes
 
 
@@ -474,12 +481,15 @@ if __name__ == "__main__":
     from medusa.meeg import meeg
     import medusa.frequency_filtering as ff
 
+    # Using an interactive backend
+    matplotlib.use('TkAgg')
+
+    # Defining some signal parameters 
     fs = 256
     T = 60
     t = np.arange(0, T, 1 / fs)
     l_cha = ['F7', 'F3', 'FZ', 'F4', 'F8', 'FCz', 'C3', 'CZ', 'C4', 'CPz', 'P3',
-             'PZ', 'P4',
-             'PO7', 'POZ', 'PO8']
+             'PZ', 'P4','PO7', 'POZ', 'PO8']
     A = 1  # noise amplitude
     sigma = 0.5  # Gaussian noise variance
     f = 5  # frequency of sinusoids (Hz)
@@ -507,9 +517,10 @@ if __name__ == "__main__":
     c_dict = {'conditions': {'con_1': {'desc-name': 'Condition 1', 'label': 0},
                              'con_2': {'desc-name': 'Condition 2', 'label': 1}},
               'conditions_labels': [0, 0, 1, 1,  0, 0,  1, 1, 0, 0 ],
-              'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 60]}
+              'conditions_times': [0, 14, 14, 28, 28, 35, 35, 50, 50, 59.9]}
 
     # Initialize TimePlot instance
-    time_plot(signal=signal,fs=fs,ch_labels=l_cha,time_to_show=None,
-              ch_to_show=None,ch_offset=None,conditions_dict=c_dict,
-              events_dict=e_dict,show_epoch_lines=True)
+    figure = plt.figure()
+    time_plot(signal=signal,times=None,fs=fs,ch_labels=l_cha,time_to_show=None,
+              ch_to_show=5,ch_offset=None,conditions_dict=c_dict,
+              events_dict=e_dict,show_epoch_lines=True,fig=figure)

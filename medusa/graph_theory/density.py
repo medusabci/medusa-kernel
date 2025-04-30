@@ -6,50 +6,6 @@ import numpy as np
 
 # Medusa imports
 from medusa.graph_theory import degree
-from medusa import tensorflow_integration
-
-# Extras
-if os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1":
-    import tensorflow as tf
-
-def __density_gpu(W):
-    """
-    Calculates the graph density using GPU.
-
-    Parameters
-    ----------
-    W : numpy 2D matrix
-        Graph matrix. ChannelsXChannels.
-        
-    Returns
-    -------
-    global_den : int
-        Global density.   
-    nodal_den : numpy array
-        Nodal density. 
-
-    """    
-    
-    check_symmetry = tf.reduce_all(tf.math.equal(W,tf.transpose(W)))
-    check_symmetry = tf.cond(
-        tf.math.reduce_sum(tf.subtract(tf.linalg.band_part(W, -1, 0),tf.linalg.band_part(W, 0, 0))) == 0,
-        lambda: 1, lambda: check_symmetry)
-    check_symmetry = tf.cond(
-        tf.reduce_all(tf.math.equal(W,-tf.transpose(W))),
-        lambda: 2, lambda: check_symmetry)
-    
-    N = W.shape[0]
-    deg = degree.__degree_gpu(W)
-    
-    norm_value = tf.switch_case(tf.cast(check_symmetry,tf.int32), 
-                branch_fns={0: lambda: tf.math.multiply(N,tf.math.subtract(N,1)),
-                            1: lambda: tf.math.divide(tf.math.multiply(N,tf.math.subtract(N,1)),2), 
-                            2: lambda: tf.math.multiply(N,tf.math.subtract(N,1))})
-
-    nodal_den = tf.divide(deg,norm_value)
-    global_den = tf.divide(tf.math.reduce_sum(deg),norm_value)     
-      
-    return global_den,nodal_den
 
 
 def __density_cpu(W):
@@ -92,7 +48,7 @@ def __density_cpu(W):
     return global_den,nodal_den
 
 
-def density(W,mode):
+def density(W):
     """
     Calculates the graph density.
 
@@ -100,9 +56,7 @@ def density(W,mode):
     ----------
     W : numpy 2D matrix
         Graph matrix. ChannelsXChannels.
-    mode : string
-        GPU or CPU
-        
+
     Returns
     -------
     global_den : int
@@ -117,10 +71,6 @@ def density(W,mode):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
 
-    if mode == 'GPU' and os.environ.get("MEDUSA_EXTRAS_GPU_TF") == "1" and \
-            tensorflow_integration.check_tf_config(autoconfig=True):
-        global_den,nodal_den = __density_gpu(W)
-    else:
-        global_den,nodal_den = __density_cpu(W)
+    global_den,nodal_den = __density_cpu(W)
         
     return global_den, nodal_den
