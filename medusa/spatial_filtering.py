@@ -678,7 +678,7 @@ class CCA(components.ProcessingMethod):
         if x.shape[1] == 1:
             self.ax = cov_x @ self.wx
         else:
-            cov_sx = np.cov(y @ self.wx, rowvar=0)
+            cov_sx = np.cov(x @ self.wx, rowvar=0)
             self.ax = cov_x @ self.wx @ cov_sx
         if y.shape[1] == 1:
             self.ay = cov_y @ self.wy
