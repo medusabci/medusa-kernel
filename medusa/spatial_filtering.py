@@ -673,18 +673,8 @@ class CCA(components.ProcessingMethod):
         [self.wx, self.wy, self.r] = self.canoncorr(x, y)
 
         # Activation patterns
-        cov_x = np.cov(x - np.mean(x, 0), rowvar=0)
-        cov_y = np.cov(y - np.mean(y, 0), rowvar=0)
-        if x.shape[1] == 1:
-            self.ax = cov_x @ self.wx
-        else:
-            cov_sx = np.cov(x @ self.wx, rowvar=0)
-            self.ax = cov_x @ self.wx @ cov_sx
-        if y.shape[1] == 1:
-            self.ay = cov_y @ self.wy
-        else:
-            cov_sy = np.cov(y @ self.wy, rowvar=0)
-            self.ay = cov_y @ self.wy @ cov_sy
+        self.ax = self._compute_activation(x, self.wx)
+        self.ay = self._compute_activation(y, self.wy)
 
     def project(self, data, filter_idx=(0), projection='wy'):
         """
@@ -860,6 +850,24 @@ class CCA(components.ProcessingMethod):
         B = B[np.argsort(perm2), :]
 
         return A, B, r
+
+    @staticmethod
+    def _compute_activation(data, weights):
+        """
+        Computes an activation pattern using the data and the trained weights.
+
+        Parameters
+        ------------
+        data : {(samples, channels) ndarray}
+            First input matrix, usually data with concatenated epochs.
+        weights : {(channels, D) ndarray}
+            Sample weights coefficients for the variables in data.
+        """
+        cov = np.cov(data - np.mean(data, 0), rowvar=0)
+        if data.shape[1] == 1:
+            return cov @ weights
+        cov_s = np.cov(data @ weights, rowvar=0)
+        return cov @ weights @ cov_s
 
     def to_dict(self):
         return self.__dict__
