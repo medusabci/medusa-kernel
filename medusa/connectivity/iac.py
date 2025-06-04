@@ -12,23 +12,31 @@ from medusa.transforms import hilbert
 from medusa.utils import check_dimensions
 
 def __iac_cpu(data):
-    """ This method implements the instantaneous amplitude correlation using
-    CPU.
+    """
+    Computes the Instantaneous Amplitude Correlation (IAC) using the standard method
+    without signal orthogonalization. This version runs on the CPU.
 
-    NOTE: See the orthogonalized version. In the original paper, the
-    orthogonalized version was used
+    NOTE: The original research recommends using the orthogonalized version
+    to mitigate spurious zero-lag correlations due to common sources.
+    See `__iac_ort_cpu`.
 
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        M/EEG signal data of shape [n_epochs, n_samples, n_channels].
 
     Returns
     -------
     iac : numpy.ndarray
-        iac-based connectivity matrix.
-        [n_epochs, n_channels, n_channels, n_samples].
+        IAC-based functional connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels, n_samples].
 
+    Examples
+    --------
+    >>> data = np.random.randn(10, 1000, 64)  # 10 epochs, 1000 time points, 64 channels
+    >>> iac_matrix = __iac_cpu(data)
+    >>> print(iac_matrix.shape)
+    (10, 64, 64, 1000)
     """
     # Error check
     if type(data) != np.ndarray:
@@ -62,21 +70,30 @@ def __iac_cpu(data):
 
 
 def __iac_ort_cpu(data):
-    """ This method implements the orthogonalized version of the instantaneous
-    amplitude correlation using CPU. This orthogonalized version minimizes the
-    spurious connectivity caused by common sources (zero-lag correlations).
+    """
+    Computes the orthogonalized Instantaneous Amplitude Correlation (IAC) using CPU.
+    Orthogonalization reduces spurious connectivity caused by signal leakage or
+    volume conduction, preserving only the genuine amplitude correlations.
 
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        M/EEG signal data of shape [n_epochs, n_samples, n_channels].
 
     Returns
     -------
     iac_ort : numpy.ndarray
-        iac-based connectivity matrix.
-        [n_epochs, n_channels, n_channels, n_samples].
+        Symmetrized IAC-based functional connectivity matrix after orthogonalization.
+        Shape: [n_epochs, n_channels, n_channels, n_samples].
+
+    Examples
+    --------
+    >>> data = np.random.randn(5, 1500, 32)  # 5 epochs, 1500 time points, 32 channels
+    >>> iac_ort_matrix = __iac_ort_cpu(data)
+    >>> print(iac_ort_matrix.shape)
+    (5, 32, 32, 1500)
     """
+
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
@@ -127,9 +144,10 @@ def __iac_ort_cpu(data):
 
 
 def iac(data, ort=True):
-    """ This method implements the instantaneous amplitude correlation (using
-    GPU if available). Based on the "ort" param, the signals could be
-    orthogonalized before the computation of the amplitude envelope correlation.
+     """
+    Computes the Instantaneous Amplitude Correlation (IAC) from M/EEG signals.
+    Offers the option to orthogonalize the signals before estimating amplitude
+    envelope correlations. CPU is used for computation.
 
     REFERENCES:
     Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
@@ -145,27 +163,40 @@ def iac(data, ort=True):
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels] and
-        [n_samples, n_channels].
-    ort : bool
-        If True, the signals on "data" will be orthogonalized before the
-        computation of the instantaneous amplitude correlation.
+        M/EEG signal array. Accepted shapes:
+        - [n_epochs, n_samples, n_channels]
+        - [n_samples, n_channels] (interpreted as one epoch)
+
+    ort : bool, optional
+        If True (default), signals are orthogonalized before computing the IAC.
 
     Returns
     -------
-    iac : numpy 2D square matrix
-        iac-based connectivity matrix.
-        [n_epochs, n_channels, n_channels, n_samples].
+    iac : numpy.ndarray
+        Functional connectivity matrix based on IAC.
+        Shape: [n_epochs, n_channels, n_channels, n_samples].
 
+    Examples
+    --------
+    >>> data = np.random.randn(1000, 64)  # One epoch, 1000 samples, 64 channels
+    >>> conn = iac(data, ort=False)
+    >>> print(conn.shape)
+    (1, 64, 64, 1000)
+
+    >>> data_multi = np.random.randn(3, 2000, 64)  # Three epochs
+    >>> conn_ort = iac(data_multi, ort=True)
+    >>> print(conn_ort.shape)
+    (3, 64, 64, 2000)
     """
+
     #  Error check
-    if not np.issubdtype(data.dtype, np.number):
-        raise ValueError('data matrix contains non-numeric values')
+     if not np.issubdtype(data.dtype, np.number):
+         raise ValueError('data matrix contains non-numeric values')
 
-    if not ort:
-        iac = __iac_cpu(data)
+     if not ort:
+         iac = __iac_cpu(data)
 
-    else:
-        iac = __iac_ort_cpu(data)
+     else:
+         iac = __iac_ort_cpu(data)
 
-    return iac
+     return iac

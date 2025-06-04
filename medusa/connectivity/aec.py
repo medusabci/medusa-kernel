@@ -13,21 +13,30 @@ from medusa.utils import check_dimensions
 
 
 def __aec_cpu(data):
-    """ This method implements the amplitude envelope correlation using CPU.
-
-    NOTE: See the orthogonalized version.
+    """
+    Computes the Amplitude Envelope Correlation (AEC) on M/EEG data using the CPU.
+    This version does not apply signal orthogonalization and may be affected by
+    spurious correlations due to volume conduction or field spread.
 
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        M/EEG signal of shape [n_epochs, n_samples, n_channels].
 
     Returns
     -------
     aec : numpy.ndarray
-        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
+        AEC-based functional connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels].
 
+    Examples
+    --------
+    >>> data = np.random.randn(5, 1000, 64)  # 5 epochs, 1000 samples, 64 channels
+    >>> conn_matrix = __aec_cpu(data)
+    >>> print(conn_matrix.shape)
+    (5, 64, 64)
     """
+
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
@@ -60,21 +69,30 @@ def __aec_cpu(data):
 
 
 def __aec_ort_cpu(data):
-    """ This method implements the orthogonalized version of the amplitude
-    envelope correlation using CPU. This orthogonalized version minimizes the
-    spurious connectivity caused by common sources (zero-lag correlations).
+    """
+    Computes the Orthogonalized Amplitude Envelope Correlation (AEC) on M/EEG data.
+    This version reduces zero-lag artifacts by orthogonalizing the signals before
+    computing correlations, thereby increasing the specificity of functional connectivity.
 
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. [n_epochs, n_samples, n_channels].
+        M/EEG signal of shape [n_epochs, n_samples, n_channels].
 
     Returns
     -------
     aec : numpy.ndarray
-        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
+        Orthogonalized AEC-based functional connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels].
 
+    Examples
+    --------
+    >>> data = np.random.randn(3, 1500, 32)  # 3 epochs, 1500 samples, 32 channels
+    >>> ort_conn = __aec_ort_cpu(data)
+    >>> print(ort_conn.shape)
+    (3, 32, 32)
     """
+
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
@@ -114,16 +132,33 @@ def __aec_ort_cpu(data):
 
 def __aec_ort_comp_aux(env, n_cha):
     """
-    Auxiliary method that implements a function to compute the orthogonalized AEC.
+    Auxiliary function for computing orthogonalized AEC for a single epoch.
+
+    Note: Orthogonalization is not symmetric. Therefore, the final connectivity
+    matrix is symmetrized by averaging the upper and lower triangles.
+
     Parameters
     ----------
-    env: numpy.ndarray
-        Array with signal envelope. [n_epochs, n_samples, n_channels x n_channels].
+    env : numpy.ndarray
+        Envelope matrix of shape [n_samples, n_channels * n_channels].
+
+    n_cha : int
+        Number of channels.
+
     Returns
     -------
-    aec_ort: numpy.ndarray
-        AEC orthogonalized connectivity matrix. [n_channels, n_channels].
+    aec_ort : numpy.ndarray
+        Symmetric AEC connectivity matrix for one epoch.
+        Shape: [n_channels, n_channels].
+
+    Example (internal use)
+    ----------------------
+    >>> env = np.random.randn(1000, 1024)  # e.g. for 32 channels → 32x32 = 1024
+    >>> aec_epoch = __aec_ort_comp_aux(env, 32)
+    >>> print(aec_epoch.shape)
+    (32, 32)
     """
+
     # Note: Orthogonalize A regarding B is not the same as orthogonalize B regarding
     # A, so we average lower and upper triangular matrices to construct the
     # symmetric matrix required for Orthogonalized AEC
@@ -145,9 +180,12 @@ def __aec_ort_comp_aux(env, n_cha):
 
 
 def aec(data, ort=True):
-    """ This method implements the amplitude envelope correlation (using GPU if
-    available). Based on the "ort" param, the signals could be orthogonalized
-    before the computation of the amplitude envelope correlation.
+    """
+    Computes the Amplitude Envelope Correlation (AEC) from M/EEG signals.
+    Optionally performs orthogonalization to reduce spurious zero-lag correlations
+    caused by common sources or volume conduction.
+
+    This method supports both single-epoch and multi-epoch input formats.
 
     REFERENCES:
     Liu, Z., Fukunaga, M., de Zwart, J. A., & Duyn, J. H. (2010).
@@ -166,18 +204,32 @@ def aec(data, ort=True):
     Parameters
     ----------
     data : numpy.ndarray
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels] and
-        [n_samples, n_channels].
-    ort : bool
-        If True, the signals on "data" will be orthogonalized before the
-        computation of the amplitude envelope correlation.
+        M/EEG signal. Accepted shapes:
+        - [n_epochs, n_samples, n_channels]
+        - [n_samples, n_channels] (interpreted as one epoch)
+
+    ort : bool, optional
+        If True (default), signals will be orthogonalized before computing AEC.
 
     Returns
     -------
     aec : numpy.ndarray
-        aec-based connectivity matrix. [n_epochs, n_channels, n_channels].
+        AEC-based functional connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels].
 
+    Examples
+    --------
+    >>> data = np.random.randn(1000, 64)  # Single epoch, 1000 samples, 64 channels
+    >>> conn = aec(data, ort=False)
+    >>> print(conn.shape)
+    (1, 64, 64)
+
+    >>> data = np.random.randn(5, 2000, 32)  # Multi-epoch input
+    >>> conn_ort = aec(data, ort=True)
+    >>> print(conn_ort.shape)
+    (5, 32, 32)
     """
+
     #  Error check
     if not np.issubdtype(data.dtype, np.number):
         raise ValueError('data matrix contains non-numeric values')

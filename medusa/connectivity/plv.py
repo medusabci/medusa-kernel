@@ -11,28 +11,35 @@ from medusa.utils import check_dimensions
 
 
 def plv(data):
-    """ This method implements three phase-based connectivity parameters using
-    CPU: PLV, PLI, and wPLI.
+    """
+    This method implements the Phase-Locking Value (PLV) for M/EEG signals using the CPU.
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels].
-    measure: str or None
-        Key of the phase connectivity measure to calculate: "plv", "pli" or
-        "wpli". If None, the three phase connectivity measures are calculated.
+    data : numpy.ndarray
+        M/EEG signal with shape:
+        - [n_epochs, n_samples, n_channels] for multi-epoch data
+        - [n_samples, n_channels] for single-epoch data (converted to 3D)
 
     Returns
     -------
-    plv : numpy 3D square matrix
-        plv-based connectivity matrix. [n_epochs, n_channels x n_channels].
-    pli : numpy 3D square matrix
-        pli-based connectivity matrix. [n_epochs, n_channels x n_channels].
-    wpli : numpy 3D square matrix
-        wpli-based connectivity matrix. [n_epochs, n_channels x n_channels].
+    plv : numpy.ndarray
+        Phase-locking value connectivity matrix for each epoch.
+        Shape: [n_epochs, n_channels, n_channels].
 
+    Examples
+    --------
+    >>> data = np.random.randn(1000, 64)  # 1000 samples, 64 channels
+    >>> conn = plv(data)
+    >>> print(conn.shape)
+    (1, 64, 64)
+
+    >>> multi_data = np.random.randn(10, 1500, 32)  # 10 epochs, 1500 samples, 32 channels
+    >>> conn = plv(multi_data)
+    >>> print(conn.shape)
+    (10, 32, 32)
     """
+
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")

@@ -11,26 +11,33 @@ from medusa.utils import check_dimensions
 
 
 def wpli(data):
-    """ This method implements three phase-based connectivity parameters using
-    CPU: PLV, PLI, and wPLI.
+    """
+    This method implements the Weighted Phase Lag Index (wPLI) for M/EEG signals using CPU.
 
     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels].
-    measure: str or None
-        Key of the phase connectivity measure to calculate: "plv", "pli" or
-        "wpli". If None, the three phase connectivity measures are calculated.
+    data : numpy.ndarray
+        M/EEG signal array. Accepts either:
+        - [n_samples, n_channels] for single-epoch data, or
+        - [n_epochs, n_samples, n_channels] for multi-epoch data.
 
     Returns
     -------
-    plv : numpy 3D square matrix
-        plv-based connectivity matrix. [n_epochs, n_channels x n_channels].
-    pli : numpy 3D square matrix
-        pli-based connectivity matrix. [n_epochs, n_channels x n_channels].
-    wpli : numpy 3D square matrix
-        wpli-based connectivity matrix. [n_epochs, n_channels x n_channels].
+    wpli : numpy.ndarray
+        wPLI-based connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels].
+
+    Examples
+    --------
+    >>> data = np.random.randn(2000, 16)  # Single epoch, 16 channels
+    >>> conn = wpli(data)
+    >>> conn.shape
+    (1, 16, 16)
+
+    >>> data = np.random.randn(5, 1500, 20)  # 5 epochs, 1500 samples, 20 channels
+    >>> conn = wpli(data)
+    >>> conn.shape
+    (5, 20, 20)
 
     """
     # Error check

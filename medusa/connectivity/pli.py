@@ -11,22 +11,34 @@ from medusa.utils import check_dimensions
 
 
 def pli(data):
-    """ This method implements three phase-based connectivity parameters using
-    CPU: PLV, PLI, and wPLI.
+    """
+    This method implements the Phase Lag Index (PLI) for M/EEG signals using CPU.
 
-    Parameters
+     Parameters
     ----------
-    data : numpy 2D matrix
-        MEEG Signal. Allowed dimensions: [n_epochs, n_samples, n_channels],
-        [n_samples, n_channels].
-    measure: str or None
-        Key of the phase connectivity measure to calculate: "plv", "pli" or
-        "wpli". If None, the three phase connectivity measures are calculated.
+    data : numpy.ndarray
+        M/EEG signal array. Accepts either:
+        - [n_samples, n_channels] for single-epoch data, or
+        - [n_epochs, n_samples, n_channels] for multi-epoch data.
 
     Returns
     -------
-    pli : numpy 3D square matrix
-        pli-based connectivity matrix. [n_epochs, n_channels x n_channels].
+    pli : numpy.ndarray
+        PLI-based connectivity matrix.
+        Shape: [n_epochs, n_channels, n_channels].
+
+    Examples
+    --------
+    >>> data = np.random.randn(500, 32)  # 500 samples, 32 channels
+    >>> result = pli(data)
+    >>> result.shape
+    (1, 32, 32)
+
+    >>> data = np.random.randn(10, 1000, 64)  # 10 epochs, 1000 samples, 64 channels
+    >>> result = pli(data)
+    >>> result.shape
+    (10, 64, 64)
+
     """
     # Error check
     if type(data) != np.ndarray:
