@@ -20,7 +20,6 @@ def betweenness(W,norm = True):
     -------
     BC : numpy array
         Network betweenness centrality.
-        
     """
     if not (norm == 0 or norm == 1 or norm == True or norm == False):
         raise ValueError('Variable "norm" must be either 0, 1, or bool')
