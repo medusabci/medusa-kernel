@@ -101,25 +101,31 @@ def __iac_ort_cpu(data):
     # Set to correct dimensions
     data = check_dimensions(data)
 
-    #  Variable initialization
+    # Variable initialization
     n_epo = data.shape[0]
     n_samp = data.shape[1]
     n_cha = data.shape[2]
 
-    # AEC Ort Calculation
+    # IAC Ort Calculation
     data = sp_stats.zscore(data, axis=1)
 
+    # IAC Ort Calculation - Orthogonalized data has one additional dimension (the channel dimension is duplicated), as
+    # each channel (1st channel dimension) is orthogonalized regarding every other channel (2nd channel dimension)
     signal_ort = orthogonalizate.signal_orthogonalization_cpu(data, data)
-    signal_ort_2 = np.transpose(
+    # The two channel dimensions are merged to paralelize the computation of the AEC
+    # epochs*chann*chann*samples -> epochs*chann^2*samples
+    signal_ort = np.transpose(
         np.reshape(np.transpose(signal_ort, (0, 3, 2, 1)),
                    (n_epo, n_cha * n_cha, n_samp)), (0, 2, 1))
 
-    hilb_1 = hilbert(signal_ort_2)
+    hilb_1 = hilbert(signal_ort)
     envelope_1 = np.abs(hilb_1)
 
+    # Comnputing IAC for each (duplicated) channel with every other one, obatining a chann^2*chann^2 matrix
     iac = np.multiply(np.reshape(np.tile(
         envelope_1, (1, n_cha**2, 1)), (n_epo, n_samp, n_cha**2*n_cha**2),
         order='F'), np.tile(envelope_1, (1, 1, n_cha**2)))
+    # Reshape the data and take only the indices of interest, resulting in a chann*chann matrix
     iac = np.reshape(np.transpose(iac,[0,2,1]), (n_epo,n_cha**2, n_cha**2, n_samp))
     iac_tmp2 = np.transpose(
         np.reshape(
@@ -132,11 +138,9 @@ def __iac_ort_cpu(data):
 
     # Orthogonalize A regarding B is not the same as orthogonalize B regarding
     # A, so we average lower and upper triangular matrices to construct the
-    # symmetric matrix required for Orthogonalized AEC
-
+    # symmetric matrix required for Orthogonalized IAC
     iac_upper = np.triu(np.transpose(iac, (0,3, 1, 2)), k=1)
-    iac_lower = np.transpose(np.tril(np.transpose(iac, (0,3, 1, 2)), k=-1), (0,1, 3,
-                                                                           2))
+    iac_lower = np.transpose(np.tril(np.transpose(iac, (0,3, 1, 2)), k=-1), (0,1, 3,2))
     iac_ort = (iac_upper + iac_lower) / 2
     iac_ort = abs(np.triu(iac_ort, k=1) + np.transpose(iac_ort, (0,1, 3, 2)))
 

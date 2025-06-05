@@ -107,8 +107,11 @@ def __aec_ort_cpu(data):
     aec_ort = np.empty((n_epo, n_cha, n_cha))
     aec_ort[:] = np.nan
 
-    # AEC Ort Calculation
+    # AEC Ort Calculation - Orthogonalized data has one additional dimension (the channel dimension is duplicated), as
+    # each channel (1st channel dimension) is orthogonalized regarding every other channel (2nd channel dimension)
     signal_ort = orthogonalizate.signal_orthogonalization_cpu(data, data)
+    # The two channel dimensions are merged to paralelize the computation of the AEC
+    # epochs*chann*chann*samples -> epochs*chann^2*samples
     signal_ort = np.transpose(np.reshape(np.transpose(signal_ort, (0, 3, 2, 1)),
                             (n_epo, n_cha * n_cha, n_samp)),(0,2,1))
 
@@ -159,11 +162,9 @@ def __aec_ort_comp_aux(env, n_cha):
     (32, 32)
     """
 
-    # Note: Orthogonalize A regarding B is not the same as orthogonalize B regarding
-    # A, so we average lower and upper triangular matrices to construct the
-    # symmetric matrix required for Orthogonalized AEC
-
+    # Correlate each (duplicated) channel with every other one, obatining a chann^2*chann^2 matrix
     aec_tmp = np.corrcoef(env, rowvar=False)
+    # Reshape the data and take only the indices of interest, resulting in a chann*chann matrix
     aec_tmp2 = np.transpose(
         np.reshape(
             np.transpose(aec_tmp),
@@ -172,6 +173,10 @@ def __aec_ort_comp_aux(env, n_cha):
     )
     idx = np.linspace(0, aec_tmp2.shape[1] - 1, n_cha).astype(np.int32)
     aec = aec_tmp2[:, idx]
+
+    # Orthogonalize A regarding B is not the same as orthogonalize B regarding
+    # A, so we average lower and upper triangular matrices to construct the
+    # symmetric matrix required for Orthogonalized AEC
     aec_upper = np.triu(np.squeeze(aec))
     aec_lower = np.transpose(np.tril(np.squeeze(aec)))
     aec_ort = (aec_upper + aec_lower) / 2
