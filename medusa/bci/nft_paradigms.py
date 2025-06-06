@@ -19,12 +19,12 @@ import medusa as mds
 from medusa import components
 from medusa import meeg
 from medusa.spatial_filtering import LaplacianFilter, car
-from medusa.connectivity.phase_connectivity import phase_connectivity
-from medusa.connectivity.iac import __aec_ort_cpu as aec
-from medusa.network import degree
+from medusa.connectivity_metrics.phase_connectivity import phase_connectivity
+from medusa.connectivity_metrics.iac import __aec_ort_cpu as aec
+from medusa.graph_metrics import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
-from medusa.local_activation.spectral_parameteres import band_power
+from medusa.signal_metrics.spectral_parameteres import band_power
 
 
 class SignalPreprocessing(components.ProcessingMethod):
@@ -364,7 +364,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
 
         l_baseline_t: int
             Time employed to calculate the number of samples to obtain baseline
-            connectivity parameter. In seconds.
+            connectivity_metrics parameter. In seconds.
         fs: int or float
             Sample rate of the recording.
         update_feature_window: int or float
@@ -393,7 +393,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
                              'labels of channels and montage standard key')
         if fc_measure != "WPLI" and fc_measure != "AECORT":
             raise ValueError('[ConnectivityExtraction] Invalid functional '
-                             'connectivity measure. Available measures are '
+                             'connectivity_metrics measure. Available measures are '
                              '"WPLI" and "AECORT".')
         if mode != "Global coupling" and mode != "Strength" and mode != \
                 "Coupling":
@@ -556,7 +556,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
 
     def mean_coupling(self, adj_mat):
         """
-        This function calculates the connectivity values between all the
+        This function calculates the connectivity_metrics values between all the
            target channels and average it value.
 
         Parameters

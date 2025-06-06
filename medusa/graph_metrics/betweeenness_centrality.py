@@ -2,8 +2,8 @@ import numpy as np
 
 def betweenness(W,norm = True):
     """
-    Calculates the betweenness centrality of the graph, which is the probability 
-    that node i belong to one of the network shortest paths
+    Calculates the betweenness centrality of the graph_metrics, which is the probability
+    that node i belong to one of the graph_metrics shortest paths
     
     Note: W must be converted to a connection-length matrix. It is common to 
     obtain it via mapping from weight to length. BC is normalised to the 

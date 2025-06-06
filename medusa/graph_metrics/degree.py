@@ -58,7 +58,7 @@ def __degree_cpu(W):
 
 def degree(W):
     """
-    Calculates the graph degree.
+    Calculates the graph_metrics degree.
 
     Parameters
     ----------

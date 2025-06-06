@@ -1968,7 +1968,7 @@ class CMDModelRLDA(ERPSpellerModel):
 
 class CMDModelEEGNet(ERPSpellerModel):
     """Command decoding model for ERP-based spellers model based on EEGNet, a
-    compact deep convolutional neural network specifically developed for EEG
+    compact deep convolutional neural graph_metrics specifically developed for EEG
     applications [1].
 
     Dataset features:
@@ -1994,12 +1994,12 @@ class CMDModelEEGNet(ERPSpellerModel):
 
     - Feature classification
 
-        - EEGNet: compact convolutional network.
+        - EEGNet: compact convolutional graph_metrics.
 
     References
     ----------
     [1] Lawhern, V. J., Solon, A. J., Waytowich, N. R., Gordon, S. M., Hung,
-    C. P., & Lance, B. J. (2018). EEGNet: a compact convolutional neural network
+    C. P., & Lance, B. J. (2018). EEGNet: a compact convolutional neural graph_metrics
     for EEG-based brain–computer interfaces. Journal of neural engineering,
     15(5), 056013.
     """
@@ -2138,7 +2138,7 @@ class CMDModelEEGNet(ERPSpellerModel):
 
 class CMDModelEEGInception(ERPSpellerModel):
     """Command decoding model for ERP-based spellers model based on
-    EEG-Inception, a powerful deep convolutional neural network specifically
+    EEG-Inception, a powerful deep convolutional neural graph_metrics specifically
     developed for BCI applications [1].
 
     Dataset features:
@@ -2165,7 +2165,7 @@ class CMDModelEEGInception(ERPSpellerModel):
 
     - Feature classification
 
-        - EEG-Inception: convolutional neural network [1].
+        - EEG-Inception: convolutional neural graph_metrics [1].
 
     References
     ----------
@@ -2320,7 +2320,7 @@ class CMDModelEEGInception(ERPSpellerModel):
 
 class CSDModelEEGInception(ERPSpellerModel):
     """Control state detection model for ERP-based spellers model based on
-    EEG-Inception, a powerful deep convolutional neural network specifically
+    EEG-Inception, a powerful deep convolutional neural graph_metrics specifically
     developed for BCI applications [1]. More information about this control
     state detection method can be found in [2].
 
@@ -2348,7 +2348,7 @@ class CSDModelEEGInception(ERPSpellerModel):
 
     - Feature classification
 
-        - EEG-Inception: convolutional neural network
+        - EEG-Inception: convolutional neural graph_metrics
 
     References
     ----------

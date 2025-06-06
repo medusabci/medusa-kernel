@@ -24,7 +24,7 @@ def plv(data):
     Returns
     -------
     plv : numpy.ndarray
-        Phase-locking value connectivity matrix for each epoch.
+        Phase-locking value connectivity_metrics matrix for each epoch.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples

@@ -24,7 +24,7 @@ def wpli(data):
     Returns
     -------
     wpli : numpy.ndarray
-        wPLI-based connectivity matrix.
+        wPLI-based connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples

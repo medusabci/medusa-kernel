@@ -3,7 +3,7 @@ from medusa import spatial_filtering as sf
 # from medusa.storage.medusa_data import MedusaData
 from medusa.components import Recording
 # from medusa.bci.mi_feat_extraction import extract_mi_trials_from_midata
-from medusa.local_activation import signed_r2
+from medusa.signal_metrics import signed_r2
 # from medusa.bci.mi_models import MIModelSettings
 from medusa.plots import head_plots
 from medusa.bci.mi_paradigms import StandardPreprocessing, \

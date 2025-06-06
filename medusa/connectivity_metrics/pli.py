@@ -24,7 +24,7 @@ def pli(data):
     Returns
     -------
     pli : numpy.ndarray
-        PLI-based connectivity matrix.
+        PLI-based connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples

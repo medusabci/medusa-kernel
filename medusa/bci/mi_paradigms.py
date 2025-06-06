@@ -1287,7 +1287,7 @@ class MIModelCSP(MIModel):
 
 class MIModelEEGSym(MIModel):
     """Decoding model for MI-based BCI applications based on EEGSym [1], a deep
-    convolutional neural network developed for inter-subjects MI classification.
+    convolutional neural graph_metrics developed for inter-subjects MI classification.
 
     Dataset features:
 
@@ -1312,7 +1312,7 @@ class MIModelEEGSym(MIModel):
 
     - Feature classification
 
-        - EEGSym: convolutional neural network [1].
+        - EEGSym: convolutional neural graph_metrics [1].
 
     References
     ----------
