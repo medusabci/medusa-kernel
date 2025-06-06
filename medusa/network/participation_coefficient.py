@@ -1,5 +1,5 @@
 import numpy as np
-from medusa.graph_theory import degree,modularity
+from medusa.network import degree,modularity
 
 def participation_coefficient(W):
     """

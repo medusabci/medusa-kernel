@@ -1,7 +1,7 @@
-from medusa.graph_theory import *
+from medusa.network import *
 
 
-import medusa.graph_theory as mds_gt
+import medusa.network as mds_gt
 
 def calcualte_metric(**kwargs):
 

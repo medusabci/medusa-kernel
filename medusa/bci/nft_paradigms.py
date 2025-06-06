@@ -21,7 +21,7 @@ from medusa import meeg
 from medusa.spatial_filtering import LaplacianFilter, car
 from medusa.connectivity.phase_connectivity import phase_connectivity
 from medusa.connectivity.iac import __aec_ort_cpu as aec
-from medusa.graph_theory import degree
+from medusa.network import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
 from medusa.local_activation.spectral_parameteres import band_power
