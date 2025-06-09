@@ -279,7 +279,7 @@ def __coarse_grain(signal, scale, decimate_mode=True):
         return y
 
 
-def __lempelziv_complexity(signal):
+def lempelziv_complexity(signal):
     """ Calculate the  signal binarisation and the Lempel-Ziv's complexity. This
     version allows the algorithm to be used for signals with more than one
     channel at the same time.
@@ -317,57 +317,57 @@ def __lempelziv_complexity(signal):
         return lz_channel_values
 
 
-def lempelziv_complexity(signal):
-    """Calculate the  signal binarisation and the Lempel-Ziv's complexity.
-    This function takes advantage of its implementation in C to achieve a high
-    performance.
-
-   Parameters
-   ---------
-   signal: numpy.ndarray
-       MEEG Signal [n_epochs, n_samples, n_channels]
-
-   Returns
-   -------
-   lz_result: numpy.ndarray
-       Lempel-Ziv values for each epoch and each channel. [n_epochs, n_channels].
-    """
-    # Check dimensions
-    signal = check_dimensions(signal)
-
-    # Signal dimensions
-    n_epo = signal.shape[0]
-    n_sample = signal.shape[1]
-    n_cha = signal.shape[2]
-
-    # Initialize result matrix
-    lz_result = np.empty((n_epo, n_cha))
-
-    # Adapt the signal to the format required by the DLL
-    signal = np.reshape(np.transpose(signal, (0, 2, 1)), (n_epo, -1))
-
-    # Get function from dll
-    dll_file = os.path.join(os.path.dirname(__file__),
-                        'computeLZC.dll')
-    lib = ctypes.cdll.LoadLibrary(dll_file)
-    lzc_func = lib.computeLempelZivCmplx  # Access function
-
-    for e_idx, epochs in enumerate(signal):
-        # Create empty output vector
-        lz_channel_values = np.zeros(int(n_cha), dtype=np.double)
-
-        # Define inputs and outputs
-        lzc_func.restype = None
-        array_1d_double = np.ctypeslib.ndpointer(dtype=np.double, ndim=1,
-                                                 flags='CONTIGUOUS')
-        lzc_func.argtypes = [array_1d_double, array_1d_double, ctypes.c_int32,
-                             ctypes.c_int32]
-
-        # Call the function in the dll
-        lzc_func(signal[e_idx, :], lz_channel_values, int(n_sample * n_cha),
-                 int(n_sample))
-        lz_result[e_idx, :] = lz_channel_values
-    return lz_result
+# def lempelziv_complexity(signal):
+#     """Calculate the  signal binarisation and the Lempel-Ziv's complexity.
+#     This function takes advantage of its implementation in C to achieve a high
+#     performance.
+#
+#    Parameters
+#    ---------
+#    signal: numpy.ndarray
+#        MEEG Signal [n_epochs, n_samples, n_channels]
+#
+#    Returns
+#    -------
+#    lz_result: numpy.ndarray
+#        Lempel-Ziv values for each epoch and each channel. [n_epochs, n_channels].
+#     """
+#     # Check dimensions
+#     signal = check_dimensions(signal)
+#
+#     # Signal dimensions
+#     n_epo = signal.shape[0]
+#     n_sample = signal.shape[1]
+#     n_cha = signal.shape[2]
+#
+#     # Initialize result matrix
+#     lz_result = np.empty((n_epo, n_cha))
+#
+#     # Adapt the signal to the format required by the DLL
+#     signal = np.reshape(np.transpose(signal, (0, 2, 1)), (n_epo, -1))
+#
+#     # Get function from dll
+#     dll_file = os.path.join(os.path.dirname(__file__),
+#                         'computeLZC.dll')
+#     lib = ctypes.cdll.LoadLibrary(dll_file)
+#     lzc_func = lib.computeLempelZivCmplx  # Access function
+#
+#     for e_idx, epochs in enumerate(signal):
+#         # Create empty output vector
+#         lz_channel_values = np.zeros(int(n_cha), dtype=np.double)
+#
+#         # Define inputs and outputs
+#         lzc_func.restype = None
+#         array_1d_double = np.ctypeslib.ndpointer(dtype=np.double, ndim=1,
+#                                                  flags='CONTIGUOUS')
+#         lzc_func.argtypes = [array_1d_double, array_1d_double, ctypes.c_int32,
+#                              ctypes.c_int32]
+#
+#         # Call the function in the dll
+#         lzc_func(signal[e_idx, :], lz_channel_values, int(n_sample * n_cha),
+#                  int(n_sample))
+#         lz_result[e_idx, :] = lz_channel_values
+#     return lz_result
 
 
 def multiscale_lempelziv_complexity(signal, W):
