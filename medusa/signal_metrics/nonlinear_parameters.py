@@ -279,7 +279,7 @@ def __coarse_grain(signal, scale, decimate_mode=True):
         return y
 
 
-def lempelziv_complexity(signal):
+def lempelziv_complexity_old(signal):
     """ Calculate the  signal binarisation and the Lempel-Ziv's complexity. This
     version allows the algorithm to be used for signals with more than one
     channel at the same time.
@@ -290,7 +290,7 @@ def lempelziv_complexity(signal):
     Parameters
     ---------
     signal: numpy 2D array
-        Signal with shape [n_samples, n_channels]
+        Signal with shape [n_epochs,n_samples, n_channels]
 
     Returns
     -------
@@ -315,6 +315,49 @@ def lempelziv_complexity(signal):
         for index, thread in enumerate(working_threads):
             lz_channel_values[index] = thread.join()
         return lz_channel_values
+
+
+def lempelziv_complexity(signal):
+    """ Calculate the  signal binarisation and the Lempel-Ziv's complexity. This
+    version allows the algorithm to be used for signals with more than one
+    channel at the same time.
+
+    Warnings: This function is deprecated and will be removed in future updates
+    of MEDUSA Kernel.
+
+    Parameters
+    ---------
+    signal: numpy 2D array
+        Signal with shape [n_epochs, n_samples, n_channels]
+
+    Returns
+    -------
+    lz_channel_values: numpy 1D matrix
+        Lempel-Ziv values for each channel with shape [n_channels].
+    """
+
+    # Check dimensions
+    signal = check_dimensions(signal)
+
+    # Signal dimensions
+    n_epo = signal.shape[0]
+    n_chan = signal.shape[2]
+    lz_channel_values = np.empty((n_epo, n_chan))
+
+    for ep_idx, epoch in enumerate(signal):
+        binarised_signal = __binarisation(epoch, [signal.shape[1]], signal.shape[1])
+        if n_chan == 1:
+            lz_channel_values[ep_idx, :] = __lz_algorithm(binarised_signal)
+        else:
+            working_threads = list()
+            for ch in range(n_chan):
+                t = ThreadWithReturnValue(target=__lz_algorithm,
+                                          args=(binarised_signal[:, ch],))
+                working_threads.append(t)
+                t.start()
+            for ch_idx, t in enumerate(working_threads):
+                lz_channel_values[ep_idx, ch_idx] = t.join()
+    return lz_channel_values
 
 
 # def lempelziv_complexity(signal):
