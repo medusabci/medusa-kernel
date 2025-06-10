@@ -203,4 +203,9 @@ def iac(data, ort=True):
      else:
          iac = __iac_ort_cpu(data)
 
+     for i in range(iac.shape[0]):
+         for t in range(iac.shape[3]):
+             # np.fill_diagonal operates on the 2D slice m_4d[i, :, :, t]
+             np.fill_diagonal(iac[i, :, :, t], 1)
+
      return iac

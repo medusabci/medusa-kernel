@@ -63,6 +63,9 @@ def pli(data):
     pli_vector = abs(np.mean(np.sign(np.sin(angles_1 - angles_2)), axis=1))
     pli = np.reshape(pli_vector, (n_epochs, n_chan, n_chan), order='F')
 
+    for i in range(n_epochs):
+        np.fill_diagonal(pli[i], 1)
+
     return pli
 
 
