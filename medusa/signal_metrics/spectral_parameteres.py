@@ -1,7 +1,9 @@
 import numpy as np
 
+from medusa.utils import check_dimensions
 
-def band_power(psd, fs, target_band):
+
+def band_power(psd, fs, target_band, apply_bin_norm=True):
     """This method computes the band power of the signal in the given
     band using the power spectral density (PSD).
 
@@ -18,6 +20,9 @@ def band_power(psd, fs, target_band):
         Sampling frequency of the signal
     target_band : numpy 2D array
         Frequency band where to calculate the power in Hz. E.g., [8, 13]
+    apply_bin_norm : bool
+        Normalize the band power by the width of each frequency bin. Set to False
+        if you are willing to compute the relative power
 
     Returns
     -------
@@ -27,10 +32,8 @@ def band_power(psd, fs, target_band):
     # To numpy arrays
     psd = np.array(psd)
 
-    # Check errors
-    if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
+    # Check dimensions
+    psd = check_dimensions(psd)
 
     # Calculate freqs array
     freqs = np.linspace(0, fs/2, psd.shape[1])
@@ -38,8 +41,9 @@ def band_power(psd, fs, target_band):
     # Compute power
     psd_target_samp = \
         np.logical_and(freqs >= target_band[0], freqs <= target_band[1])
-    band_power = np.sum(psd[:, psd_target_samp, :], axis=1) * \
-                 (fs / (2 * freqs.shape[0]))
+    band_power = np.sum(psd[:, psd_target_samp, :], axis=1)
+    if apply_bin_norm:
+        band_power *= (fs / (2 * freqs.shape[0]))
 
     return band_power
 
