@@ -24,7 +24,7 @@ from medusa.connectivity.iac import __aec_ort_cpu as aec
 from medusa.graph_theory import degree
 from medusa.artifact_removal import reject_noisy_epochs
 from medusa.epoching import get_epochs_of_events
-from medusa.local_activation.spectral_parameteres import band_power
+from medusa.local_activation.shannon_spectral_entropy import band_power
 
 
 class SignalPreprocessing(components.ProcessingMethod):

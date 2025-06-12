@@ -224,11 +224,13 @@ def aec(data, ort=True):
 
     Examples
     --------
+    >>> from medusa.connectivity.aec import aec
     >>> data = np.random.randn(1000, 64)  # Single epoch, 1000 samples, 64 channels
     >>> conn = aec(data, ort=False)
     >>> print(conn.shape)
     (1, 64, 64)
 
+    >>> from medusa.connectivity.aec import aec
     >>> data = np.random.randn(5, 2000, 32)  # Multi-epoch input
     >>> conn_ort = aec(data, ort=True)
     >>> print(conn_ort.shape)

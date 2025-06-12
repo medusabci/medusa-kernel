@@ -29,11 +29,13 @@ def pli(data):
 
     Examples
     --------
+    >>> from medusa.connectivity.pli import pli
     >>> data = np.random.randn(500, 32)  # 500 samples, 32 channels
     >>> result = pli(data)
     >>> result.shape
     (1, 32, 32)
 
+    >>> from medusa.connectivity.pli import pli
     >>> data = np.random.randn(10, 1000, 64)  # 10 epochs, 1000 samples, 64 channels
     >>> result = pli(data)
     >>> result.shape
