@@ -24,7 +24,7 @@ def wpli(data):
     Returns
     -------
     wpli : numpy.ndarray
-        wPLI-based connectivity matrix.
+        wPLI-based connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples
@@ -70,6 +70,9 @@ def wpli(data):
         )
     wpli = np.nan_to_num(
         np.reshape(wpli_vector, (n_epochs, n_chan, n_chan), order='F'))
+
+    for i in range(n_epochs):
+        np.fill_diagonal(wpli[i], 1)
 
     return wpli
 

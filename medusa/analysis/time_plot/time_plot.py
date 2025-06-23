@@ -843,7 +843,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
 
     def _detect_preview_focus_item(self, event):
         """ This function detects if the click event is over something clickable. """
-        # Convert the event position into coordinates inside graph
+        # Convert the event position into coordinates inside graph_metrics
         t = self.canvas_preview.axes.transData.inverted()
         xy = t.transform([event.x, event.y])
         

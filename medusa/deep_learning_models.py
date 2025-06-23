@@ -371,7 +371,7 @@ class EEGNet(components.ProcessingMethod):
     References
     ----------
     [1] Lawhern, V. J., Solon, A. J., Waytowich, N. R., Gordon, S. M., Hung,
-    C. P., & Lance, B. J. (2018). EEGNet: a compact convolutional neural network
+    C. P., & Lance, B. J. (2018). EEGNet: a compact convolutional neural graph_metrics
     for EEG-based brain–computer interfaces. Journal of neural engineering,
     15(5), 056013.
     """

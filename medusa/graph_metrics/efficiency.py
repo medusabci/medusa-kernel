@@ -48,7 +48,7 @@ def __distance_inv_wei(L):
 
 def efficiency(W):
     """
-    Calculates the graph efficiency. 
+    Calculates the graph_metrics efficiency.
     Globally is the mean of the inverse shortests path length, and is 
     inversely related to path length. 
     Nodally/Locally is the same as globally but calculated on the neighbourhood of the
@@ -68,7 +68,7 @@ def efficiency(W):
 
     """
     
-    N = W.shape[0] # Number of graph nodes
+    N = W.shape[0] # Number of graph_metrics nodes
     W1 = np.copy(W) # Graph copy
     A = np.where(W != 0,1,0) # Connections matrix
     idx = np.copy(A)

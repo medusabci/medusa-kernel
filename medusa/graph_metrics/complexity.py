@@ -8,9 +8,9 @@ import scipy.special as sps
 
 def __divergency_cpu(W):
     """
-    Calculates the graph divergency. Its the entropic distance (as euclidean
-    distance) between a uniform weight distribution (random graph) and the 
-    network under study using CPU
+    Calculates the graph_metrics divergency. Its the entropic distance (as euclidean
+    distance) between a uniform weight distribution (random graph_metrics) and the
+    graph_metrics under study using CPU
     
     Parameters
     ----------
@@ -32,14 +32,14 @@ def __divergency_cpu(W):
     
         p_sort = np.sort(p,axis=0)[::-1] # Weight sorting (descending)
         
-        p_equi_sort = 1 / len(p_sort) * np.ones((1,len(p_sort))) # Full network is the
-        #equilibrium network (same weight for all the edges)
+        p_equi_sort = 1 / len(p_sort) * np.ones((1,len(p_sort))) # Full graph_metrics is the
+        #equilibrium graph_metrics (same weight for all the edges)
         
         # Normalised euclidean distance
         c = sps.comb(N,2) # Number of connections without autoloops
         D = np.sqrt(c / (c - 1)) * np.sqrt(np.nansum(
                 np.power(np.squeeze(np.asarray(p_equi_sort))-np.squeeze(np.asarray(p_sort)),2)))
-    else: # Empty graph
+    else: # Empty graph_metrics
         D = 0 
         
     return D
@@ -47,7 +47,7 @@ def __divergency_cpu(W):
 
 def __graph_entropy_cpu(W):
     """
-    Calculates the Shannon entropy of a weighted graph using CPU
+    Calculates the Shannon entropy of a weighted graph_metrics using CPU
     
     Parameters
     ----------
@@ -72,7 +72,7 @@ def __graph_entropy_cpu(W):
         # Normalising H to range [0 1]
         K = np.log2(p.shape[0])
         H = H/K
-    else: # Empty or full graph
+    else: # Empty or full graph_metrics
         H = 1
 
     return H         
@@ -80,8 +80,8 @@ def __graph_entropy_cpu(W):
 
 def __complexity_cpu(W):
     """
-    Calculates the Shannon Graph Complexity of a graph that node i belong to 
-    one of the network shortest paths using CPU
+    Calculates the Shannon Graph Complexity of a graph_metrics that node i belong to
+    one of the graph_metrics shortest paths using CPU
     
     Note: W must be converted to a connection-length matrix. It is common to 
     obtain it via mapping from weight to length. BC is normalised to the 
@@ -107,7 +107,7 @@ def __complexity_cpu(W):
 
 def complexity(W):
     """
-    Calculates the graph complexity.
+    Calculates the graph_metrics complexity.
 
     Parameters
     ----------

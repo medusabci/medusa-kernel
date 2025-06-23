@@ -775,7 +775,7 @@ class MEG(components.BiosignalData):
 class Connecitivity:
     # TODO: check everything
 
-    """Customizable class with connectivity info from EEG/MEG recordings
+    """Customizable class with connectivity_metrics info from EEG/MEG recordings
     """
 
     def __init__(self, data, trial_len, parameter, filt_mode, **kwargs):

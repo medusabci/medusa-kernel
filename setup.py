@@ -32,7 +32,7 @@ setup(
     ],
     python_requires='>=3.10, <3.14',
     package_data={
-        'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
+        'medusa': ['meeg/*.tsv', 'signal_metrics/*.dll',
                    'analysis/time_plot/icons/*.png',
                    'analysis/time_plot/time_plot.ui']
     },

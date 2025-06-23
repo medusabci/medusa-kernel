@@ -10,38 +10,38 @@ from medusa import transforms
 from medusa.utils import check_dimensions
 
 
-def plv(data):
+def pli(data):
     """
-    This method implements the Phase-Locking Value (PLV) for M/EEG signals using the CPU.
+    This method implements the Phase Lag Index (PLI) for M/EEG signals using CPU.
 
-    Parameters
+     Parameters
     ----------
     data : numpy.ndarray
-        M/EEG signal with shape:
-        - [n_epochs, n_samples, n_channels] for multi-epoch data
-        - [n_samples, n_channels] for single-epoch data (converted to 3D)
+        M/EEG signal array. Accepts either:
+        - [n_samples, n_channels] for single-epoch data, or
+        - [n_epochs, n_samples, n_channels] for multi-epoch data.
 
     Returns
     -------
-    plv : numpy.ndarray
-        Phase-locking value connectivity matrix for each epoch.
+    pli : numpy.ndarray
+        PLI-based connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples
     --------
-    >>> from medusa.connectivity.plv import plv
-    >>> data = np.random.randn(1000, 64)  # 1000 samples, 64 channels
-    >>> conn = plv(data)
-    >>> print(conn.shape)
-    (1, 64, 64)
+    >>> from medusa.connectivity.pli import pli
+    >>> data = np.random.randn(500, 32)  # 500 samples, 32 channels
+    >>> result = pli(data)
+    >>> result.shape
+    (1, 32, 32)
 
-    >>> from medusa.connectivity.plv import plv
-    >>> multi_data = np.random.randn(10, 1500, 32)  # 10 epochs, 1500 samples, 32 channels
-    >>> conn = plv(multi_data)
-    >>> print(conn.shape)
-    (10, 32, 32)
+    >>> from medusa.connectivity.pli import pli
+    >>> data = np.random.randn(10, 1000, 64)  # 10 epochs, 1000 samples, 64 channels
+    >>> result = pli(data)
+    >>> result.shape
+    (10, 64, 64)
+
     """
-
     # Error check
     if type(data) != np.ndarray:
         raise ValueError("Parameter data must be of type numpy.ndarray")
@@ -62,10 +62,13 @@ def plv(data):
                           order='F')
     angles_2 = np.tile(phase_data, (1, 1, n_chan))
 
-    plv_vector = np.divide(
-        abs(np.sum(np.exp(1j * (angles_1 - angles_2)), axis=1)),
-        n_samples)
-    plv = np.reshape(plv_vector, (n_epochs, n_chan, n_chan), order='F')
+    pli_vector = abs(np.mean(np.sign(np.sin(angles_1 - angles_2)), axis=1))
+    pli = np.reshape(pli_vector, (n_epochs, n_chan, n_chan), order='F')
 
-    return plv
+    for i in range(n_epochs):
+        np.fill_diagonal(pli[i], 1)
+
+    return pli
+
+
 

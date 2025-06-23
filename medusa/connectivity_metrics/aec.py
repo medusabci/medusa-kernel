@@ -26,7 +26,7 @@ def __aec_cpu(data):
     Returns
     -------
     aec : numpy.ndarray
-        AEC-based functional connectivity matrix.
+        AEC-based functional connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples
@@ -72,7 +72,7 @@ def __aec_ort_cpu(data):
     """
     Computes the Orthogonalized Amplitude Envelope Correlation (AEC) on M/EEG data.
     This version reduces zero-lag artifacts by orthogonalizing the signals before
-    computing correlations, thereby increasing the specificity of functional connectivity.
+    computing correlations, thereby increasing the specificity of functional connectivity_metrics.
 
     Parameters
     ----------
@@ -82,7 +82,7 @@ def __aec_ort_cpu(data):
     Returns
     -------
     aec : numpy.ndarray
-        Orthogonalized AEC-based functional connectivity matrix.
+        Orthogonalized AEC-based functional connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples
@@ -137,7 +137,7 @@ def __aec_ort_comp_aux(env, n_cha):
     """
     Auxiliary function for computing orthogonalized AEC for a single epoch.
 
-    Note: Orthogonalization is not symmetric. Therefore, the final connectivity
+    Note: Orthogonalization is not symmetric. Therefore, the final connectivity_metrics
     matrix is symmetrized by averaging the upper and lower triangles.
 
     Parameters
@@ -151,7 +151,7 @@ def __aec_ort_comp_aux(env, n_cha):
     Returns
     -------
     aec_ort : numpy.ndarray
-        Symmetric AEC connectivity matrix for one epoch.
+        Symmetric AEC connectivity_metrics matrix for one epoch.
         Shape: [n_channels, n_channels].
 
     Example (internal use)
@@ -202,7 +202,7 @@ def aec(data, ort=True):
     oscillatory activity. Nature neuroscience, 15(6), 884-890.
 
     O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
-    J. (2015). Measuring electrophysiological connectivity by power envelope
+    J. (2015). Measuring electrophysiological connectivity_metrics by power envelope
     correlation: a technical review on MEG methods. Physics in Medicine &
     Biology, 60(21), R271.
 
@@ -219,7 +219,7 @@ def aec(data, ort=True):
     Returns
     -------
     aec : numpy.ndarray
-        AEC-based functional connectivity matrix.
+        AEC-based functional connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels].
 
     Examples

@@ -28,7 +28,7 @@ def __iac_cpu(data):
     Returns
     -------
     iac : numpy.ndarray
-        IAC-based functional connectivity matrix.
+        IAC-based functional connectivity_metrics matrix.
         Shape: [n_epochs, n_channels, n_channels, n_samples].
 
     Examples
@@ -73,7 +73,7 @@ def __iac_cpu(data):
 def __iac_ort_cpu(data):
     """
     Computes the orthogonalized Instantaneous Amplitude Correlation (IAC) using CPU.
-    Orthogonalization reduces spurious connectivity caused by signal leakage or
+    Orthogonalization reduces spurious connectivity_metrics caused by signal leakage or
     volume conduction, preserving only the genuine amplitude correlations.
 
     Parameters
@@ -84,7 +84,7 @@ def __iac_ort_cpu(data):
     Returns
     -------
     iac_ort : numpy.ndarray
-        Symmetrized IAC-based functional connectivity matrix after orthogonalization.
+        Symmetrized IAC-based functional connectivity_metrics matrix after orthogonalization.
         Shape: [n_epochs, n_channels, n_channels, n_samples].
 
     Examples
@@ -158,10 +158,10 @@ def iac(data, ort=True):
     Tewarie, P., Liuzzi, L., O'Neill, G. C., Quinn, A. J., Griffa,
     A., Woolrich, M. W., ... & Brookes, M. J. (2019). Tracking dynamic brain
     networks using high temporal resolution MEG measures of functional
-    connectivity. Neuroimage, 200, 38-50.
+    connectivity_metrics. Neuroimage, 200, 38-50.
 
     O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., & Brookes, M.
-    J. (2015). Measuring electrophysiological connectivity by power envelope
+    J. (2015). Measuring electrophysiological connectivity_metrics by power envelope
     correlation: a technical review on MEG methods. Physics in Medicine &
     Biology, 60(21), R271.
 
@@ -178,7 +178,7 @@ def iac(data, ort=True):
     Returns
     -------
     iac : numpy.ndarray
-        Functional connectivity matrix based on IAC.
+        Functional connectivity_metrics matrix based on IAC.
         Shape: [n_epochs, n_channels, n_channels, n_samples].
 
     Examples
@@ -203,5 +203,10 @@ def iac(data, ort=True):
 
      else:
          iac = __iac_ort_cpu(data)
+
+     for i in range(iac.shape[0]):
+         for t in range(iac.shape[3]):
+             # np.fill_diagonal operates on the 2D slice m_4d[i, :, :, t]
+             np.fill_diagonal(iac[i, :, :, t], 1)
 
      return iac
