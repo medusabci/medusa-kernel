@@ -27,7 +27,7 @@ def band_power(psd, fs, target_band):
     Examples
     --------
     >>> import numpy as np
-    >>> from medusa.local_activation.band_power import band_power
+    >>> from medusa.signal_metrics.band_power import band_power
     >>> fs = 256  # Sampling frequency
     >>> psd = np.random.rand(1, 129, 2)  # Example PSD: 1 epoch, samples, 2 channels
     >>> band = [8, 13]  # Alpha band

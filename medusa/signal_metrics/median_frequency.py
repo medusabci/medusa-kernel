@@ -28,7 +28,7 @@ def median_frequency(psd, fs, target_band=(1, 70)):
           Examples
     --------
     >>> import numpy as np
-    >>> from medusa.local_activation.median_frequency import median_frequency
+    >>> from medusa.signal_metrics.median_frequency import median_frequency
     >>> fs = 256
     >>> psd = np.random.rand(10, 129, 16)  # 10 epochs, 129 samples, 16 channeles
     >>> mf = median_frequency(psd, fs, [1, 50])

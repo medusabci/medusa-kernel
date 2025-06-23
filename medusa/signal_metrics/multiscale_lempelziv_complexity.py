@@ -12,99 +12,14 @@ from scipy.signal import decimate
 from medusa.components import ThreadWithReturnValue
 from medusa.utils import check_dimensions
 
-def __lempelziv_complexity(signal):
-    """ Calculate the  signal binarisation and the Lempel-Ziv's complexity. This
-    version allows the algorithm to be used for signals with more than one
-    channel at the same time.
-
-    Warnings: This function is deprecated and will be removed in future updates
-    of MEDUSA Kernel.
-
-    Parameters
-    ---------
-    signal: numpy 2D array
-        Signal with shape [n_samples, n_channels]
-
-    Returns
-    -------
-    lz_channel_values: numpy 1D matrix
-        Lempel-Ziv values for each channel with shape [n_channels].
-    """
-
-    if signal.size == len(signal):
-        signal = signal[:, np.newaxis]
-
-    signal = __binarisation(signal, [signal.shape[0]], signal.shape[0])
-    if signal.shape[1] == 1:
-        return __lz_algorithm(signal)
-    else:
-        lz_channel_values = np.empty((signal.shape[1]))
-        working_threads = list()
-        for ch in range(signal.shape[1]):
-            t = ThreadWithReturnValue(target=__lz_algorithm,
-                                      args=(signal[:, ch],))
-            working_threads.append(t)
-            t.start()
-        for index, thread in enumerate(working_threads):
-            lz_channel_values[index] = thread.join()
-        return lz_channel_values
-
-
-def lempelziv_complexity(signal):
-    """Calculate the  signal binarisation and the Lempel-Ziv's complexity.
-    This function takes advantage of its implementation in C to achieve a high
-    performance.
-
-   Parameters
-   ---------
-   signal: numpy.ndarray
-       MEEG Signal [n_epochs, n_samples, n_channels]
-
-   Returns
-   -------
-   lz_result: numpy.ndarray
-       Lempel-Ziv values for each epoch and each channel. [n_epochs, n_channels].
-    """
-    # Check dimensions
-    signal = check_dimensions(signal)
-
-    # Signal dimensions
-    n_epo = signal.shape[0]
-    n_sample = signal.shape[1]
-    n_cha = signal.shape[2]
-
-    # Initialize result matrix
-    lz_result = np.empty((n_epo, n_cha))
-
-    # Adapt the signal to the format required by the DLL
-    signal = np.reshape(np.transpose(signal, (0, 2, 1)), (n_epo, -1))
-
-    # Get function from dll
-    dll_file = os.path.join(os.path.dirname(__file__),
-                        'computeLZC.dll')
-    lib = ctypes.cdll.LoadLibrary(dll_file)
-    lzc_func = lib.computeLempelZivCmplx  # Access function
-
-    for e_idx, epochs in enumerate(signal):
-        # Create empty output vector
-        lz_channel_values = np.zeros(int(n_cha), dtype=np.double)
-
-        # Define inputs and outputs
-        lzc_func.restype = None
-        array_1d_double = np.ctypeslib.ndpointer(dtype=np.double, ndim=1,
-                                                 flags='CONTIGUOUS')
-        lzc_func.argtypes = [array_1d_double, array_1d_double, ctypes.c_int32,
-                             ctypes.c_int32]
-
-        # Call the function in the dll
-        lzc_func(signal[e_idx, :], lz_channel_values, int(n_sample * n_cha),
-                 int(n_sample))
-        lz_result[e_idx, :] = lz_channel_values
-    return lz_result
 
 def multiscale_lempelziv_complexity(signal, W):
-    """Calculate the multiscale signal binarisation and the Multiscale
-    Lempel-Ziv's complexity.
+    """Calculate the Multiscale Lempel-Ziv's complexity.
+
+    This function applies multiscale binarisation to each epoch and channel of the input signal
+    using a set of predefined window lengths. It then calculates the Lempel-Ziv complexity
+    (a measure of sequence regularity and compressibility) over the binarised signal at each scale.
+    The complexity is computed for each epoch, scale (window length), and channel independently.
 
     References
     ----------
@@ -115,15 +30,34 @@ def multiscale_lempelziv_complexity(signal, W):
     Parameters
     ---------
     signal: numpy.ndarray
-        MEEG Signal [n_epochs, n_samples, n_channels]
-    W: list or numpy 1D array
-        Set of window length to consider at multiscale binarisation stage.
-        Values must be odd.
+        Signal with shape [n_epochs, n_samples, n_channels]
+    W: list[int] or numpy 1D array
+        Sequence of odd integers representing the window lengths for multiscale binarisation.
+        Each window defines a temporal scale for local median filtering.
 
     Returns
     -------
     result: numpy.ndarray
-        Matrix of results with shape [n_epochs, n_window_length, n_channels]
+        Matrix containing Lempel-Ziv complexity values with shape [n_epochs, n_window_length, n_channels]
+
+     Notes
+    -----
+    - All values in `W` must be odd to ensure proper median filtering.
+    - The input signal is binarised using a local median threshold at each scale.
+    - This function uses Python threading for parallel computation across channels.
+    - The maximum window (`w_max`) is computed internally as the last value in `W` plus the
+      spacing between the first two values, assuming uniform steps.
+
+     Examples
+    --------
+    >>> import numpy as np
+    >>> from medusa.signal_metrics.multiscale_lempelziv_complexity import multiscale_lempelziv_complexity
+
+    >>> signal = np.random.randn(10, 1000, 2)
+    >>> W = [5, 11, 21] # odd window lengths for multiscale binarisation
+    >>> result = multiscale_lempelziv_complexity(signal, W)
+    >>> print(result.shape)
+    (10, 3, 2)  # 10 epochs, 3 scales, 2 channels
 
     """
     # Check dimensions
@@ -161,7 +95,7 @@ def multiscale_lempelziv_complexity(signal, W):
 
 def __lz_algorithm(signal):
     """
-    Lempel-Ziv's complexity algorithm implemented in Python.
+    Compute the Lempel-Ziv Complexity (LZC) of a 1D binary signal using a basic Python implementation.
 
     References
     ----------
@@ -172,13 +106,20 @@ def __lz_algorithm(signal):
     ---------
     signal: numpy 1D array
         Signal with shape of [n_samples]
+        If not already flattened, it will be converted to 1D.
 
     Returns
     -------
     value: float
-        Result of algorithm calculations.
+        Estimated Lempel-Ziv complexity of the input signal.
+
+     Notes
+    -----
+    - This implementation assumes the signal is binary (0s and 1s).
+    - For multichannel signals, apply this function independently to each channel.
 
     """
+
     signal = signal.flatten().tolist()
     i, k, l = 0, 1, 1
     c, k_max = 1, 1
@@ -221,12 +162,17 @@ def __binarisation(signal, w_length, w_max, multiscale=False):
     ----------
     signal: numpy 2D array
         Signal with shape [n_samples x n_channels]
-    w_length: int
-        Window length to perform multiscale binarisation
-    w_max: int
-        Value of the maximum window length
-    multiscale: bool
-        If is True, performs the multiscale binarisation
+    w_length : int
+        Window length for the median filter. Must be an odd integer.
+        Required only in multiscale mode.
+
+    w_max : int
+        Maximum window length for signal alignment in multiscale mode.
+        Required only in multiscale mode.
+
+    multiscale : bool, default=False
+        If True, apply multiscale binarisation using a local median baseline.
+        If False, use global median binarisation.
 
     Returns
     -------
@@ -234,6 +180,13 @@ def __binarisation(signal, w_length, w_max, multiscale=False):
         Signal binarised with shape of [n_samples_shortened x n_channels]
         The n_samples_shortened parameter is calculated from w_max to ensure that
         all signals have the same length, regardless of the window length used.
+
+    Notes
+    -----
+    - Multiscale mode reduces the length of the signal due to windowing effects.
+    - This function is typically used prior to applying the Lempel-Ziv complexity.
+    - For multiscale complexity estimation, ensure `w_length` and `w_max` are consistent
+      across epochs or channels.
     """
 
     if multiscale:
@@ -278,10 +231,15 @@ def __binarisation(signal, w_length, w_max, multiscale=False):
 
 
 def __multiscale_median_threshold(signal, w_length):
-    """ Signal smoothing function. For each sample, we define a window in which
-    the sample is in centre position. The median value of the window is
-    calculated and assigned to this sample to obtain a smoothed version of the
-    original signal.
+    """ Apply median filtering to a signal for multiscale smoothing.
+
+    This function performs temporal smoothing of each channel in the input signal by computing
+    a moving median over a sliding window. For each sample, a window of length `w_length` is
+    centered around it, and the median value of the window is assigned as the new value for that
+    sample. This is used to reduce noise and extract relevant temporal structure for complexity
+    analysis (e.g., Multiscale Lempel-Ziv Complexity).
+
+    The output signal is shortened by `w_length - 1` samples due to edge effects from windowing.
 
     References
     ----------
@@ -292,15 +250,24 @@ def __multiscale_median_threshold(signal, w_length):
     Parameters
     ---------
     signal: numpy 2D array
-        Signal with shape of [n_samples, n_channels]
+        Input multichannel signal to be smoothed, with shape [n_samples, n_channels].
+        Each column is treated independently.
+
     w_length: int
-        Length of window to calculate median values in smoothing process
+        Length of sliding window to calculate median values in smoothing process.
+        Must be a positive odd integer to allow proper centering.
 
     Returns
     -------
     smoothed_signal: numpy 2D array
         Smoothed version with shape of [n_samples + 1 - w_length, n_channels]
         As a result of windowing, the final samples of the signal are lost.
+
+    Notes
+    -----
+    - Only the central samples where the window fits fully within the signal are processed.
+    - This function assumes that `w_length` is a valid odd integer; no internal check is performed.
+    - Useful as preprocessing for complexity metrics like Lempel-Ziv after binarisation.
 
     """
     # Template of smoothed signal

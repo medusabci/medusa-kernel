@@ -62,7 +62,7 @@ def sample_entropy(signal, m, r, dist_type='chebyshev'):
     Examples
     --------
     >>> import numpy as np
-    >>> from medusa.local_activation.sample_entropy import sample_entropy
+    >>> from medusa.signal_metrics.sample_entropy import sample_entropy
 
     >>> # Simulate a signal: 3 epochs, 1000 samples, 2 channels
     >>> signal = np.random.randn(3, 1000, 2)

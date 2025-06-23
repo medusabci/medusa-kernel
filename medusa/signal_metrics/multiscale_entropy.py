@@ -50,7 +50,7 @@ def multiscale_entropy(signal, max_scale, m, r):
     Examples
     --------
     >>> import numpy as np
-    >>> from medusa.local_activation.multiscale_entropy import multiscale_entropy
+    >>> from medusa.signal_metrics.multiscale_entropy import multiscale_entropy
 
     >>> signal = np.random.randn(3, 1000, 2)  # 3 epochs, 1000 samples, 2 channels
     >>> mse = multiscale_entropy(signal, max_scale=5, m=2, r=0.2)

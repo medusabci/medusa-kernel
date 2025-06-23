@@ -53,7 +53,7 @@ def central_tendency_measure(signal, r):
     Examples
     --------
     >>> import numpy as np
-    >>> from medusa.central_tendency import central_tendency_measure
+    >>> from medusa.signal_metrics.central_tendency import central_tendency_measure
 
     >>> signal = np.random.randn(2, 1000, 1)  # 2 epochs, 1000 samples, 1 channel
     >>> r = 0.5

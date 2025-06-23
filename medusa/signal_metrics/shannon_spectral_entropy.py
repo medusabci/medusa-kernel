@@ -28,7 +28,7 @@ def shannon_spectral_entropy(psd, fs, target_band=(1, 70)):
     Examples
     --------
     >>> import numpy as np
-    >>> from medusa.local_activation.shannon_spectral_entropy import shannon_spectral_entropy
+    >>> from medusa.signal_metrics.shannon_spectral_entropy import shannon_spectral_entropy
     >>> fs = 256
     >>> psd = np.random.rand(2, 129, 3)  # 2 epochs, samples, 3 channels
     >>> entropy = shannon_spectral_entropy(psd, fs, [4, 30])
