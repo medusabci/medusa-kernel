@@ -634,12 +634,27 @@ class CCA(components.ProcessingMethod):
         stored in columns.
     r : {(channels, ) ndarray}
         Sample canonical correlations.
+    ax : {(channels, no_filters) ndarray}
+        Activation patterns for the X backward model [1]. Each column
+        corresponds to the activation pattern of each spatial filter.
+    ay : {(channels, no_filters) ndarray}
+        Activation patterns for the Y forward model [1]. Each column
+        corresponds to the activation pattern of each spatial filter.
+
+    References
+    ----------
+    [1] Haufe, S., Meinecke, F., Görgen, K., Dähne, S., Haynes, J. D.,
+    Blankertz, B., & Bießmann, F. (2014). On the interpretation of weight
+    vectors of linear models in multivariate neuroimaging. Neuroimage, 87,
+    96-110.
     """
 
     def __init__(self):
         self.wx = None
         self.wy = None
         self.r = None
+        self.ax = None
+        self.ay = None
 
     def fit(self, x, y):
         """
@@ -654,7 +669,12 @@ class CCA(components.ProcessingMethod):
             samples must match the samples of the data matrix. Repeat the
             reference if necessary before calling this function.
         """
+        # CCA
         [self.wx, self.wy, self.r] = self.canoncorr(x, y)
+
+        # Activation patterns
+        self.ax = self._compute_activation(x, self.wx)
+        self.ay = self._compute_activation(y, self.wy)
 
     def project(self, data, filter_idx=(0), projection='wy'):
         """
@@ -684,6 +704,34 @@ class CCA(components.ProcessingMethod):
             return np.matmul(data, self.wy[:, filter_idx])
         elif projection.lower() == 'wx':
             return np.matmul(data, self.wx[:, filter_idx])
+        else:
+            raise Exception('[CCA] Unknown projection %s' % str(projection))
+
+    def get_activation_patterns(self, filter_idx=(0), projection='wy'):
+        """
+        Gets the correspoding activation patterns (in columns) for the
+        specified spatial filters.
+
+        Parameters
+        ----------
+        filter_idx : {int}, optional
+            Indexes of the spatial filters to be used. Since filters are sorted by
+            their importance in terms of correlation, the default filter (0) is
+            the one that yields highest correlation.
+        projection: {str}, optional
+            Canonical coefficients to be used in projection. By default, the
+            function uses Wy. Typically, if data is averaged, Wy must be used;
+            otherwise, if data is not averaged and just concatenated, Wx must
+            be used.
+        Returns
+        -------
+        a : {(channels, no_filters) ndarray}
+            Activation patterns for the desired filters and projection.
+        """
+        if projection.lower() == 'wy':
+            return self.ay[:, filter_idx]
+        elif projection.lower() == 'wx':
+            return self.ax[:, filter_idx]
         else:
             raise Exception('[CCA] Unknown projection %s' % str(projection))
 
@@ -802,6 +850,24 @@ class CCA(components.ProcessingMethod):
         B = B[np.argsort(perm2), :]
 
         return A, B, r
+
+    @staticmethod
+    def _compute_activation(data, weights):
+        """
+        Computes an activation pattern using the data and the trained weights.
+
+        Parameters
+        ------------
+        data : {(samples, channels) ndarray}
+            First input matrix, usually data with concatenated epochs.
+        weights : {(channels, D) ndarray}
+            Sample weights coefficients for the variables in data.
+        """
+        cov = np.cov(data - np.mean(data, 0), rowvar=0)
+        if data.shape[1] == 1:
+            return cov @ weights
+        cov_s = np.cov(data @ weights, rowvar=0)
+        return cov @ weights @ cov_s
 
     def to_dict(self):
         return self.__dict__
