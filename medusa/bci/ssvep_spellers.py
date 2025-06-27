@@ -957,7 +957,8 @@ class CMDModelCCA(SSVEPSpellerModel):
             'spell_result': sel_cmds,
             'spell_result_per_seq': sel_cmd_per_stim_time,
         }
-        if dataset.experiment_mode.lower() == 'train':
+        if (dataset.experiment_mode is not None
+                and dataset.experiment_mode.lower() == 'train'):
             # Spell accuracy
             spell_acc = command_decoding_accuracy(
                 sel_cmds,
@@ -1035,9 +1036,14 @@ class CMDModelCCA(SSVEPSpellerModel):
                         # Get trial info (todo: check paradigm conf)
                         m = int(np.squeeze(np.unique(
                             x_info['matrix_idx'][idx_t])))
-                        trial_unit = 0
-                        trial_cmd_info = \
-                            x_info['commands_info'][r_cnt][m][trial_unit]
+                        try:
+                            trial_unit = 0
+                            trial_cmd_info = \
+                                x_info['commands_info'][r_cnt][m][trial_unit]
+                        except:
+                            trial_unit = str(0)
+                            trial_cmd_info = \
+                                x_info['commands_info'][r_cnt][m][trial_unit]
                         # Get correlations with reference signals
                         trial_scores = dict()
                         for k, v in trial_cmd_info.items():
