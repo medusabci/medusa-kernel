@@ -928,12 +928,12 @@ class CMDModelCCA(SSVEPSpellerModel):
         self.is_built = True
         self.is_fit = False
 
-    def get_stim_times_to_test(self, stim_time):
-        t = 1
+    def get_stim_times_to_test(self, stim_time, stim_time_interval=1):
+        t = stim_time_interval
         stim_times = list()
         while t <= stim_time:
             stim_times.append(t)
-            t += 1
+            t += stim_time_interval
         return stim_times
 
     def predict_dataset(self, dataset, **kwargs):
@@ -945,7 +945,9 @@ class CMDModelCCA(SSVEPSpellerModel):
         # Feat extraction
         x, x_info = \
             self.get_inst('ext_method').transform_dataset(dataset)
-        stim_times = self.get_stim_times_to_test(dataset.stim_time)
+        stim_times = self.get_stim_times_to_test(
+            dataset.stim_time,
+            kwargs.get('stim_time_interval', 1))
         # Decode commands
         sel_cmds, sel_cmd_per_stim_time, cmd_scores = self.__decode_commands(
             x, x_info, dataset.fs, stim_times)
