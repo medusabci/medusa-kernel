@@ -10,6 +10,7 @@ from threading import Thread
 import numpy as np
 import scipy.io
 import dill
+from PySide6.QtWidgets import *
 
 # Medusa imports
 from medusa.performance_analysis import perf_analysis
@@ -377,6 +378,116 @@ class TreeDict(CheckTreeStructure):
             self.tree.append(item)
 
         return TreeDict(item)
+
+    def get_item(self, *keys):
+        """
+        Recursively retrieves a nested item from the tree using a sequence of keys.
+
+        Parameters:
+            *keys: Sequence of keys to navigate through nested items.
+
+        Returns:
+            TreeDict: A TreeDict instance wrapping the matched sub-item.
+        """
+        current_node = self.tree
+        for key in keys:
+            found = None
+            items = current_node.get('items', []) if isinstance(current_node, dict) else current_node
+            for item in items:
+                if item.get('key') == key:
+                    found = item
+                    break
+            if found is None:
+                raise KeyError(f"Key '{key}' not found in the tree.")
+            current_node = found
+        return TreeDict(current_node)
+
+    def edit_item(self, default_value=None, info=None, input_format=None, value_range=None, value_options=None):
+        """
+        Edits a TreeDict instance.
+
+        Parameters:
+            default_value (str, int, float, bool or list, optional): Updated default value for this item.
+            info (str, optional): Updated help text or description to be displayed.
+            input_format (str, optional): Updated UI control type ('checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox').
+            value_range (list, optional): Updated list indicating the [min, max] for numeric inputs.
+            value_options (list, optional): Updated list of allowed options (used for combobox).
+
+        Returns:
+            TreeDict: The current TreeDict instance after editing
+        """
+        tree = self.tree
+        if not isinstance(tree, dict):
+            raise TypeError("TreeDict must wrap a dictionary to be editable.")
+
+        if default_value is not None: tree['default_value'] = default_value if self.validate_default_value(
+            default_value) else tree.get('default_value')
+        if info is not None: tree['info'] = self.validate_info(info)
+        if input_format is not None: tree['input_format'] = self.validate_input_format(input_format)
+        if value_range is not None: tree['value_range'] = self.validate_value_range(value_range)
+        if value_options is not None: tree['value_options'] = self.validate_value_options(value_options)
+        return self
+
+    def update_TreeDict_from_TreeWidget(self, tree_widget: QTreeWidget):
+        """
+        Updates the TreeDict dictionary with values from a QTreeWidget object.
+        """
+
+        def extract_value_from_widget(widget):
+            if isinstance(widget, QComboBox):
+                return widget.currentText()
+            elif isinstance(widget, QCheckBox):
+                return widget.isChecked()
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                return widget.value()
+            elif isinstance(widget, QLineEdit):
+                return widget.text()
+            return None
+
+        def extract_value_from_list(parent_item):
+            new_list = []
+            for i in range(parent_item.childCount()-1):
+                child = parent_item.child(i)
+                value_widget = tree_widget.itemWidget(child, 1)
+                if value_widget is not None:
+                    value = extract_value_from_widget(value_widget)
+                    new_list.append(value)
+                else:
+                    sublist = extract_value_from_list(child)
+                    new_list.append(sublist)
+            return new_list
+
+        def traverse_tree_item(item, node):
+            # Retrieve the widget associated with the "Value" column for the current item
+            widget = tree_widget.itemWidget(item, 1)
+
+            # Extract values from the widget
+            if widget is not None:
+                value = extract_value_from_widget(widget)
+                TreeDict(node).edit_item(default_value=value)
+            elif isinstance(node.get("default_value"), list):
+                value = extract_value_from_list(item)
+                TreeDict(node).edit_item(default_value=value)
+
+            # Recursively process child items
+            if "items" in node and item.childCount() > 0:
+                for j in range(item.childCount()):
+                    child_item = item.child(j)
+                    child_node = node["items"][j]
+                    traverse_tree_item(child_item, child_node)
+
+        # Traverse all top-level items
+        if isinstance(self.tree, list):
+            for i in range(tree_widget.topLevelItemCount()):
+                item = tree_widget.topLevelItem(i)
+                node = self.tree[i]
+                traverse_tree_item(item, node)
+        elif isinstance(self.tree, dict) and "items" in self.tree:
+            for i in range(tree_widget.topLevelItemCount()):
+                item = tree_widget.topLevelItem(i)
+                node = self.tree["items"][i]
+                traverse_tree_item(item, node)
+        return self
 
     def to_dict(self):
         """Returns the tree dict created."""
