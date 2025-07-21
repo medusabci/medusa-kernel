@@ -74,7 +74,7 @@ def power_spectral_density(signal, fs, segment_pct=80, overlap_pct=50,
     return f, psd
 
 
-def normalize_psd(psd, norm='rel', band=None, fxx=None):
+def normalize_psd(psd, band=None, fxx=None, norm='rel'):
     """Normalizes the PSD using different methods.
 
     Parameters

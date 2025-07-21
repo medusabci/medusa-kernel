@@ -52,7 +52,7 @@ def multiscale_lempelziv_complexity(signal, W):
     --------
     >>> import numpy as np
     >>> from medusa.signal_metrics.multiscale_lempelziv_complexity import multiscale_lempelziv_complexity
-
+    #
     >>> signal = np.random.randn(10, 1000, 2)
     >>> W = [5, 11, 21] # odd window lengths for multiscale binarisation
     >>> result = multiscale_lempelziv_complexity(signal, W)
@@ -71,7 +71,7 @@ def multiscale_lempelziv_complexity(signal, W):
     w_max = W[-1] + (W[1] - W[0])
 
     # Define a matrix to store results
-    result = np.empty((n_epo, len(W), n_cha))
+    result = np.full((n_epo, len(W), n_cha), np.nan)
 
     # First get binarised signal
     for ep_idx, epoch in enumerate(signal):
@@ -121,32 +121,35 @@ def __lz_algorithm(signal):
     """
 
     signal = signal.flatten().tolist()
+
+    if len(signal) == 0:
+        return np.nan  # Evita división por cero más adelante
+
     i, k, l = 0, 1, 1
     c, k_max = 1, 1
     n = len(signal)
+
     while True:
+        if l + k > n or i + k > n:
+            c = c + 1
+            break
         if signal[i + k - 1] == signal[l + k - 1]:
-            k = k + 1
-            if l + k > n:
-                c = c + 1
-                break
+            k += 1
         else:
             if k > k_max:
                 k_max = k
-            i = i + 1
+            i += 1
             if i == l:
-                c = c + 1
-                l = l + k_max
+                c += 1
+                l += k_max
                 if l + 1 > n:
                     break
                 else:
-                    i = 0
-                    k = 1
-                    k_max = 1
+                    i, k, k_max = 0, 1, 1
             else:
                 k = 1
 
-    value = c * (np.log2(n) / n)
+    value = c * (np.log2(n) / n) if n > 0 else np.nan
     return value
 
 
@@ -206,12 +209,12 @@ def __binarisation(signal, w_length, w_max, multiscale=False):
         length_diff = smoothed.shape[0] - max_length
 
         # Shorten original and smoothed version
-        smoothed_shortened = \
-            smoothed[int(length_diff / 2):-int(length_diff / 2), :]
-        signal_shortened = \
-            signal[half_wind: signal.shape[0] - half_wind, :]
-        signal_shortened = \
-            signal_shortened[int(length_diff / 2):-int(length_diff / 2), :]
+        start = int(length_diff / 2)
+        end = -int(length_diff / 2) if int(length_diff / 2) > 0 else None
+
+        smoothed_shortened = smoothed[start:end, :]
+        signal_shortened = signal[half_wind: signal.shape[0] - half_wind, :]
+        signal_shortened = signal_shortened[start:end, :]
 
         # Define template of binarised signal
         signal_binarised = \
@@ -283,7 +286,7 @@ def __multiscale_median_threshold(signal, w_length):
     # get median value to smooth original signal
     for samp in range(half_wind, signal.shape[0] - half_wind):
         smoothed_signal[index, :] = np.median(
-            signal[samp - half_wind: samp + half_wind], axis=0)
+            signal[samp - half_wind: samp + half_wind + 1], axis=0)
         index += 1
     return smoothed_signal
 

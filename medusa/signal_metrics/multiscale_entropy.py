@@ -11,6 +11,7 @@ from scipy.signal import decimate
 # Medusa imports
 from medusa.components import ThreadWithReturnValue
 from medusa.utils import check_dimensions
+from medusa.signal_metrics.sample_entropy import sample_entropy
 
 def multiscale_entropy(signal, max_scale, m, r):
     """
@@ -119,7 +120,7 @@ def __coarse_grain(signal, scale, decimate_mode=True):
 
         Examples
         --------
-        >>> from medusa.local_activation.multiscale_entropy import __coarse_grain
+        >>> from medusa.signal_metrics.multiscale_entropy import __coarse_grain
         >>> signal = np.random.randn(1, 1000, 1)
         >>> y = __coarse_grain(signal, scale=5, decimate_mode=False)
         >>> print(y.shape)

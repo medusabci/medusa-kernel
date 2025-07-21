@@ -11,6 +11,7 @@ from scipy.signal import decimate
 # Medusa imports
 from medusa.components import ThreadWithReturnValue
 from medusa.utils import check_dimensions
+from medusa.signal_metrics.multiscale_lempelziv_complexity import __multiscale_median_threshold
 
 def lempelziv_complexity(signal):
     """ This function first binarizes the input signal and then calculates its Lempel-Ziv
@@ -21,17 +22,19 @@ def lempelziv_complexity(signal):
     Parameters
     ---------
     signal: numpy 2D array
-        Signal with shape [n_samples, n_channels]
+        Signal with shape [n_epochs, n_samples, n_channels] or [n_samples, n_channels]
 
     Returns
     -------
-    lz_channel_values: numpy 1D matrix
-        Lempel-Ziv values for each channel with shape [n_channels].
+    lz_values : numpy.ndarray
+    If input is [n_epochs, n_samples, n_channels], returns array of shape [n_epochs, n_channels]
+    If input is [n_samples, n_channels], returns array of shape [n_channels]
+
 
     Notes
     -----
-    - The input signal is first binarized using the `__binarisation()` method.
-    - The complexity is computed via the `__lz_algorithm()` function.
+    - The input signal is first binarized using the median thresholding method `__binarisation()`.
+    - The complexity is computed via the `__lz_algorithm()` function for each epoch/channel independently.
     - This implementation uses Python threading for parallel computation.
 
     Examples
@@ -39,29 +42,48 @@ def lempelziv_complexity(signal):
     >>> import numpy as np
     >>> from medusa.signal_metrics.lempelziv_complexity import lempelziv_complexity
 
-    >>> signal = np.random.randn(1000, 3)  # 1000 samples, 3 channels
+    >>> # Example 1: single epoch, 3 channels
+    >>> signal = np.random.randn(1000, 3)  # shape [samples, channels]
     >>> lzc = lempelziv_complexity(signal)
     >>> print(lzc)
     [0.87 0.89 0.91]
+
+    >>> # Example 2: 5 epochs, 1000 samples, 3 channels
+    >>> signal = np.random.randn(5, 1000, 3)  # shape [epochs, samples, channels]
+    >>> lzc_multi = lempelziv_complexity(signal)
+    >>> print(lzc_multi.shape)
+    (5, 3)
+
+    >>> print(lzc_multi[0])  # LZC for epoch 0, all channels
+    [0.85 0.86 0.88]
     """
 
-    if signal.size == len(signal):
-        signal = signal[:, np.newaxis]
+    signal = np.array(signal)
 
-    signal = __binarisation(signal, [signal.shape[0]], signal.shape[0])
-    if signal.shape[1] == 1:
-        return __lz_algorithm(signal)
+    if signal.ndim == 2:
+        # Single epoch: [samples, channels]
+        signal = __binarisation(signal, [signal.shape[0]], signal.shape[0])
+        if signal.shape[1] == 1:
+            return __lz_algorithm(signal)
+        else:
+            return np.array([
+                __lz_algorithm(signal[:, ch])
+                for ch in range(signal.shape[1])
+            ])
+
+    elif signal.ndim == 3:
+        # Multi-epoch: [epochs, samples, channels]
+        n_epochs, _, n_channels = signal.shape
+        lz_output = np.zeros((n_epochs, n_channels))
+        for ep in range(n_epochs):
+            bin_signal = __binarisation(signal[ep], [signal.shape[1]], signal.shape[1])
+            for ch in range(n_channels):
+                lz_output[ep, ch] = __lz_algorithm(bin_signal[:, ch])
+        return lz_output
+
     else:
-        lz_channel_values = np.empty((signal.shape[1]))
-        working_threads = list()
-        for ch in range(signal.shape[1]):
-            t = ThreadWithReturnValue(target=__lz_algorithm,
-                                      args=(signal[:, ch],))
-            working_threads.append(t)
-            t.start()
-        for index, thread in enumerate(working_threads):
-            lz_channel_values[index] = thread.join()
-        return lz_channel_values
+        raise ValueError(
+            "Signal shape not recognized. Expected shape [samples, channels] or [epochs, samples, channels].")
 
 
 def __lz_algorithm(signal):
