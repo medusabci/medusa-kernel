@@ -19,6 +19,10 @@ import numpy as np
 from tqdm import tqdm
 
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils import resample
+from pyriemann.tangentspace import TangentSpace
+from pyriemann.estimation import XdawnCovariances
 
 LFSR_PRIMITIVE_POLYNOMIALS = \
     {
@@ -377,7 +381,7 @@ class CVEPSpellerDataset(components.Dataset):
         return recording
 
 
-def decode_commands_from_events(event_scores, commands_info, event_run_idx,
+def decode_commands_from_events_with_appended_sequences(event_scores, commands_info, event_run_idx,
                                 event_trial_idx, event_cycle_idx):
     """Command decoder for c-VEP-based spellers based on the bitwise
     reconstruction paradigm (BWR), i.e., models that predict the command
@@ -487,6 +491,121 @@ def decode_commands_from_events(event_scores, commands_info, event_run_idx,
 
     return selected_commands, selected_commands_per_cycle, scores
 
+def decode_commands_from_events_with_accumulated_correlations(event_scores, commands_info, event_run_idx,
+                                                 event_trial_idx, event_cycle_idx):
+    """Command decoder for c-VEP-based spellers based on the bitwise
+    reconstruction paradigm (BWR), i.e., models that predict the command
+    sequence stimulus by stimulus.
+
+    ToDo: allow multi-matrix paradigms with different number of levels. See
+        module erp_based_spellers for reference.
+
+    Parameters
+    ----------
+    event_scores : list or np.ndarray
+        Array with the score for each stimulation
+    commands_info : list or np.ndarray
+        Array containing the unified speller matrix structure with shape
+        [n_runs x n_matrices x n_units x n_groups x n_batches x
+        n_commands/batch]. All ERP-based speller paradigms can be adapted to
+        this format and use this function for command decoding. See
+        ERPSpellerData class for more info.
+    event_run_idx : list or numpy.ndarray [n_stim x 1]
+        Index of the run for each stimulation. This variable is automatically
+        retrieved by function extract_erp_features_from_dataset as part of
+        the track info dict. The run indexes must be related to
+        paradigm_conf, keeping the same order. Therefore,
+        paradigm_conf[np.unique(run_idx)[0]] must retrieve the paradigm
+        configuration of run 0.
+    event_trial_idx : list or numpy.ndarray [n_stim x 1]
+        Index of the trial for each stimulation. A trial represents
+        the selection of a final command. Depending on the number of levels,
+        the final selection takes N intermediate selections.
+    event_cycle_idx : list or numpy.ndarray [n_stim x 1]
+        Index of the sequence for each stimulation. A sequence
+        represents a round of stimulation: all commands have been
+        highlighted 1 time. This class support dynamic stopping in
+        different levels.
+
+    Returns
+    -------
+    selected_commands: list
+        Selected command for each trial considering all sequences of
+        stimulation. Each command is organized in an array [matrix_idx,
+        command_id]. Take into account that the command ids are unique for each
+        matrix, and therefore only the command of the last level should be
+        useful to take action. Shape [n_runs x n_trials x n_levels x 2]
+    selected_commands_per_cycle: list
+        Selected command for each trial and sequence of stimulation. The
+        fourth dimension of the array contains [matrix_idx, command_id]. To
+        calculate the command for each sequence, it takes into account the
+        scores of all the previous sequences as well. Shape [n_runs x
+        n_trials x n_levels x n_cycles x 2]
+    cmd_scores_per_cycle:
+        Scores for each command per cycle. Shape [n_runs x n_trials x
+        n_levels x n_cycles x n_commands x 1]. The score of each cycle
+        is calculated using all the previous cycles as well.
+    """
+    # Decode commands
+    selected_commands = list()
+    selected_commands_per_cycle = list()
+    scores = list()
+    for r, run in enumerate(np.unique(event_run_idx)):
+        # Get run data
+        run_event_scores = event_scores[event_run_idx == run]
+        run_event_cycle_idx = event_cycle_idx[event_run_idx == run]
+        run_event_trial_idx = event_trial_idx[event_run_idx == run]
+        # Initialize
+        run_selected_commands = list()
+        run_selected_commands_per_cycle = list()
+        run_cmd_scores = list()
+        # Iterate trials
+        for t, trial in enumerate(np.unique(run_event_trial_idx)):
+            # Get trial data
+            trial_event_scores = run_event_scores[
+                run_event_trial_idx == trial]
+            trial_event_cycle_idx = run_event_cycle_idx[
+                run_event_trial_idx == trial]
+            # Initialize
+            trial_cmd_scores_per_cycle = list()
+            trial_selected_commands_per_cycle = list()
+            accumulated_corr_scores = None
+            # Iterate cycles
+            for c, cycle in enumerate(np.unique(trial_event_cycle_idx)):
+                cycle_event_scores = trial_event_scores[
+                    trial_event_cycle_idx <= cycle]
+                # Get target sequences
+                cmd_ids = list()
+                cmd_seqs = list()
+                for cmd_id, cmd_info in commands_info[r][0].items():
+                    cmd_ids.append(cmd_id)
+                    cmd_seqs.append(cmd_info['sequence'])
+                # Calculate correlations to all commands
+                corr_scores = np.abs(
+                    np.corrcoef(cycle_event_scores, cmd_seqs)[0, 1:])
+                # Accumulate correlations with each cycle
+                if accumulated_corr_scores is None:
+                    accumulated_corr_scores = corr_scores
+                else:
+                    accumulated_corr_scores += corr_scores
+                # Save trial data
+                cmd_id = cmd_ids[np.argmax(accumulated_corr_scores)]
+                trial_cmd_scores_per_cycle.append(accumulated_corr_scores.copy())
+                trial_selected_commands_per_cycle.append([0, cmd_id])
+            # Save run data
+            # ToDo: add another loop for levels
+            run_selected_commands.append(
+                [trial_selected_commands_per_cycle[-1]])
+            run_selected_commands_per_cycle.append(
+                [trial_selected_commands_per_cycle])
+            run_cmd_scores.append(
+                [trial_cmd_scores_per_cycle])
+        # Save run data
+        selected_commands.append(run_selected_commands)
+        selected_commands_per_cycle.append(run_selected_commands_per_cycle)
+        scores.append(run_cmd_scores)
+
+    return selected_commands, selected_commands_per_cycle, scores
 
 def command_decoding_accuracy_per_cycle(selected_commands_per_cycle,
                                         target_commands):
@@ -699,7 +818,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         # Predict
         y_pred = self.get_inst('clf_method').predict_proba(x)[:, 1]
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=x_info['event_run_idx'],
@@ -747,7 +866,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
         event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=event_run_idx,
@@ -814,17 +933,17 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
             concatenate_channels=False, safe_copy=True))
 
         # Feature classification
-        from medusa.deep_learning_models import EEGInceptionv1
+        from medusa.deep_learning_models import EEGInceptionV1
         input_time = \
             self.settings['w_epoch_t'][1] - self.settings['w_epoch_t'][0]
-        clf = EEGInceptionv1(
+        clf = EEGInceptionV1(
             input_time=input_time,
             fs=self.settings['target_fs'],
             n_cha=self.settings['n_cha'],
             filters_per_branch=self.settings['filters_per_branch'],
             scales_time=self.settings['scales_time'],
             dropout_rate=self.settings['dropout_rate'],
-            activation=self.settings['activation'],
+            # activation=self.settings['activation'],
             n_classes=self.settings['n_classes'],
             learning_rate=self.settings['learning_rate'])
         self.add_method('clf_method', clf)
@@ -874,7 +993,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         y_pred = self.get_inst('clf_method').predict_proba(x)
         y_pred = clf_utils.categorical_labels(y_pred)
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=x_info['event_run_idx'],
@@ -923,7 +1042,160 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
         event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
+            event_scores=y_pred,
+            commands_info=x_info['commands_info'],
+            event_run_idx=event_run_idx,
+            event_trial_idx=event_trial_idx,
+            event_cycle_idx=event_cycle_idx
+        )
+        return sel_cmd, sel_cmd_per_cycle, scores
+
+
+class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
+    """CVEP speller model based on Riemannian geometry and Linear Discriminant Analysis (LDA)."""
+    def __int__(self):
+        super().__init__()
+
+    def configure(self, bpf=(7, (1.0, 60.0)), notch=(7, (49.0, 51.0)),
+                  w_epoch_t=(0, 250), target_fs=None,
+                  xdawn_n_filter=4, estimator='lwf',
+                  xdawn_estimator='scm', riemannian_metric='riemann'):
+        self.settings = {
+            'bpf': bpf,
+            'notch': notch,
+            'w_epoch_t': w_epoch_t,
+            'target_fs': target_fs,
+            'xdawn_n_filter': xdawn_n_filter,
+            'estimator': estimator,
+            'xdawn_estimator': xdawn_estimator,
+            'riemannian_metric': riemannian_metric
+        }
+        # Update state
+        self.is_configured = True
+        self.is_built = False
+        self.is_fit = False
+
+    def build(self):
+        # Check errors
+        if not self.is_configured:
+            raise ValueError('The model must be configured first!')
+        # Preprocessing
+        bpf = self.settings['bpf']
+        notch = self.settings['notch']
+        if notch is not None:
+            self.add_method('prep_method', StandardPreprocessing(
+                bpf_order=bpf[0], bpf_cutoff=bpf[1],
+                notch_order=notch[0], notch_cutoff=notch[1]))
+        else:
+            self.add_method('prep_method', StandardPreprocessing(
+                bpf_order=bpf[0], bpf_cutoff=bpf[1],
+                notch_order=None, notch_cutoff=None))
+        # Feature extraction
+        self.add_method('ext_method', BWRFeatureExtraction(
+            w_epoch_t=self.settings['w_epoch_t'],
+            target_fs=self.settings['target_fs'],
+            w_baseline_t=None, norm=None,
+            concatenate_channels=False, safe_copy=True))
+        # Feature classification
+        self.add_method('clf_method', RiemannianLDAClassifier(
+            nfilter=self.settings['xdawn_n_filter'],
+            estimator=self.settings['estimator'],
+            xdawn_estimator=self.settings['xdawn_estimator'],
+            riemannian_metric=self.settings['riemannian_metric']))
+        # Update state
+        self.is_built = True
+        self.is_fit = False
+
+    def check_predict_feasibility_signal(self, times, cycle_onsets, fps,
+                                         code_len, fs):
+        return self.get_inst('ext_method').check_predict_feasibility_signal(
+            times, cycle_onsets, fps, code_len, fs)
+
+    def fit_dataset(self, dataset, show_progress_bar=True):
+        # Check errors
+        if not self.is_built:
+            raise ValueError('The model must be built first!')
+        # Preprocessing
+        dataset = self.get_inst('prep_method').fit_transform_dataset(
+            dataset, show_progress_bar=show_progress_bar)
+        # Extract features
+        x, x_info = self.get_inst('ext_method').transform_dataset(
+            dataset, show_progress_bar=show_progress_bar)
+        x_reshaped = x.transpose(0,2,1)
+        # Class balance
+        x_balanced, x_labels_balanced=balance_classes(x_reshaped, x_info['event_cvep_labels'])
+        # Classification
+        self.get_inst('clf_method').fit(x_balanced, x_labels_balanced)
+        # Save info
+        self.channel_set = dataset.channel_set
+        # Update state
+        self.is_fit = True
+
+    def predict_dataset(self, dataset, show_progress_bar=True):
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('The model must be fitted first!')
+        # Preprocessing
+        dataset = self.get_inst('prep_method').fit_transform_dataset(
+            dataset, show_progress_bar=show_progress_bar)
+        # Extract features
+        x, x_info = self.get_inst('ext_method').transform_dataset(
+            dataset, show_progress_bar=show_progress_bar)
+        x_reshaped = x.transpose(0,2,1)
+        # Predict
+        y_pred = self.get_inst('clf_method').predict(x_reshaped)
+        # Command decoding
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_accumulated_correlations(
+            event_scores=y_pred,
+            commands_info=x_info['commands_info'],
+            event_run_idx=x_info['event_run_idx'],
+            event_trial_idx=x_info['event_trial_idx'],
+            event_cycle_idx=x_info['event_cycle_idx']
+        )
+        cmd_assessment = {
+            'x': x,
+            'x_info': x_info,
+            'y_pred': y_pred,
+            'spell_result': sel_cmd,
+            'spell_result_per_cycle': sel_cmd_per_cycle,
+        }
+        # Spell accuracy
+        if dataset.experiment_mode == 'train':
+            # Spell accuracy per seq
+            spell_acc_per_cycle = command_decoding_accuracy_per_cycle(
+                sel_cmd_per_cycle,
+                x_info['spell_target']
+            )
+            cmd_assessment = {
+                'spell_acc_per_cycle': spell_acc_per_cycle
+            }
+        return sel_cmd, cmd_assessment
+
+    def predict(self, times, signal, fs, channel_set, x_info, **kwargs):
+        # Check errors
+        if not self.is_fit:
+            raise ValueError('The model must be fitted first!')
+        # Check channel set
+        if self.channel_set != channel_set:
+            warnings.warn(
+                'The channel set is not the same that was used to fit the '
+                'model. Be careful!')
+        # Pre-processing
+        signal = self.get_inst('prep_method').transform_signal(signal=signal)
+        # Extract features
+        x = self.get_inst('ext_method').transform_signal(
+            times, signal, fs, x_info['cycle_onsets'],
+            x_info['fps'], x_info['code_len'])
+        x_reshaped = x.transpose(0,2,1)
+        # Predict
+        y_pred = self.get_inst('clf_method').predict(x_reshaped)
+        # Get run_idx, trial_idx and cycle_idx per stimulation event
+        event_run_idx = np.repeat(x_info['run_idx'], x_info['code_len'])
+        event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
+        event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
+        # Command decoding
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_accumulated_correlations(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=event_run_idx,
@@ -1687,10 +1959,8 @@ class BWRFeatureExtraction(components.ProcessingMethod):
                 rec_exp.event_cvep_labels = np.array([])
                 for i, t in enumerate(np.unique(rec_exp.trial_idx)):
                     # ToDo: add another loop for levels
-                    target = rec_exp.spell_target[i][0]
-                    cmd_mtx = target[0]
-                    cmd_id = target[1]
-                    cmd_seq = rec_exp.commands_info[cmd_mtx][cmd_id]['sequence']
+                    cmd_id = rec_exp.spell_target[i]
+                    cmd_seq = rec_exp.commands_info[0][str(cmd_id)]['sequence']
                     n_cycles = np.array(rec_exp.cycle_idx)[
                                    rec_exp.trial_idx == t][-1] + 1
                     rec_exp.event_cvep_labels = np.concatenate(
@@ -2565,6 +2835,95 @@ class CircularShiftingAsyncESExtension(components.ProcessingMethod):
         return pred_items_by_no_cycles
 
 
+class CircularShiftingEarlyStopping(components.ProcessingMethod):
+    def __init__(self, **kwargs):
+        """ Class constructor """
+        super().__init__()
+
+    def check_early_stop(self, corr_vector, std=3.0):
+        """ Early stopping method based on normal distributions.
+
+        Parameters
+        --------------
+        corr_vector: list() or 1D ndarray
+            Vector that represents the sorted correlations for each of the
+            possible commands, where corr_vector[0] must point to the most
+            probable selected command.
+        std: int
+            Multiplier that determines if the selected command is an outlier
+            of the normal distribution made up from the rest of correlations.
+            Typical values are: 1 (outside 68% of data), 2 (outside 95% of
+            data), and 3 (default, outside 99.7% of data).
+
+        Returns
+        --------------
+        must_stop: bool
+            True if it is possible to stop now, false otherwise.
+        probs: 1D ndarray
+            Current estimated probabilities of being selected (sorted).
+        """
+        corr_vector = np.array(corr_vector)
+        threshold = np.mean(corr_vector[1:]) + std * np.std(corr_vector[1:])
+        must_stop = corr_vector[0] > threshold
+        probs = threshold - corr_vector
+        probs = 1 - (probs / np.max(probs))
+        return must_stop, probs
+
+
+class RiemannianLDAClassifier(components.ProcessingMethod):
+    '''
+     Class for EEG signal classification based on Riemannian geometry.
+
+     This classifier follows a three-stage processing approach:
+
+    1. xDAWN Covariances:
+       - It applies the xDAWN algorithm to improve the signal-to-noise ratio of event-related potentials (ERPs).
+       - It generates covariance matrices that capture the spatial information of the EEG signal.
+
+    2. Projection in tangent space:
+       - The covariance matrices are projected into tangent space.
+
+    3. Classification with LDA:
+       - Linear Discriminant Analysis (LDA) is used to train a model on the projected features.
+    '''
+    def __init__(self, nfilter=4, estimator='lwf', xdawn_estimator='scm', riemannian_metric='riemann'):
+        super().__init__()
+        self.xdawn = XdawnCovariances(nfilter=nfilter, estimator=estimator, xdawn_estimator=xdawn_estimator)
+        self.ts = TangentSpace(metric=riemannian_metric)
+        self.clf = LinearDiscriminantAnalysis()
+
+    def fit(self, epochs, labels):
+        # Step 1: Apply xDAWN
+        self.xdawn.fit(epochs, labels)
+        xdawn_covs = self.xdawn.transform(epochs)
+
+        # Step 2: Project covariance matrices into the tangent space of the Riemannian manifold.
+        self.ts.fit(xdawn_covs)
+        ts_features = self.ts.transform(xdawn_covs)
+
+        # Step 3: Perform k-fold stratified cross-validation to evaluate classifier performance.
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        scores = []
+        for train_idx, test_idx in cv.split(ts_features, labels):
+            self.clf.fit(ts_features[train_idx], labels[train_idx])
+            score = self.clf.score(ts_features[test_idx], labels[test_idx])
+            scores.append(score)
+        print(f'Cross validation mean accuracy: {np.mean(scores):.4f}')
+
+        # Step 4: Fit the final model with all available data
+        self.clf.fit(ts_features, labels)
+
+    def transform(self, epochs):
+        xdawn_covs = self.xdawn.transform(epochs)
+        ts_features = self.ts.transform(xdawn_covs)
+        return ts_features
+
+    def predict(self, epochs):
+        ts_features = self.transform(epochs)
+        predictions = self.clf.predict(ts_features)
+        return predictions
+
+
 class TRCAGoldCodesClassifier(components.ProcessingMethod):
     """Standard feature extraction method for c-VEP-based spellers. Basically,
     it computes a template for each sequence, using TRCA. ATTENTION: Only if
@@ -3043,41 +3402,6 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
         return pred_items_by_no_cycles
 
 
-class CircularShiftingEarlyStopping(components.ProcessingMethod):
-    def __init__(self, **kwargs):
-        """ Class constructor """
-        super().__init__()
-
-    def check_early_stop(self, corr_vector, std=3.0):
-        """ Early stopping method based on normal distributions.
-
-        Parameters
-        --------------
-        corr_vector: list() or 1D ndarray
-            Vector that represents the sorted correlations for each of the
-            possible commands, where corr_vector[0] must point to the most
-            probable selected command.
-        std: int
-            Multiplier that determines if the selected command is an outlier
-            of the normal distribution made up from the rest of correlations.
-            Typical values are: 1 (outside 68% of data), 2 (outside 95% of
-            data), and 3 (default, outside 99.7% of data).
-
-        Returns
-        --------------
-        must_stop: bool
-            True if it is possible to stop now, false otherwise.
-        probs: 1D ndarray
-            Current estimated probabilities of being selected (sorted).
-        """
-        corr_vector = np.array(corr_vector)
-        threshold = np.mean(corr_vector[1:]) + std * np.std(corr_vector[1:])
-        must_stop = corr_vector[0] > threshold
-        probs = threshold - corr_vector
-        probs = 1 - (probs / np.max(probs))
-        return must_stop, probs
-
-
 # ------------------------------- UTILS -------------------------------------- #
 def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
     """ Function that returns the unique sequences of all targets.
@@ -3194,6 +3518,24 @@ def autocorr_circular(x):
     rxx = np.array(rxx)
     return rxx
 
+def balance_classes(epochs, labels):
+    # Step 1: Find indices for each class
+    class_0_idx = np.where(labels == 0)[0]
+    class_1_idx = np.where(labels == 1)[0]
+
+    # Step 2: Determine the number of samples for each class (smallest class size)
+    n_samples = min(len(class_0_idx), len(class_1_idx))
+
+    # Step 3: Randomly sample 'n_samples' from each class without replacement
+    sampled_0 = resample(class_0_idx, replace=False, n_samples=n_samples, random_state=42)
+    sampled_1 = resample(class_1_idx, replace=False, n_samples=n_samples, random_state=42)
+
+    # Step 4: Combine sampled indices and shuffle them
+    selected_idx = np.concatenate([sampled_0, sampled_1])
+    np.random.shuffle(selected_idx)
+
+    return epochs[selected_idx], labels[selected_idx]
+
 
 # ----------------------------- CODE GENERATORS ----------------------------- #
 class LFSR:
@@ -3273,6 +3615,64 @@ class LFSR:
                 sequence = np.array(sequence) - np.floor(base / 2).astype(int)
         return sequence
 
+class Burst:
+    def __init__(self, length=132, n_bursts=4, f_burst=1, type='pseudorandom'):
+        """ Constructor of Burst """
+        self.length = length
+        self.n_bursts = n_bursts
+        self.f_burst = f_burst
+        self.type = type
+
+    @staticmethod
+    def gen_codes(n, length=132, n_bursts=4, f_burst=1, type='pseudorandom'):
+        if type != 'ordered' and type != 'pseudorandom':
+            raise ValueError('Type must be either ordered or pseudorandom')
+
+        rng = np.random.default_rng(seed=0)
+        codes = np.zeros([n, length]).astype(int)
+        master_burst_onsets = np.linspace(0, length - f_burst - 1, n * n_bursts).astype(int)
+        burst_onsets = np.zeros([n, n_bursts])
+
+        for count, onset in enumerate(master_burst_onsets):
+            num_code = count % n
+            num_onset = count // n
+            burst_onsets[num_code, num_onset] = onset
+            for i in range(f_burst):
+                codes[num_code, onset + i] = 1
+
+            if type == 'pseudorandom' and num_code == (n - 1):
+                last_code = codes[-1].copy()
+                while True:
+                    perm = rng.permutation(n)
+                    if not np.array_equal(codes[perm][0], last_code):
+                        break
+                codes = codes[perm]
+                burst_onsets = burst_onsets[perm]
+
+        if type == 'ordered':
+            perm = rng.permutation(n)
+            codes = codes[perm]
+            burst_onsets = burst_onsets[perm]
+
+        inter_burst_intra_code = np.diff(burst_onsets, axis=1)
+        min_inter_burst_intra_code = int(np.min(inter_burst_intra_code) - f_burst)
+        max_inter_burst_intra_code = int(np.max(inter_burst_intra_code) - f_burst)
+        inter_burst_inter_code = np.diff(master_burst_onsets)
+        min_inter_burst_inter_code = int(np.min(inter_burst_inter_code))
+        max_inter_burst_inter_code = int(np.max(inter_burst_inter_code))
+
+        info_codes = {
+            'n_codes': np.size(burst_onsets, 0),
+            'n_bursts': np.size(burst_onsets, 1),
+            'f_burst': f_burst,
+            'length': length,
+            'min_inter_burst_intra_code': min_inter_burst_intra_code,
+            'max_inter_burst_intra_code': max_inter_burst_intra_code,
+            'min_inter_burst_inter_code': min_inter_burst_inter_code,
+            'max_inter_burst_inter_code': max_inter_burst_inter_code,
+        }
+
+        return codes.tolist(), info_codes
 
 class GOLD_CODES:
     """ Computes a set of 2^N-1 gold codes """
