@@ -672,7 +672,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         return self.get_inst('ext_method').check_predict_feasibility_signal(
             times, cycle_onsets, fps, code_len, fs)
 
-    def fit_dataset(self, dataset, show_progress_bar=False):
+    def fit_dataset(self, dataset, show_progress_bar=False, balance_needed=False):
         # Check errors
         if not self.is_built:
             raise ValueError('The model must be built first!')
@@ -682,6 +682,9 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         # Extract features
         x, x_info = self.get_inst('ext_method').transform_dataset(
             dataset, show_progress_bar=show_progress_bar)
+        # Class balance
+        if balance_needed:
+            x, x_info['event_cvep_labels']=balance_classes(x, x_info['event_cvep_labels'])
         # Classification
         self.get_inst('clf_method').fit(x, x_info['event_cvep_labels'])
         # Save info
@@ -841,7 +844,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         return self.get_inst('ext_method').check_predict_feasibility_signal(
             times, cycle_onsets, fps, code_len, fs)
 
-    def fit_dataset(self, dataset, show_progress_bar=False):
+    def fit_dataset(self, dataset, show_progress_bar=False, balance_needed=False):
         # Check errors
         if not self.is_built:
             raise ValueError('The model must be built first!')
@@ -851,6 +854,9 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         # Extract features
         x, x_info = self.get_inst('ext_method').transform_dataset(
             dataset, show_progress_bar=show_progress_bar)
+        # Class balance
+        if balance_needed:
+            x, x_info['event_cvep_labels']=balance_classes(x, x_info['event_cvep_labels'])
         # Classification
         self.get_inst('clf_method').fit(
             x, x_info['event_cvep_labels'],
@@ -996,7 +1002,7 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         return self.get_inst('ext_method').check_predict_feasibility_signal(
             times, cycle_onsets, fps, code_len, fs)
 
-    def fit_dataset(self, dataset, show_progress_bar=True):
+    def fit_dataset(self, dataset, show_progress_bar=True, balance_needed=False):
         # Check errors
         if not self.is_built:
             raise ValueError('The model must be built first!')
@@ -1006,11 +1012,12 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         # Extract features
         x, x_info = self.get_inst('ext_method').transform_dataset(
             dataset, show_progress_bar=show_progress_bar)
-        x_reshaped = x.transpose(0,2,1)
+        x = x.transpose(0,2,1)
         # Class balance
-        x_balanced, x_labels_balanced=balance_classes(x_reshaped, x_info['event_cvep_labels'])
+        if balance_needed:
+            x, x_info['event_cvep_labels']=balance_classes(x, x_info['event_cvep_labels'])
         # Classification
-        self.get_inst('clf_method').fit(x_balanced, x_labels_balanced)
+        self.get_inst('clf_method').fit(x, x_info['event_cvep_labels'])
         # Save info
         self.channel_set = dataset.channel_set
         # Update state
@@ -1026,9 +1033,9 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         # Extract features
         x, x_info = self.get_inst('ext_method').transform_dataset(
             dataset, show_progress_bar=show_progress_bar)
-        x_reshaped = x.transpose(0,2,1)
+        x = x.transpose(0,2,1)
         # Predict
-        y_pred = self.get_inst('clf_method').predict(x_reshaped)
+        y_pred = self.get_inst('clf_method').predict(x)
         # Command decoding
         sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
@@ -1071,9 +1078,9 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         x = self.get_inst('ext_method').transform_signal(
             times, signal, fs, x_info['cycle_onsets'],
             x_info['fps'], x_info['code_len'])
-        x_reshaped = x.transpose(0,2,1)
+        x = x.transpose(0,2,1)
         # Predict
-        y_pred = self.get_inst('clf_method').predict(x_reshaped)
+        y_pred = self.get_inst('clf_method').predict(x)
         # Get run_idx, trial_idx and cycle_idx per stimulation event
         event_run_idx = np.repeat(x_info['run_idx'], x_info['code_len'])
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
