@@ -381,7 +381,7 @@ class CVEPSpellerDataset(components.Dataset):
         return recording
 
 
-def decode_commands_from_events_with_appended_sequences(event_scores, commands_info, event_run_idx,
+def decode_commands_from_events(event_scores, commands_info, event_run_idx,
                                 event_trial_idx, event_cycle_idx):
     """Command decoder for c-VEP-based spellers based on the bitwise
     reconstruction paradigm (BWR), i.e., models that predict the command
@@ -475,122 +475,6 @@ def decode_commands_from_events_with_appended_sequences(event_scores, commands_i
                 # Save trial data
                 cmd_id = cmd_ids[np.argmax(corr_scores)]
                 trial_cmd_scores_per_cycle.append(corr_scores)
-                trial_selected_commands_per_cycle.append([0, cmd_id])
-            # Save run data
-            # ToDo: add another loop for levels
-            run_selected_commands.append(
-                [trial_selected_commands_per_cycle[-1]])
-            run_selected_commands_per_cycle.append(
-                [trial_selected_commands_per_cycle])
-            run_cmd_scores.append(
-                [trial_cmd_scores_per_cycle])
-        # Save run data
-        selected_commands.append(run_selected_commands)
-        selected_commands_per_cycle.append(run_selected_commands_per_cycle)
-        scores.append(run_cmd_scores)
-
-    return selected_commands, selected_commands_per_cycle, scores
-
-def decode_commands_from_events_with_accumulated_correlations(event_scores, commands_info, event_run_idx,
-                                                 event_trial_idx, event_cycle_idx):
-    """Command decoder for c-VEP-based spellers based on the bitwise
-    reconstruction paradigm (BWR), i.e., models that predict the command
-    sequence stimulus by stimulus.
-
-    ToDo: allow multi-matrix paradigms with different number of levels. See
-        module erp_based_spellers for reference.
-
-    Parameters
-    ----------
-    event_scores : list or np.ndarray
-        Array with the score for each stimulation
-    commands_info : list or np.ndarray
-        Array containing the unified speller matrix structure with shape
-        [n_runs x n_matrices x n_units x n_groups x n_batches x
-        n_commands/batch]. All ERP-based speller paradigms can be adapted to
-        this format and use this function for command decoding. See
-        ERPSpellerData class for more info.
-    event_run_idx : list or numpy.ndarray [n_stim x 1]
-        Index of the run for each stimulation. This variable is automatically
-        retrieved by function extract_erp_features_from_dataset as part of
-        the track info dict. The run indexes must be related to
-        paradigm_conf, keeping the same order. Therefore,
-        paradigm_conf[np.unique(run_idx)[0]] must retrieve the paradigm
-        configuration of run 0.
-    event_trial_idx : list or numpy.ndarray [n_stim x 1]
-        Index of the trial for each stimulation. A trial represents
-        the selection of a final command. Depending on the number of levels,
-        the final selection takes N intermediate selections.
-    event_cycle_idx : list or numpy.ndarray [n_stim x 1]
-        Index of the sequence for each stimulation. A sequence
-        represents a round of stimulation: all commands have been
-        highlighted 1 time. This class support dynamic stopping in
-        different levels.
-
-    Returns
-    -------
-    selected_commands: list
-        Selected command for each trial considering all sequences of
-        stimulation. Each command is organized in an array [matrix_idx,
-        command_id]. Take into account that the command ids are unique for each
-        matrix, and therefore only the command of the last level should be
-        useful to take action. Shape [n_runs x n_trials x n_levels x 2]
-    selected_commands_per_cycle: list
-        Selected command for each trial and sequence of stimulation. The
-        fourth dimension of the array contains [matrix_idx, command_id]. To
-        calculate the command for each sequence, it takes into account the
-        scores of all the previous sequences as well. Shape [n_runs x
-        n_trials x n_levels x n_cycles x 2]
-    cmd_scores_per_cycle:
-        Scores for each command per cycle. Shape [n_runs x n_trials x
-        n_levels x n_cycles x n_commands x 1]. The score of each cycle
-        is calculated using all the previous cycles as well.
-    """
-    # Decode commands
-    selected_commands = list()
-    selected_commands_per_cycle = list()
-    scores = list()
-    for r, run in enumerate(np.unique(event_run_idx)):
-        # Get run data
-        run_event_scores = event_scores[event_run_idx == run]
-        run_event_cycle_idx = event_cycle_idx[event_run_idx == run]
-        run_event_trial_idx = event_trial_idx[event_run_idx == run]
-        # Initialize
-        run_selected_commands = list()
-        run_selected_commands_per_cycle = list()
-        run_cmd_scores = list()
-        # Iterate trials
-        for t, trial in enumerate(np.unique(run_event_trial_idx)):
-            # Get trial data
-            trial_event_scores = run_event_scores[
-                run_event_trial_idx == trial]
-            trial_event_cycle_idx = run_event_cycle_idx[
-                run_event_trial_idx == trial]
-            # Initialize
-            trial_cmd_scores_per_cycle = list()
-            trial_selected_commands_per_cycle = list()
-            accumulated_corr_scores = None
-            # Iterate cycles
-            for c, cycle in enumerate(np.unique(trial_event_cycle_idx)):
-                cycle_event_scores = trial_event_scores[
-                    trial_event_cycle_idx <= cycle]
-                # Get target sequences
-                cmd_ids = list()
-                cmd_seqs = list()
-                for cmd_id, cmd_info in commands_info[r][0].items():
-                    cmd_ids.append(cmd_id)
-                    cmd_seqs.append(cmd_info['sequence'])
-                # Calculate correlations to all commands
-                corr_scores = np.abs(
-                    np.corrcoef(cycle_event_scores, cmd_seqs)[0, 1:])
-                # Accumulate correlations with each cycle
-                if accumulated_corr_scores is None:
-                    accumulated_corr_scores = corr_scores
-                else:
-                    accumulated_corr_scores += corr_scores
-                # Save trial data
-                cmd_id = cmd_ids[np.argmax(accumulated_corr_scores)]
-                trial_cmd_scores_per_cycle.append(accumulated_corr_scores.copy())
                 trial_selected_commands_per_cycle.append([0, cmd_id])
             # Save run data
             # ToDo: add another loop for levels
@@ -818,7 +702,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         # Predict
         y_pred = self.get_inst('clf_method').predict_proba(x)[:, 1]
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=x_info['event_run_idx'],
@@ -866,7 +750,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
         event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=event_run_idx,
@@ -993,7 +877,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         y_pred = self.get_inst('clf_method').predict_proba(x)
         y_pred = clf_utils.categorical_labels(y_pred)
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=x_info['event_run_idx'],
@@ -1042,7 +926,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
         event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_appended_sequences(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=event_run_idx,
@@ -1146,7 +1030,7 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         # Predict
         y_pred = self.get_inst('clf_method').predict(x_reshaped)
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_accumulated_correlations(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=x_info['event_run_idx'],
@@ -1195,7 +1079,7 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         event_trial_idx = np.repeat(x_info['trial_idx'], x_info['code_len'])
         event_cycle_idx = np.repeat(x_info['cycle_idx'], x_info['code_len'])
         # Command decoding
-        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events_with_accumulated_correlations(
+        sel_cmd, sel_cmd_per_cycle, scores = decode_commands_from_events(
             event_scores=y_pred,
             commands_info=x_info['commands_info'],
             event_run_idx=event_run_idx,
