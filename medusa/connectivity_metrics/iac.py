@@ -33,7 +33,7 @@ def __iac_cpu(data):
 
     Examples
     --------
-    >>> from medusa.connectivity.iac import iac
+    >>> from medusa.connectivity_metrics.iac import iac
     >>> data = np.random.randn(10, 1000, 64)  # 10 epochs, 1000 time points, 64 channels
     >>> iac_matrix = __iac_cpu(data)
     >>> print(iac_matrix.shape)

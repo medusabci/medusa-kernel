@@ -29,13 +29,13 @@ def plv(data):
 
     Examples
     --------
-    >>> from medusa.connectivity.plv import plv
+    >>> from medusa.connectivity_metrics.plv import plv
     >>> data = np.random.randn(1000, 64)  # 1000 samples, 64 channels
     >>> conn = plv(data)
     >>> print(conn.shape)
     (1, 64, 64)
 
-    >>> from medusa.connectivity.plv import plv
+    >>> from medusa.connectivity_metrics.plv import plv
     >>> multi_data = np.random.randn(10, 1500, 32)  # 10 epochs, 1500 samples, 32 channels
     >>> conn = plv(multi_data)
     >>> print(conn.shape)

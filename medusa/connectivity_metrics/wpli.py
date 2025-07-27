@@ -29,13 +29,13 @@ def wpli(data):
 
     Examples
     --------
-    >>> from medusa.connectivity.wpli import wpli
+    >>> from medusa.connectivity_metrics.wpli import wpli
     >>> data = np.random.randn(2000, 16)  # Single epoch, 16 channels
     >>> conn = wpli(data)
     >>> conn.shape
     (1, 16, 16)
 
-    >>> from medusa.connectivity.wpli import wpli
+    >>> from medusa.connectivity_metrics.wpli import wpli
     >>> data = np.random.randn(5, 1500, 20)  # 5 epochs, 1500 samples, 20 channels
     >>> conn = wpli(data)
     >>> conn.shape
