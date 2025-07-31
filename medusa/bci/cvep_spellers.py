@@ -1233,7 +1233,13 @@ class CVEPModelCircularShifting(components.Algorithm):
         )
 
         # Extract the selected label using the maximum number of cycles
-        selected_seq = 0  # todo: several sequences in the same matrix
+        max_corr = float('-inf')
+        selected_seq = None
+        for n, seq in enumerate(pred_item_by_no_cycles[-1]):
+            corr = seq['sorted_cmds'][0]['correlation']
+            if corr > max_corr:
+                max_corr = corr
+                selected_seq = n
         spell_result = pred_item_by_no_cycles[-1][selected_seq][
             'sorted_cmds'][0]['label']
 
