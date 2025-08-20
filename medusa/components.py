@@ -250,71 +250,7 @@ class SerializableComponent(ABC):
             cmp = dill.load(f)
         return cmp
 
-class CheckTreeStructure:
-    """
-    CheckTreeStructure is a helper class that provides validation methods for ensuring the structure and data of items
-    in a TreeDict are correct.
-    """
-    def validate_default_value(self, default_value):
-        # Validate that the default_value is one of the allowed types
-        valid_types = (str, int, float, bool, list)
-        if not isinstance(default_value, valid_types):
-            print(f"Error: 'default_value' must be of type: string, int, float, bool, list.")
-            return False
-        return True
-
-    def validate_info(self, info):
-        # Validate that 'info' is a string, otherwise keep it as None
-        if info is not None and not isinstance(info, str):
-            print("Warning: 'info' must be a string describing the element. Keeping it as None.")
-            return None
-        return info
-
-    def validate_input_format(self, input_format, default_value=None, value_options=None):
-        # Validate that 'input_format' is one of the allowed types and meets specific requirements
-        valid_formats = ['checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox']
-
-        input_format = input_format.lower() if input_format is not None else None
-
-        if input_format is not None and (input_format not in valid_formats or not isinstance(input_format, str)):
-            print("Warning: 'input_format' must be one of the following options: 'CheckBox', 'SpinBox', 'DoubleSpinBox', 'LineEdit', 'ComboBox'. Keeping it as None.")
-            return None
-
-        if input_format == "combobox" and value_options is None:
-            print("Warning: 'ComboBox' requires 'value_options' to be specified. Keeping input format as None.")
-            return None
-        if input_format == "checkbox" and not isinstance(default_value, bool):
-            print("Warning: 'CheckBox' requires 'default_value' to be a boolean (True/False). Keeping input format as None.")
-            return None
-        if input_format == "spinbox" and not isinstance(default_value, int):
-            print("Warning: 'SpinBox' requires 'default_value' to be an integer. Keeping input format as None.")
-            return None
-        if input_format == "doublespinbox" and not isinstance(default_value, float):
-            print("Warning: 'DoubleSpinBox' requires 'default_value' to be a float. Keeping input format as None.")
-            return None
-
-        return input_format
-
-    def validate_value_range(self, value_range):
-        # Validate that 'value_range' is a list or array with exactly two elements
-        if value_range is not None:
-            if not (isinstance(value_range, list)):
-                print(
-                    "Warning: 'value_range' must be a list with exactly two elements determining the upper and lower limits the value can acquire. Keeping range without bounds.")
-                return None
-            if len(value_range) != 2:
-                print("Warning: 'value_range' must have exactly two elements: upper and lower limits the value can acquire. Keeping range without bounds.")
-                return None
-        return value_range
-
-    def validate_value_options(self, value_options):
-        # Validate that 'value_options' is a list
-        if value_options is not None and not isinstance(value_options, list):
-            print("Warning: 'value_options' must be a list containing the available options. The list will be kept empty.")
-            return None
-        return value_options
-
-class TreeDict(CheckTreeStructure):
+class TreeDict(SerializableComponent):
     """
     TreeDict is a utility class for building and managing hierarchical tree structures in a JSON-compatible format.
     """
@@ -489,165 +425,71 @@ class TreeDict(CheckTreeStructure):
                 traverse_tree_item(item, node)
         return self
 
-    def to_dict(self):
-        """Returns the tree dict created."""
-        return self.tree
+    def validate_default_value(self, default_value):
+        # Validate that the default_value is one of the allowed types
+        valid_types = (str, int, float, bool, list)
+        if not isinstance(default_value, valid_types):
+            print(f"Error: 'default_value' must be of type: string, int, float, bool, list.")
+            return False
+        return True
 
-class SettingsTreeItem(SerializableComponent):
-    """General class to represent settings.
-    """
-    def __init__(self, key, info, value_type=None, value=None):
-        """Class constructor.
+    def validate_info(self, info):
+        # Validate that 'info' is a string, otherwise keep it as None
+        if info is not None and not isinstance(info, str):
+            print("Warning: 'info' must be a string describing the element. Keeping it as None.")
+            return None
+        return info
 
-        Parameters
-        ----------
-        key: str
-            Tree item key
-        info: str
-            Information about this item
-        value_type: str ['string'|'number'|'integer'|'boolean'|'dict'|'list'], optional
-            Type of the data stored in attribute value. Leave to None if the
-            item is going to be a tree.
-        value: str, int, float, bool, dict or list, optional
-            Tree item value. It must be one of the JSON types to be compatible
-            with serialization. Leave to None if the item is going to be a tree.
-        """
-        # Init attributes
-        self.key = key
-        self.info = info
-        self.value_type = None
-        self.value = None
-        self.items = list()
-        # Set data
-        if value_type is not None:
-            self.set_data(value_type, value)
+    def validate_input_format(self, input_format, default_value=None, value_options=None):
+        # Validate that 'input_format' is one of the allowed types and meets specific requirements
+        valid_formats = ['checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox']
 
-    def set_data(self, value_type, value):
-        """Adds tree item to the tree. Use this function to build a custom tree.
+        input_format = input_format.lower() if input_format is not None else None
 
-        Parameters
-        ----------
-        value_type: str or list ['string'|'number'|'boolean'|'dict'|'list']
-            Type of the data stored in attribute value. If a list is provided,
-            several data types are accepted for attribute value.
-        value: str, int, float, bool, dict or list
-            Tree item value. It must be one of the JSON types to be compatible
-            with serialization. If list or dict, the items must be of type
-            SettingsTreeItem.
-        """
-        # Check errors
-        orig_value_type = value_type
-        value_type = [value_type] if not isinstance(value_type, list) \
-            else value_type
-        for t in value_type:
-            if t == 'string':
-                if value is not None:
-                    assert isinstance(value, str), \
-                        'Parameter value must be of type %s' % str
-            elif t == 'number':
-                if value is not None:
-                    assert isinstance(value, int) or isinstance(value, float), \
-                        'Parameter value must be of types %s or %s' % \
-                        (int, float)
-            elif t == 'integer':
-                if value is not None:
-                    assert isinstance(value, int), \
-                        'Parameter value must be of types %s or %s' % \
-                        (int, float)
-            elif t == 'boolean':
-                if value is not None:
-                    assert isinstance(value, bool), \
-                        'Parameter value must be of type %s' % bool
-            elif t == 'list':
-                if value is not None:
-                    assert isinstance(value, list), \
-                        'Parameter value must be of type %s' % list
-                    for v in value:
-                        assert isinstance(v, SettingsTreeItem), \
-                            'All items must be of type %s' % SettingsTreeItem
-                        assert not v.is_tree(), 'Items cannot be trees. Use ' \
-                                                'add item instead!'
-            elif t == 'dict':
-                if value is not None:
-                    assert isinstance(value, dict), \
-                        'Parameter value must be of type %s' % dict
-                    for v in value.values():
-                        assert isinstance(v, SettingsTreeItem), \
-                            'All items must be of type %s' % SettingsTreeItem
-                        assert not v.is_tree(), 'Items cannot be trees. Use ' \
-                                                'add item instead!'
-            else:
-                raise ValueError('Unknown value_type. Read the docs!')
-        # Set data
-        self.value_type = orig_value_type
-        self.value = value
-        self.items = list()
+        if input_format is not None and (input_format not in valid_formats or not isinstance(input_format, str)):
+            print("Warning: 'input_format' must be one of the following options: 'CheckBox', 'SpinBox', 'DoubleSpinBox', 'LineEdit', 'ComboBox'. Keeping it as None.")
+            return None
 
-    def add_item(self, item):
-        """Adds tree item to the tree. Use this function to build a custom tree.
-        Take into account that if this function is used, attributes value and
-        type will be set to None.
+        if input_format == "combobox" and value_options is None:
+            print("Warning: 'ComboBox' requires 'value_options' to be specified. Keeping input format as None.")
+            return None
+        if input_format == "checkbox" and not isinstance(default_value, bool):
+            print("Warning: 'CheckBox' requires 'default_value' to be a boolean (True/False). Keeping input format as None.")
+            return None
+        if input_format == "spinbox" and not isinstance(default_value, int):
+            print("Warning: 'SpinBox' requires 'default_value' to be an integer. Keeping input format as None.")
+            return None
+        if input_format == "doublespinbox" and not isinstance(default_value, float):
+            print("Warning: 'DoubleSpinBox' requires 'default_value' to be a float. Keeping input format as None.")
+            return None
 
-        Parameters
-        ----------
-        item: SettingsTreeItem
-            Tree item to add
-        """
-        if not isinstance(item, SettingsTreeItem):
-            raise ValueError('Parameter item must be of type %s' %
-                             type(SettingsTreeItem))
-        self.items.append(item)
-        self.value_type = None
-        self.value = None
+        return input_format
 
-    def count_items(self):
-        return len(self.items)
+    def validate_value_range(self, value_range):
+        # Validate that 'value_range' is a list or array with exactly two elements
+        if value_range is not None:
+            if not (isinstance(value_range, list)):
+                print(
+                    "Warning: 'value_range' must be a list with exactly two elements determining the upper and lower limits the value can acquire. Keeping range without bounds.")
+                return None
+            if len(value_range) != 2:
+                print("Warning: 'value_range' must have exactly two elements: upper and lower limits the value can acquire. Keeping range without bounds.")
+                return None
+        return value_range
 
-    def is_tree(self):
-        return len(self.items) > 0
+    def validate_value_options(self, value_options):
+        # Validate that 'value_options' is a list
+        if value_options is not None and not isinstance(value_options, list):
+            print("Warning: 'value_options' must be a list containing the available options. The list will be kept empty.")
+            return None
+        return value_options
 
     def to_serializable_obj(self):
-        # Get serialized value
-        if self.value_type == 'dict':
-            value = dict()
-            for k, v in self.value.items():
-                value[k] = v.to_serializable_obj()
-        elif self.value_type == 'list':
-            value = list()
-            for v in self.value:
-                value.append(v.to_serializable_obj())
-        else:
-            value = self.value
-        # Serialize
-        data = {
-            'key': self.key,
-            'value': value,
-            'value_type': self.value_type,
-            'info': self.info,
-            'items': [item.to_serializable_obj() for item in self.items]
-        }
-        return data
+        return self.tree
 
     @classmethod
     def from_serializable_obj(cls, data):
-        # Get desserialized value
-        if data['value_type'] == 'dict':
-            value = dict()
-            for k, v in data['value'].items():
-                value[k] = SettingsTreeItem.from_serializable_obj(v)
-        elif data['value_type'] == 'list':
-            value = list()
-            for v in data['value']:
-                value.append(SettingsTreeItem.from_serializable_obj(v))
-        else:
-            value = data['value']
-        # Create item
-        tree_item = cls(data['key'], data['info'],
-                        data['value_type'], value)
-        for serialized_item in data['items']:
-            tree_item.add_item(SettingsTreeItem.from_serializable_obj(
-                serialized_item))
-        return tree_item
+        cls(data)
 
 
 class PickleableComponent(ABC):
