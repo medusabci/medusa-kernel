@@ -321,6 +321,8 @@ class SettingsTreeWidget(QWidget):
         self.setLayout(layout2)
 
     def make_find_ui(self):
+        # todo: make tree widget and search bar independent. This should be
+        #  removed from this class
         # Text box
         self.find_box = QLineEdit()
         self.find_box.returnPressed.connect(self.find_button_clicked)
