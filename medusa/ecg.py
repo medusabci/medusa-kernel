@@ -89,8 +89,9 @@ class ECGChannelSet(components.SerializableComponent):
         Parameters
         ----------
         channel_mode: str {'leads', 'electrodes'}
-            If 'leads', it is assumed that the channels are leads. If 'electrodes', it is assumed that
-            channels are voltage difference between each electrode and the ground.
+            If 'leads', it is assumed that the channels are leads. If
+            'electrodes', it is assumed that channels are voltage difference
+            between each electrode and the ground.
         """
 
         # Check errors
