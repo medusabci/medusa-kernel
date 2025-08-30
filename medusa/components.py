@@ -5,11 +5,16 @@ from abc import ABC, abstractmethod
 import sys, inspect
 import copy, collections
 from threading import Thread
+import glob
 
 # External imports
 import numpy as np
 import scipy.io
 import dill
+from sklearn.utils import shuffle
+import h5py
+import scipy.io as sio
+from transforms import zscore_normalization
 
 # Medusa imports
 from medusa.performance_analysis import perf_analysis
@@ -864,6 +869,91 @@ class Recording(SerializableComponent):
                 rec_dict[exp_key] = obj.from_serializable_obj(rec_dict[exp_key])
         # Instantiate class
         return cls(**rec_dict)
+
+    def load_and_save_mat_files(self, input_path, output_path):
+        """
+        Load all .mat files from a folder, apply Z-Score normalization
+        to the feature matrices and ICA, and save the result in HDF5 format.
+
+        Parameters
+        ----------
+        input_path : str
+            Path to the folder containing the .mat files.
+        output_path : str
+            Path to the folder where the .h5 file will be saved.
+
+        Returns
+        -------
+        None
+            Does not return values. Saves an HDF5 file with the processed data.
+        """
+        # Take all the .mat files in that folder
+        files = glob.glob(f"{input_path}/*.mat")
+
+        # Initialize features, labels, subjects, and components ICA
+        features = list()
+        labels = list()
+        subjects = list()
+        ica = list()
+
+        # Number of .mat elements in files
+        num_total = len(files)
+        # Create a vector of zeros of size num_total
+        vec = np.zeros(num_total)
+        # Convert the vec array into a list
+        list_final = vec.tolist()
+
+        # Reorganize the order from 0 to the length of files
+        vector_total = shuffle(np.arange(0, len(files)))
+
+        # For j in [0, length of files]:
+        for j in np.arange(0, num_total):
+            # Put a file in each element of list_final
+            list_final[j] = files[vector_total[j]]
+
+        # For i in each file of list_final:
+        for i, file in enumerate(list_final):
+            # Load .mat with loadmat
+            temp_mat = sio.loadmat(file, squeeze_me=True)
+            # comp_data in features
+            temp_features = temp_mat['comp_data']
+            # comp_label in labels
+            temp_labels = temp_mat['comp_label']
+            # Number of subjects in subjects
+            temp_subjects = np.ones(shape=len(temp_labels)) * (i + 1)
+            # ICA components in ica
+            temp_ica = temp_mat['comp_topography'].T
+
+            # Z-Score normalization: Data is normalized one by one (by memory).
+            temp_features, temp_ica = zscore_normalization(temp_features, temp_ica)
+
+            # Concatenate features with temp_features in features
+            features.append(temp_features)
+            # Concatenate labels with temp_labels in labels
+            labels.append(temp_labels)
+            # Concatenate subjects with temp_subjects in subjects
+            subjects.append(temp_subjects)
+            # Concatenate ica with temp_ica in ica
+            ica.append(temp_ica)
+
+            # Displayed on screen
+            print("{} of {}".format(i + 1, num_total))
+
+        features = np.concatenate(features)
+        labels = np.concatenate(labels)
+        subjects = np.concatenate(subjects)
+        ica = np.concatenate(ica)
+
+        # SAVE DATASET
+        hf = h5py.File(f"{output_path}/data_w_ica.h5", 'w')
+        # Train group
+        hf.create_dataset("features", data=features)
+        hf.create_dataset("labels", data=labels)
+        hf.create_dataset("subjects", data=subjects)
+        hf.create_dataset("ica_winv", data=ica)
+
+        # Close file
+        hf.close()
 
 
 class BiosignalData(SerializableComponent):
