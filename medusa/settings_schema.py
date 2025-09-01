@@ -133,7 +133,7 @@ class SettingsTree(SerializableComponent):
         if value_options is not None: tree['value_options'] = self.validate_value_options(value_options)
         return self
 
-    def update_TreeDict_from_TreeWidget(self, tree_widget: QTreeWidget):
+    def update_tree_from_widget(self, tree_widget: QTreeWidget):
         """
         Updates the TreeDict dictionary with values from a QTreeWidget object.
         """
