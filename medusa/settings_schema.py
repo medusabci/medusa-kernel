@@ -9,7 +9,7 @@ from .components import SerializableComponent
 
 class SettingsTree(SerializableComponent):
     """
-    TreeDict is a utility class for building and managing hierarchical tree
+    SettingsTree is a utility class for building and managing hierarchical tree
     structures in a JSON-compatible format.
     """
     def __init__(self, tree=None):
@@ -32,15 +32,15 @@ class SettingsTree(SerializableComponent):
             Help text or description to be displayed.
         input_format : {'checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox'}, optional
             Type of UI control associated with this item.
-        value_range : list of length 2, optional
-            Lower and upper bounds for numeric inputs.
+        value_range : list, optional
+            List indicating the [min, max] for numeric inputs. Use `None` to indicate no bound on that side.
         value_options : list, optional
             A list of allowed options (used for combobox inputs).
 
         Returns
         -------
-        TreeDict
-            A new `TreeDict` instance wrapping the added item.
+        SettingsTree
+            A `SettingsTree` instance wrapping the added item.
         """
 
         # Ensure the key is a string, convert if necessary
@@ -53,7 +53,7 @@ class SettingsTree(SerializableComponent):
                           f"{key} to string.")
                     return None
 
-        # Validate all provided values using inherited methods from CheckTreeStructure
+        # Validate all provided values
         if default_value is not None and not self.validate_default_value(default_value):
             return None
         info = self.validate_info(info)
@@ -61,7 +61,7 @@ class SettingsTree(SerializableComponent):
         value_range = self.validate_value_range(value_range)
         value_options = self.validate_value_options(value_options)
 
-        # Build the item dictionary with all non-None fields
+        # Build the item dictionary
         item = {
             'key': key,
             'default_value': default_value,
@@ -92,7 +92,7 @@ class SettingsTree(SerializableComponent):
             *keys: Sequence of keys to navigate through nested items.
 
         Returns:
-            SettingsTree: A TreeDict instance wrapping the matched sub-item.
+            SettingsTree: A SettingsTree instance wrapping the matched item (or sub-item).
         """
         current_node = self.tree
         for key in keys:
@@ -109,7 +109,7 @@ class SettingsTree(SerializableComponent):
 
     def edit_item(self, default_value=None, info=None, input_format=None, value_range=None, value_options=None):
         """
-        Edits a TreeDict instance.
+        Edits a SettingsTree instance.
 
         Parameters:
             default_value (str, int, float, bool or list, optional): Updated default value for this item.
@@ -119,11 +119,11 @@ class SettingsTree(SerializableComponent):
             value_options (list, optional): Updated list of allowed options (used for combobox).
 
         Returns:
-            SettingsTree: The current TreeDict instance after editing
+            SettingsTree: The current SettingsTree instance after editing
         """
         tree = self.tree
         if not isinstance(tree, dict):
-            raise TypeError("TreeDict must wrap a dictionary to be editable.")
+            raise TypeError("SettingsTree must wrap a dictionary to be editable.")
 
         if default_value is not None: tree['default_value'] = default_value if self.validate_default_value(
             default_value) else tree.get('default_value')
@@ -135,7 +135,7 @@ class SettingsTree(SerializableComponent):
 
     def update_tree_from_widget(self, tree_widget: QTreeWidget):
         """
-        Updates the TreeDict dictionary with values from a QTreeWidget object.
+        Updates the SettingsTree dictionary with values from a QTreeWidget object.
         """
 
         def extract_value_from_widget(widget):
@@ -589,7 +589,7 @@ class SettingsTreeWidget(QWidget):
 
 class TreeViewer(QMainWindow):
     """
-        A main window class that hosts the TreeView widget.
+        A main window class that hosts the SettingsTreeWidget widget.
 
         Parameters:
             jdata (dict or list): The JSON-compatible data to be visualized in the tree view.
