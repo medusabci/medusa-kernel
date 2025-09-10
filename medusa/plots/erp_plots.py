@@ -21,8 +21,8 @@ def plot_erp_from_erp_speller_dataset(erp_speller_dataset, channel, axes,
     erp_speller_dataset : ERPDataset
         The ERP Speller dataset containing EEG data and relevant information.
 
-    channel : str
-        The name of the EEG channel to be plotted.
+    channel: int
+        Channel index to plot.
 
     axes : matplotlib.axes.Axes
         The Matplotlib axes on which the ERP plot will be displayed.
@@ -161,7 +161,6 @@ def compute_dev_epochs(epochs, measure="C95"):
     error: basestring
         Type of error being plotted (mean+error, mean-error), which can be:
         - 'std':    standard deviation
-        - 'sem':    standard error mean
         - 'var':    variance
         - Confidence interval:  For this error, the measure parameter must be
         constituted by 'c' and the desired percentile. E.g. 'c95' for the
