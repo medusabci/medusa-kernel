@@ -54,15 +54,15 @@ def __phase_connectivity_cpu(data, measure=None):
     angles_2 = np.tile(phase_data, (1, 1, n_chan))
 
     if measure == 'pli':
-        return __pli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
+        return __pli(angles_1, angles_2, n_epochs, n_chan)
     elif measure == 'wpli':
-        return __wpli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
+        return __wpli(angles_1, angles_2, n_epochs, n_chan)
     elif measure == 'plv':
-        return __plv(angles_1, angles_2, n_epochs, n_samples, n_chan, 'CPU')
+        return __plv(angles_1, angles_2, n_epochs, n_samples, n_chan)
     else:
-        plv = __plv(angles_1, angles_2, n_epochs, n_samples, n_chan, 'CPU')
-        pli = __pli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
-        wpli = __wpli(angles_1, angles_2, n_epochs, n_chan, 'CPU')
+        plv = __plv(angles_1, angles_2, n_epochs, n_samples, n_chan)
+        pli = __pli(angles_1, angles_2, n_epochs, n_chan)
+        wpli = __wpli(angles_1, angles_2, n_epochs, n_chan)
         return plv, pli, wpli
 
 

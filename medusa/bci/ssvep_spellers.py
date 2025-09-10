@@ -928,12 +928,12 @@ class CMDModelCCA(SSVEPSpellerModel):
         self.is_built = True
         self.is_fit = False
 
-    def get_stim_times_to_test(self, stim_time):
-        t = 1
+    def get_stim_times_to_test(self, stim_time, stim_time_interval=1):
+        t = stim_time_interval
         stim_times = list()
         while t <= stim_time:
             stim_times.append(t)
-            t += 1
+            t += stim_time_interval
         return stim_times
 
     def predict_dataset(self, dataset, **kwargs):
@@ -945,7 +945,9 @@ class CMDModelCCA(SSVEPSpellerModel):
         # Feat extraction
         x, x_info = \
             self.get_inst('ext_method').transform_dataset(dataset)
-        stim_times = self.get_stim_times_to_test(dataset.stim_time)
+        stim_times = self.get_stim_times_to_test(
+            dataset.stim_time,
+            kwargs.get('stim_time_interval', 1))
         # Decode commands
         sel_cmds, sel_cmd_per_stim_time, cmd_scores = self.__decode_commands(
             x, x_info, dataset.fs, stim_times)
@@ -957,7 +959,8 @@ class CMDModelCCA(SSVEPSpellerModel):
             'spell_result': sel_cmds,
             'spell_result_per_seq': sel_cmd_per_stim_time,
         }
-        if dataset.experiment_mode.lower() == 'train':
+        if (dataset.experiment_mode is not None
+                and dataset.experiment_mode.lower() == 'train'):
             # Spell accuracy
             spell_acc = command_decoding_accuracy(
                 sel_cmds,
@@ -1035,9 +1038,14 @@ class CMDModelCCA(SSVEPSpellerModel):
                         # Get trial info (todo: check paradigm conf)
                         m = int(np.squeeze(np.unique(
                             x_info['matrix_idx'][idx_t])))
-                        trial_unit = 0
-                        trial_cmd_info = \
-                            x_info['commands_info'][r_cnt][m][trial_unit]
+                        try:
+                            trial_unit = 0
+                            trial_cmd_info = \
+                                x_info['commands_info'][r_cnt][m][trial_unit]
+                        except:
+                            trial_unit = str(0)
+                            trial_cmd_info = \
+                                x_info['commands_info'][r_cnt][m][trial_unit]
                         # Get correlations with reference signals
                         trial_scores = dict()
                         for k, v in trial_cmd_info.items():

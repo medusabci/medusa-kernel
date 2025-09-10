@@ -27,7 +27,6 @@ class NIRS(components.BiosignalData):
             Key-value arguments to be saved in the class. This general class
             does not check anything
         """
-
         # Standard attributes
         self.times = times
         self.signal = signal
