@@ -656,7 +656,7 @@ class CCA(components.ProcessingMethod):
         self.ax = None
         self.ay = None
 
-    def fit(self, x, y):
+    def fit(self, x, y, sign_correction=None):
         """
         Fits the CCA spatial filters given the two input matrices data and
         reference, storing relevant parameters.
@@ -668,9 +668,30 @@ class CCA(components.ProcessingMethod):
             Second input matrix, usually the data reference. The number of
             samples must match the samples of the data matrix. Repeat the
             reference if necessary before calling this function.
+        sign_correction : str or None
+            Sign of spatial filters and activation patterns in CCA is ambiguous.
+            If None, no sign correction is applied. If "max", the spatial
+            filter weights and the activation patterns will guarantee that the
+            maximum value is positive. If "i", where i is the index of a
+            specific channel, then the filter weights and the activation
+            patterns will guarantee that the value for that channel is positive.
         """
         # CCA
         [self.wx, self.wy, self.r] = self.canoncorr(x, y)
+
+        # Sign correction
+        if sign_correction is not None:
+            if sign_correction == "max":
+                if np.abs(np.min(self.wy[:, 0])) > np.abs(
+                        np.max(self.wy[:, 0])):
+                    self.wy *= -1
+                if np.abs(np.min(self.wx[:, 0])) > np.abs(
+                        np.max(self.wx[:, 0])):
+                    self.wx *= -1
+            else:
+                target_ch_idx = int(sign_correction)
+                self.wy *= np.sign(self.wy[target_ch_idx, 0])
+                self.wx *= np.sign(self.wx[target_ch_idx, 0])
 
         # Activation patterns
         self.ax = self._compute_activation(x, self.wx)
