@@ -1,9 +1,10 @@
 import numpy as np
+from medusa.transforms import normalize_psd
 
-def band_power(psd, fs, target_band):
+def band_power(psd, fs, target_band, type, norm_range=None):
     """
     This method computes total power of the signal within a specific frequency band,
-    using the Power Spectral Density (PSD).
+    using the Power Spectral Density (PSD). DO NOT INTRODUCE THE NOT INTRODUCE THE PSD NORMALIZED
 
     Parameters
     ----------
@@ -18,6 +19,8 @@ def band_power(psd, fs, target_band):
         Sampling frequency of the signal
     target_band : numpy 2D array
         Frequency band where to calculate the power in Hz. E.g., [8, 13]
+    type : string
+        Type of power to compute. Options are 'absolute' or 'relative'.
 
     Returns
     -------
@@ -40,6 +43,8 @@ def band_power(psd, fs, target_band):
     psd = np.array(psd)
 
     # Check errors
+    if type not in ['absolute', 'relative']:
+        raise Exception("Parameter type must be 'absolute' or 'relative'")
     if len(psd.shape) != 3:
         raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
                         'n_channels]')
@@ -47,10 +52,18 @@ def band_power(psd, fs, target_band):
     # Calculate freqs array
     freqs = np.linspace(0, fs/2, psd.shape[1])
 
+    if type == 'relative':
+        if not (isinstance(norm_range, (list, tuple)) and
+                len(norm_range) == 2 and
+                all(isinstance(x, (int, float)) for x in norm_range)):
+            raise ValueError("norm_range must be a list or two-number tuple, such as [1, 70]")
+        psd = normalize_psd(psd, [norm_range[0], norm_range[1]], freqs, norm='rel')
+
     # Compute power
-    psd_target_samp = \
-        np.logical_and(freqs >= target_band[0], freqs <= target_band[1])
-    band_power = np.sum(psd[:, psd_target_samp, :], axis=1) * \
-                 (fs / (2 * freqs.shape[0]))
+    psd_target_samp = np.logical_and(freqs >= target_band[0], freqs <= target_band[1])
+    band_power = np.sum(psd[:, psd_target_samp, :], axis=1)
+
+    if type == 'absolute': # Normalize to make it comparable across different sampling frequencies and PSD lengths
+        band_power = band_power * (fs / (2 * freqs.shape[0]))
 
     return band_power
