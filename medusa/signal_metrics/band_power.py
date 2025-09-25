@@ -1,7 +1,7 @@
 import numpy as np
 from medusa.transforms import normalize_psd
 
-def band_power(psd, fs, target_band, type, norm_range=None):
+def band_power(psd, fs, target_band, type='absolute', norm_range=None):
     """
     This method computes total power of the signal within a specific frequency band,
     using the Power Spectral Density (PSD). DO NOT INTRODUCE THE NOT INTRODUCE THE PSD NORMALIZED
