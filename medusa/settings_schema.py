@@ -17,7 +17,7 @@ class SettingsTree(SerializableComponent):
         # If a tree is provided, use it; otherwise, start with an empty list.
         self.tree = tree if tree is not None else []
 
-    def add_item(self, key, default_value=None, info=None, input_format=None,
+    def add_item(self, key, value=None, info=None, input_format=None,
                  value_range=None, value_options=None):
         """
         Adds a new item (or sub-item) to the current tree structure.
@@ -26,8 +26,8 @@ class SettingsTree(SerializableComponent):
         ----------
         key : str
             The key name of the item.
-        default_value : {str, int, float, bool, list}, optional
-            Default value for this item. Can be a primitive type or a list.
+        value : {str, int, float, bool, list}, optional
+            Value for this item. Can be a primitive type or a list.
         info : str, optional
             Help text or description to be displayed.
         input_format : {'checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox'}, optional
@@ -54,7 +54,7 @@ class SettingsTree(SerializableComponent):
                     return None
 
         # Validate all provided values
-        if default_value is not None and not self.validate_default_value(default_value):
+        if value is not None and not self.validate_value(value):
             return None
         info = self.validate_info(info)
         input_format = self.validate_input_format(input_format)
@@ -64,7 +64,7 @@ class SettingsTree(SerializableComponent):
         # Build the item dictionary
         item = {
             'key': key,
-            'default_value': default_value,
+            'value': value,
             'info': info,
             'input_format': input_format,
             'value_range': value_range,
@@ -107,12 +107,12 @@ class SettingsTree(SerializableComponent):
             current_node = found
         return SettingsTree(current_node)
 
-    def edit_item(self, default_value=None, info=None, input_format=None, value_range=None, value_options=None):
+    def edit_item(self, value=None, info=None, input_format=None, value_range=None, value_options=None):
         """
         Edits a SettingsTree instance.
 
         Parameters:
-            default_value (str, int, float, bool or list, optional): Updated default value for this item.
+            value (str, int, float, bool or list, optional): Updated default value for this item.
             info (str, optional): Updated help text or description to be displayed.
             input_format (str, optional): Updated UI control type ('checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox').
             value_range (list, optional): Updated list indicating the [min, max] for numeric inputs.
@@ -125,8 +125,8 @@ class SettingsTree(SerializableComponent):
         if not isinstance(tree, dict):
             raise TypeError("SettingsTree must wrap a dictionary to be editable.")
 
-        if default_value is not None: tree['default_value'] = default_value if self.validate_default_value(
-            default_value) else tree.get('default_value')
+        if value is not None: tree['value'] = value if self.validate_value(
+            value) else tree.get('value')
         if info is not None: tree['info'] = self.validate_info(info)
         if input_format is not None: tree['input_format'] = self.validate_input_format(input_format)
         if value_range is not None: tree['value_range'] = self.validate_value_range(value_range)
@@ -169,10 +169,10 @@ class SettingsTree(SerializableComponent):
             # Extract values from the widget
             if widget is not None:
                 value = extract_value_from_widget(widget)
-                SettingsTree(node).edit_item(default_value=value)
-            elif isinstance(node.get("default_value"), list):
+                SettingsTree(node).edit_item(value=value)
+            elif isinstance(node.get("value"), list):
                 value = extract_value_from_list(item)
-                SettingsTree(node).edit_item(default_value=value)
+                SettingsTree(node).edit_item(value=value)
 
             # Recursively process child items
             if "items" in node and item.childCount() > 0:
@@ -194,11 +194,11 @@ class SettingsTree(SerializableComponent):
                 traverse_tree_item(item, node)
         return self
 
-    def validate_default_value(self, default_value):
-        # Validate that the default_value is one of the allowed types
+    def validate_value(self, value):
+        # Validate that the value is one of the allowed types
         valid_types = (str, int, float, bool, list)
-        if not isinstance(default_value, valid_types):
-            print(f"Error: 'default_value' must be of type: string, int, float, bool, list.")
+        if not isinstance(value, valid_types):
+            print(f"Error: 'value' must be of type: string, int, float, bool, list.")
             return False
         return True
 
@@ -209,7 +209,7 @@ class SettingsTree(SerializableComponent):
             return None
         return info
 
-    def validate_input_format(self, input_format, default_value=None, value_options=None):
+    def validate_input_format(self, input_format, value=None, value_options=None):
         # Validate that 'input_format' is one of the allowed types and meets specific requirements
         valid_formats = ['checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox']
 
@@ -222,14 +222,14 @@ class SettingsTree(SerializableComponent):
         if input_format == "combobox" and value_options is None:
             print("Warning: 'ComboBox' requires 'value_options' to be specified. Keeping input format as None.")
             return None
-        if input_format == "checkbox" and not isinstance(default_value, bool):
-            print("Warning: 'CheckBox' requires 'default_value' to be a boolean (True/False). Keeping input format as None.")
+        if input_format == "checkbox" and not isinstance(value, bool):
+            print("Warning: 'CheckBox' requires 'value' to be a boolean (True/False). Keeping input format as None.")
             return None
-        if input_format == "spinbox" and not isinstance(default_value, int):
-            print("Warning: 'SpinBox' requires 'default_value' to be an integer. Keeping input format as None.")
+        if input_format == "spinbox" and not isinstance(value, int):
+            print("Warning: 'SpinBox' requires 'value' to be an integer. Keeping input format as None.")
             return None
-        if input_format == "doublespinbox" and not isinstance(default_value, float):
-            print("Warning: 'DoubleSpinBox' requires 'default_value' to be a float. Keeping input format as None.")
+        if input_format == "doublespinbox" and not isinstance(value, float):
+            print("Warning: 'DoubleSpinBox' requires 'value' to be a float. Keeping input format as None.")
             return None
 
         return input_format
@@ -367,7 +367,7 @@ class SettingsTreeWidget(QWidget):
 
         # Obtain the necessary fields
         key = data.get("key", "")
-        default_value = data.get("default_value", None)
+        value = data.get("value", None)
         info = data.get("info", None)
         input_format = data.get("input_format", None)
         value_range = data.get("value_range", None)
@@ -376,15 +376,15 @@ class SettingsTreeWidget(QWidget):
 
         # Set input format
         if input_format is None:
-            if isinstance(default_value, bool):
+            if isinstance(value, bool):
                 input_format = "checkbox"
-            elif isinstance(default_value, list):
+            elif isinstance(value, list):
                 input_format = "list"
-            elif isinstance(default_value, int):
+            elif isinstance(value, int):
                 input_format = "combobox" if value_options else "spinbox"
-            elif isinstance(default_value, float):
+            elif isinstance(value, float):
                 input_format = "combobox" if value_options else "doublespinbox"
-            elif isinstance(default_value, str):
+            elif isinstance(value, str):
                 input_format = "combobox" if value_options else "lineedit"
         else:
             input_format = input_format.lower()
@@ -442,20 +442,20 @@ class SettingsTreeWidget(QWidget):
         if input_format == "combobox":
             assert value_options is not None, \
                 'Options list must not be empty'
-            default_value = str(default_value)
+            value = str(value)
             value_options = [str(option) for option in value_options]
             combobox = QComboBox()
             combobox.addItems(value_options)
-            combobox.setCurrentIndex(value_options.index(default_value))
+            combobox.setCurrentIndex(value_options.index(value))
             self.tree_widget.setItemWidget(row_item, 1, combobox)
         elif input_format == "checkbox":
-            assert isinstance(default_value, bool), \
+            assert isinstance(value, bool), \
                 'For the selected input format default value must be of type %s' % bool
             checkbox = QCheckBox()
-            checkbox.setChecked(default_value)
+            checkbox.setChecked(value)
             self.tree_widget.setItemWidget(row_item, 1, checkbox)
         elif input_format == "spinbox":
-            assert isinstance(default_value, int), \
+            assert isinstance(value, int), \
                 'For the selected input format default value must be of type %s' % int
             spinbox = QSpinBox()
             if value_range:
@@ -464,10 +464,10 @@ class SettingsTreeWidget(QWidget):
                 spinbox.setRange(low_lim, upper_lim)
             else:
                 spinbox.setRange(-1000000000, 1000000000)
-            spinbox.setValue(default_value)
+            spinbox.setValue(value)
             self.tree_widget.setItemWidget(row_item, 1, spinbox)
         elif input_format == "doublespinbox":
-            assert isinstance(default_value, float), \
+            assert isinstance(value, float), \
                 'For the selected input format default value must be of type %s' % float
             float_spinbox = QDoubleSpinBox()
             if value_range:
@@ -476,18 +476,18 @@ class SettingsTreeWidget(QWidget):
                 float_spinbox.setRange(low_lim, upper_lim)
             else:
                 float_spinbox.setRange(-1000000000, 1000000000)
-            float_spinbox.setValue(default_value)
+            float_spinbox.setValue(value)
             self.tree_widget.setItemWidget(row_item, 1, float_spinbox)
         elif input_format == "lineedit":
             line_edit = QLineEdit()
-            line_edit.setText(str(default_value))
+            line_edit.setText(str(value))
             self.tree_widget.setItemWidget(row_item, 1, line_edit)
         elif input_format == "list":
-            for idx, list_item in enumerate(default_value):
+            for idx, list_item in enumerate(value):
                 subkey = f"{key}[{idx}]"
                 subdata = {
                     "key": subkey,
-                    "default_value": list_item
+                    "value": list_item
                 }
 
                 if isinstance(list_item, bool):
@@ -541,11 +541,11 @@ class SettingsTreeWidget(QWidget):
                 "list": ([], "list")
             }
 
-            default_value, input_format = type_defaults[item_type]
+            value, input_format = type_defaults[item_type]
             new_key = f"{parent_key}[{row_item.childCount()-1}]"
             new_data = {
                 "key": new_key,
-                "default_value": default_value,
+                "value": value,
                 "input_format": input_format
             }
 
@@ -608,19 +608,19 @@ class TreeViewer(QMainWindow):
 if __name__ == "__main__":
 
     settings = SettingsTree()
-    settings.add_item("update_rate", default_value=0.2,
+    settings.add_item("update_rate", value=0.2,
                       info="Update rate (s) of the plot",
                       value_range=[0, None])
     freq_filt = settings.add_item("frequency_filter")
-    freq_filt.add_item("apply", default_value=True,
+    freq_filt.add_item("apply", value=True,
                        info="Apply IIR filter in real-time")
-    freq_filt.add_item("type", default_value="highpass",
+    freq_filt.add_item("type", value="highpass",
                        value_options=["highpass", "lowpass", "bandpass",
                                       "stopband"], info="Filter type")
-    freq_filt.add_item("cutoff_freq", default_value=[1.0],
+    freq_filt.add_item("cutoff_freq", value=[1.0],
                        info="List with one cutoff for highpass/lowpass, "
                             "two for bandpass/stopband")
-    freq_filt.add_item("order", default_value=5,
+    freq_filt.add_item("order", value=5,
                        info="Order of the filter (the higher, "
                             "the greater computational cost)",
                        value_range=[1, None])
