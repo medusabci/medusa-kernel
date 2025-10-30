@@ -1615,6 +1615,7 @@ class TimeHeatmapPlot(TimePlot):
     ## --------------------------- PLOT UPDATES --------------------------- ##
     def set_y_axis_ticks(self):
         # Reverse
+        cha_labels = self.cha_labels
         if self.reverse_channels:
             cha_labels = self.cha_labels[::-1]
 
@@ -1672,6 +1673,10 @@ class TimeHeatmapPlot(TimePlot):
         all_data = [d["data"] for d in self.plotted_data]
         global_min = min(np.min(data) for data in all_data)
         global_max = max(np.max(data) for data in all_data)
+
+        # Determinar límites de color robustos
+        # concatenated = np.concatenate([np.ravel(data) for data in all_data])
+        # global_min, global_max = np.percentile(concatenated, [1, 99])
 
         vmin = global_min * self.zoom
         vmax = global_max * self.zoom
@@ -1931,9 +1936,9 @@ if __name__ == '__main__':
     import numpy as np
 
     # Simulated multi-channel signal
-    fs = 100
+    fs = 500
     n_channels = 16
-    t_range = [0, 250]
+    t_range = [0, 300]
     n_samples =  (t_range[1] - t_range[0]) * fs
     t = np.linspace(t_range[0], t_range[1], n_samples)
 
@@ -1943,7 +1948,7 @@ if __name__ == '__main__':
 
     # Generate signal 2
     times2 = t + 1000
-    sine_wave = np.sin(2 * np.pi * 1 * t)[:, np.newaxis]
+    sine_wave = np.sin(2 * np.pi * 10 * t)[:, np.newaxis]
     signal_2 = sine_wave + 0.25 * np.random.randn(n_samples, n_channels)
 
     # Channel labels
@@ -2033,7 +2038,7 @@ if __name__ == '__main__':
         'fs': fs,
         'time_window': 10.0,
         'overlap_pct': 90,
-        'smooth': False,
+        'smooth': True,
         'smooth_sigma': 1,
         'apply_detrend': True,
         'apply_normalization': True,
@@ -2070,25 +2075,25 @@ if __name__ == '__main__':
         style_params={
             'gap_ratio': 0.05,
             'show_dims_axis': True,
-            'dims_axis_range': (0, 3),
+            'dims_axis_range': (0, 30),
             'dims_axis_n_ticks': 4,
             'dims_axis_left_pos': 0.005,
             'cha_axis_left_pos': -0.02
         })
     time_plot_manager.set_time_plot(time_plot)
 
-    freq_mask = (f_spec_1 >= 0) & (f_spec_1 <= 5)
-    time_plot.add_data(
-        times=t_spec_1,
-        data=spec1[freq_mask, :, 0:8],
-        data_label="S1",
-        cha_idx=np.arange(0, 8),
-        time_ref=None,
-        conditions_dict = c_dict,
-        events_dict = e_dict,
-    )
+    # freq_mask = (f_spec_1 >= 0) & (f_spec_1 <= 5)
+    # time_plot.add_data(
+    #     times=t_spec_1,
+    #     data=spec1[freq_mask, :, 0:8],
+    #     data_label="S1",
+    #     cha_idx=np.arange(0, 8),
+    #     time_ref=None,
+    #     conditions_dict = c_dict,
+    #     events_dict = e_dict,
+    # )
 
-    freq_mask = (f_spec_1 >= 0) & (f_spec_1 <= 3)
+    freq_mask = (f_spec_1 >= 0) & (f_spec_1 <= 30)
     time_plot.add_data(
         times=t_spec_2,
         data=spec2[freq_mask, :, 8:16],

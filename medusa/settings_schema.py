@@ -8,41 +8,115 @@ from .components import SerializableComponent
 
 
 class SettingsTree(SerializableComponent):
-    """
-    SettingsTree is a utility class for building and managing hierarchical tree
-    structures in a JSON-compatible format.
+    """Manages hierarchical tree structures for settings.
+
+    This class provides utilities to build and manage settings trees
+    in a JSON-compatible format.
+
+    Parameters
+    ----------
+    tree : list or dict, optional
+        The initial tree structure. If not provided, an empty list is used.
+        The default is None, which creates an empty list.
+
+    Attributes
+    ----------
+    tree : list or dict
+        The internal representation of the tree structure.
+
+    Methods
+    -------
+    add_item(key, default_value=None, info=None, input_format=None, value_range=None, value_options=None)
+        Adds a new item or sub-item to the tree.
+    get_item(*keys)
+        Recursively retrieves a nested item using a sequence of keys.
+    edit_item(default_value=None, info=None, input_format=None, value_range=None, value_options=None)
+        Edits the current item in the tree.
+    update_tree_from_widget(tree_widget)
+        Updates the tree with values from a QTreeWidget.
+    validate_default_value(default_value)
+        Validates the type of the default value.
+    validate_info(info)
+        Validates the info field.
+    validate_input_format(input_format, default_value=None, value_options=None)
+        Validates the input format.
+    validate_value_range(value_range)
+        Validates the value range.
+    validate_value_options(value_options)
+        Validates the value options.
+    to_serializable_obj()
+        Returns the tree as a serializable object.
+    from_serializable_obj(data)
+        Creates a SettingsTree from a serializable object.
+
+    Examples
+    --------
+    >>> settings = SettingsTree()
+    >>> settings.add_item("update_rate", default_value=0.2,
+    ...                   info="Update rate (s) of the plot",
+    ...                   value_range=[0, None])
+    >>> freq_filt = settings.add_item("frequency_filter")
+    >>> freq_filt.add_item("apply", default_value=True,
+    ...                    info="Apply IIR filter in real-time")
+    >>> freq_filt.add_item("type", default_value="highpass",
+    ...                    value_options=["highpass", "lowpass", "bandpass",
+    ...                                   "stopband"], info="Filter type")
+    >>> freq_filt.add_item("cutoff_freq", default_value=[1.0],
+    ...                    info="List with one cutoff for highpass/lowpass, "
+    ...                         "two for bandpass/stopband")
+    >>> freq_filt.add_item("order", default_value=5,
+    ...                    info="Order of the filter (the higher, "
+    ...                         "the greater computational cost)",
+    ...                    value_range=[1, None])
     """
     def __init__(self, tree=None):
+        """Initializes the SettingsTree.
+
+        Parameters
+        ----------
+        tree : list or dict, optional
+            The initial tree structure. If not provided, an empty list is used.
+            The default is None.
+
+        """
         # Initialize the tree structure.
         # If a tree is provided, use it; otherwise, start with an empty list.
         self.tree = tree if tree is not None else []
 
     def add_item(self, key, default_value=None, info=None, input_format=None,
                  value_range=None, value_options=None):
-        """
-        Adds a new item (or sub-item) to the current tree structure.
+        """Adds a new item or sub-item to the tree.
 
         Parameters
         ----------
         key : str
             The key name of the item.
-        default_value : {str, int, float, bool, list}, optional
-            Default value for this item. Can be a primitive type or a list.
+        default_value : str, int, float, bool or list, optional
+            Default value for the item. The default is None.
         info : str, optional
-            Help text or description to be displayed.
+            A description or help text for the item. The default is None.
         input_format : {'checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox'}, optional
-            Type of UI control associated with this item.
-        value_range : list, optional
-            List indicating the [min, max] for numeric inputs. Use `None` to indicate no bound on that side.
+            The type of UI control for the item. The default is None.
+        value_range : list of [min, max], optional
+            The minimum and maximum limits for numeric inputs. Use `None` for
+            no bound. The default is None.
         value_options : list, optional
-            A list of allowed options (used for combobox inputs).
+            A list of allowed options for 'combobox' inputs. The default is None.
 
         Returns
         -------
-        SettingsTree
-            A `SettingsTree` instance wrapping the added item.
-        """
+        SettingsTree or None
+            A `SettingsTree` instance wrapping the added item, or None if an
+            error occurs.
 
+        Raises
+        ------
+        TypeError
+            If `key` cannot be converted to string.
+        ValueError
+            If `default_value` is not valid.
+
+        """
         # Ensure the key is a string, convert if necessary
         if key is not None:
             if not isinstance(key, str):
@@ -85,14 +159,25 @@ class SettingsTree(SerializableComponent):
         return SettingsTree(item)
 
     def get_item(self, *keys):
-        """
-        Recursively retrieves a nested item from the tree using a sequence of keys.
+        """Retrieves a nested item from the tree.
 
-        Parameters:
-            *keys: Sequence of keys to navigate through nested items.
+        This method recursively navigates the tree using a sequence of keys.
 
-        Returns:
-            SettingsTree: A SettingsTree instance wrapping the matched item (or sub-item).
+        Parameters
+        ----------
+        *keys : str
+            A sequence of keys to navigate to the desired item.
+
+        Returns
+        -------
+        SettingsTree
+            A `SettingsTree` instance wrapping the found item.
+
+        Raises
+        ------
+        KeyError
+            If a key in the sequence is not found.
+
         """
         current_node = self.tree
         for key in keys:
@@ -108,18 +193,31 @@ class SettingsTree(SerializableComponent):
         return SettingsTree(current_node)
 
     def edit_item(self, default_value=None, info=None, input_format=None, value_range=None, value_options=None):
-        """
-        Edits a SettingsTree instance.
+        """Edits the properties of the current item.
 
-        Parameters:
-            default_value (str, int, float, bool or list, optional): Updated default value for this item.
-            info (str, optional): Updated help text or description to be displayed.
-            input_format (str, optional): Updated UI control type ('checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox').
-            value_range (list, optional): Updated list indicating the [min, max] for numeric inputs.
-            value_options (list, optional): Updated list of allowed options (used for combobox).
+        Parameters
+        ----------
+        default_value : str, int, float, bool or list, optional
+            The new default value for the item. The default is None.
+        info : str, optional
+            The new description or help text. The default is None.
+        input_format : {'checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox'}, optional
+            The new UI control type. The default is None.
+        value_range : list of [min, max], optional
+            The new numeric limits. The default is None.
+        value_options : list, optional
+            The new list of options for a 'combobox'. The default is None.
 
-        Returns:
-            SettingsTree: The current SettingsTree instance after editing
+        Returns
+        -------
+        SettingsTree
+            The current `SettingsTree` instance.
+
+        Raises
+        ------
+        TypeError
+            If the wrapped tree is not a dictionary and cannot be edited.
+
         """
         tree = self.tree
         if not isinstance(tree, dict):
@@ -134,11 +232,38 @@ class SettingsTree(SerializableComponent):
         return self
 
     def update_tree_from_widget(self, tree_widget: QTreeWidget):
-        """
-        Updates the SettingsTree dictionary with values from a QTreeWidget object.
-        """
+        """Updates the tree with values from a QTreeWidget.
 
+        This method traverses a QTreeWidget and the internal tree, updating
+        the 'default_value' in the tree with values from the widget's input
+        controls.
+
+        Parameters
+        ----------
+        tree_widget : QTreeWidget
+            The widget containing the user-edited values.
+
+        Returns
+        -------
+        SettingsTree
+            The current `SettingsTree` instance.
+
+        """
         def extract_value_from_widget(widget):
+            """Extracts the value from a given widget.
+
+            Parameters
+            ----------
+            widget : QWidget
+                The widget from which to extract the value.
+
+            Returns
+            -------
+            object or None
+                The value from the widget, or None if the widget type is
+                not supported.
+
+            """
             if isinstance(widget, QComboBox):
                 return widget.currentText()
             elif isinstance(widget, QCheckBox):
@@ -150,6 +275,19 @@ class SettingsTree(SerializableComponent):
             return None
 
         def extract_value_from_list(parent_item):
+            """Extracts values from a list-like structure in the widget.
+
+            Parameters
+            ----------
+            parent_item : QTreeWidgetItem
+                The parent item in the tree widget.
+
+            Returns
+            -------
+            list
+                A list of values extracted from the child items.
+
+            """
             new_list = []
             for i in range(parent_item.childCount()-1):
                 child = parent_item.child(i)
@@ -163,7 +301,18 @@ class SettingsTree(SerializableComponent):
             return new_list
 
         def traverse_tree_item(item, node):
-            # Retrieve the widget associated with the "Value" column for the current item
+            """Traverses a tree item and its corresponding node to update values.
+
+            Parameters
+            ----------
+            item : QTreeWidgetItem
+                The item in the QTreeWidget.
+            node : dict
+                The corresponding node in the SettingsTree.
+
+            """
+            # Retrieve the widget associated with the "Value" column for the
+            # current item
             widget = tree_widget.itemWidget(item, 1)
 
             # Extract values from the widget
@@ -195,6 +344,20 @@ class SettingsTree(SerializableComponent):
         return self
 
     def validate_default_value(self, default_value):
+        """Validates the type of the default value.
+
+        Parameters
+        ----------
+        default_value : any
+            The value to validate.
+
+        Returns
+        -------
+        bool
+            True if the value is a valid type (str, int, float, bool, list),
+            False otherwise.
+
+        """
         # Validate that the default_value is one of the allowed types
         valid_types = (str, int, float, bool, list)
         if not isinstance(default_value, valid_types):
@@ -203,13 +366,47 @@ class SettingsTree(SerializableComponent):
         return True
 
     def validate_info(self, info):
+        """Validates that the info field is a string.
+
+        Parameters
+        ----------
+        info : str, optional
+            The info text to validate.
+
+        Returns
+        -------
+        str or None
+            The original `info` if it is a string, otherwise `None`.
+
+        """
         # Validate that 'info' is a string, otherwise keep it as None
         if info is not None and not isinstance(info, str):
-            print("Warning: 'info' must be a string describing the element. Keeping it as None.")
+            print("Warning: 'info' must be a string describing the element. "
+                  "Keeping it as None.")
             return None
         return info
 
     def validate_input_format(self, input_format, default_value=None, value_options=None):
+        """Validates the input format and its consistency.
+
+        Checks if the `input_format` is compatible with the `default_value`
+        and `value_options`.
+
+        Parameters
+        ----------
+        input_format : str, optional
+            The UI control type to validate.
+        default_value : any, optional
+            The default value to check for type consistency.
+        value_options : list, optional
+            The options required for 'combobox' format.
+
+        Returns
+        -------
+        str or None
+            The validated `input_format` if valid, otherwise `None`.
+
+        """
         # Validate that 'input_format' is one of the allowed types and meets specific requirements
         valid_formats = ['checkbox', 'spinbox', 'doublespinbox', 'lineedit', 'combobox']
 
@@ -235,6 +432,19 @@ class SettingsTree(SerializableComponent):
         return input_format
 
     def validate_value_range(self, value_range):
+        """Validates that the value range is a list of two elements.
+
+        Parameters
+        ----------
+        value_range : list, optional
+            The value range to validate.
+
+        Returns
+        -------
+        list or None
+            The validated `value_range` if valid, otherwise `None`.
+
+        """
         # Validate that 'value_range' is a list or array with exactly two elements
         if value_range is not None:
             if not (isinstance(value_range, list)):
@@ -247,6 +457,19 @@ class SettingsTree(SerializableComponent):
         return value_range
 
     def validate_value_options(self, value_options):
+        """Validates that the value options is a list.
+
+        Parameters
+        ----------
+        value_options : list, optional
+            The value options to validate.
+
+        Returns
+        -------
+        list or None
+            The validated `value_options` if it is a list, otherwise `None`.
+
+        """
         # Validate that 'value_options' is a list
         if value_options is not None and not isinstance(value_options, list):
             print("Warning: 'value_options' must be a list containing the available options. The list will be kept empty.")
@@ -254,10 +477,31 @@ class SettingsTree(SerializableComponent):
         return value_options
 
     def to_serializable_obj(self):
+        """Returns the tree as a serializable object.
+
+        Returns
+        -------
+        list or dict
+            The serializable representation of the tree.
+
+        """
         return self.tree
 
     @classmethod
     def from_serializable_obj(cls, data):
+        """Creates a SettingsTree from a serializable object.
+
+        Parameters
+        ----------
+        data : list or dict
+            The data to create the tree from.
+
+        Returns
+        -------
+        SettingsTree
+            A new `SettingsTree` instance.
+
+        """
         return cls(data)
 
 
@@ -278,14 +522,42 @@ class TextToTreeItem:
 
 
 class SettingsTreeWidget(QWidget):
-    """
-    A QWidget-based class that visualizes a JSON-compatible dictionary or list using a hierarchical tree view.
+    """Visualizes a settings tree using a hierarchical view.
 
-    Parameters:
-        jdata (dict or list): A JSON-compatible dictionary or list containing for each item: key, default value
-        (optional), input format (optional), value range (optional), value options (optional) and sub-items (optional).
+    This widget displays a tree structure from a JSON-compatible dictionary
+    or list, allowing user interaction and editing of values.
+
+    Parameters
+    ----------
+    jdata : dict or list or SettingsTree
+        The data to visualize. It can be a dictionary, a list, or a
+        `SettingsTree` object.
+
+    Attributes
+    ----------
+    find_box : QLineEdit
+        The search input box.
+    tree_widget : QTreeWidget
+        The widget that displays the tree.
+    text_to_titem : TextToTreeItem
+        A helper object for searching text in the tree.
+    find_str : str
+        The current search string.
+    found_titem_list : list
+        A list of tree items that match the search.
+    found_idx : int
+        The index of the currently highlighted search result.
+    jdata : dict or list
+        The data being visualized.
     """
     def __init__(self, jdata):
+        """Initializes the SettingsTreeWidget.
+
+        Parameters
+        ----------
+        jdata : dict or list or SettingsTree
+            The data to visualize.
+        """
         super(SettingsTreeWidget, self).__init__()
 
         if isinstance(jdata, SettingsTree):
@@ -321,6 +593,13 @@ class SettingsTreeWidget(QWidget):
         self.setLayout(layout2)
 
     def make_find_ui(self):
+        """Creates the search UI elements.
+
+        Returns
+        -------
+        QHBoxLayout
+            A layout containing the search input box and find button.
+        """
         # todo: make tree widget and search bar independent. This should be
         #  removed from this class
         # Text box
@@ -337,6 +616,11 @@ class SettingsTreeWidget(QWidget):
         return layout
 
     def find_button_clicked(self):
+        """Handles the click event of the find button.
+
+        Searches for the text in the `find_box` within the tree and
+        highlights the matches.
+        """
         find_str = self.find_box.text()
         if not find_str:
             return
@@ -355,6 +639,15 @@ class SettingsTreeWidget(QWidget):
             QMessageBox.warning(self, "Search", "No matches found.")
 
     def recurse_jdata(self, jdata, tree_widget):
+        """Recursively populates the tree widget with data.
+
+        Parameters
+        ----------
+        jdata : dict or list
+            The data to add to the tree.
+        tree_widget : QTreeWidget or QTreeWidgetItem
+            The parent widget or item to which new rows will be added.
+        """
         if isinstance(jdata, dict):
             for data in jdata.values():
                 self.tree_add_row(data, tree_widget)
@@ -363,6 +656,20 @@ class SettingsTreeWidget(QWidget):
                 self.tree_add_row(data, tree_widget)
 
     def tree_add_row(self, data, tree_widget, delete=False):
+        """Adds a single row to the tree widget.
+
+        This method creates and configures a `QTreeWidgetItem` based on the
+        provided data, including setting up input widgets for values.
+
+        Parameters
+        ----------
+        data : dict
+            The data for the row.
+        tree_widget : QTreeWidget or QTreeWidgetItem
+            The parent widget or item.
+        delete : bool, optional
+            If True, a delete button is added to the row. The default is False.
+        """
         text_list = []
 
         # Obtain the necessary fields
@@ -525,6 +832,17 @@ class SettingsTreeWidget(QWidget):
         self.text_to_titem.append(text_list, row_item)
 
     def add_button_clicked(self, row_item, parent_key):
+        """Handles the click event of the 'Add' button for a list.
+
+        Opens a dialog to choose a new item type and adds it to the list.
+
+        Parameters
+        ----------
+        row_item : QTreeWidgetItem
+            The parent item in the tree where the new item will be added.
+        parent_key : str
+            The base key for the new item.
+        """
         items = ["str", "int", "float", "bool", "list"]
         item_type, ok = QInputDialog.getItem(self,
                                         "Choose item type",
@@ -566,12 +884,29 @@ class SettingsTreeWidget(QWidget):
             self.reindex_list_items(row_item, parent_key)
 
     def remove_list_item(self, item):
+        """Removes an item from a list in the tree.
+
+        Parameters
+        ----------
+        item : QTreeWidgetItem
+            The item to remove.
+        """
         parent_item = item.parent()
         if parent_item:
             parent_item.removeChild(item)
             self.reindex_list_items(parent_item)
 
     def reindex_list_items(self, parent_item, parent_key=None):
+        """Re-indexes the keys of list items after an addition or removal.
+
+        Parameters
+        ----------
+        parent_item : QTreeWidgetItem
+            The parent item whose children need re-indexing.
+        parent_key : str, optional
+            The base key for the children. If None, it's inferred from the
+            first child. The default is None.
+        """
         child_count = parent_item.childCount()-1
         index = 0
         for i in range(child_count):
@@ -588,13 +923,23 @@ class SettingsTreeWidget(QWidget):
 
 
 class TreeViewer(QMainWindow):
-    """
-        A main window class that hosts the SettingsTreeWidget widget.
+    """A main window for displaying the SettingsTreeWidget.
 
-        Parameters:
-            jdata (dict or list): The JSON-compatible data to be visualized in the tree view.
-        """
+    This class hosts the `SettingsTreeWidget` in a `QMainWindow`.
+
+    Parameters
+    ----------
+    jdata : dict or list
+        The JSON-compatible data to be visualized.
+    """
     def __init__(self, jdata):
+        """Initializes the TreeViewer.
+
+        Parameters
+        ----------
+        jdata : dict or list
+            The data to be visualized in the tree view.
+        """
         super(TreeViewer, self).__init__()
 
         json_view = SettingsTreeWidget(jdata)
@@ -630,5 +975,3 @@ if __name__ == "__main__":
     window = TreeViewer(settings.to_serializable_obj())
     window.show()
     sys.exit(app.exec())
-
-
