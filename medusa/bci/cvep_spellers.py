@@ -936,7 +936,8 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
 class CVEPModelCircularShifting(components.Algorithm):
 
     def __init__(self, bpf=[[7, (1.0, 30.0)]], notch=[7, (49.0, 51.0)],
-                 art_rej=None, correct_raster_latencies=False, *args, **kwargs):
+                 art_rej=None, correct_raster_latencies=False,
+                 sign_correction="max", *args, **kwargs):
         super().__init__()
 
         if len(bpf) == 1:
@@ -974,7 +975,8 @@ class CVEPModelCircularShifting(components.Algorithm):
         self.add_method('clf_method', CircularShiftingClassifier(
             art_rej=art_rej,
             correct_raster_latencies=correct_raster_latencies,
-            extra_epoch_samples=3 * max_order
+            extra_epoch_samples=3 * max_order,
+            sign_correction=sign_correction
         ))
 
         # Early stopping
@@ -1881,7 +1883,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
     """
 
     def __init__(self, correct_raster_latencies=False, art_rej=None,
-                 extra_epoch_samples=21, **kwargs):
+                 extra_epoch_samples=21, sign_correction=None,
+                 **kwargs):
         """ Class constructor """
         super().__init__(fit_dataset=['templates',
                                       'cca_by_seq'])
@@ -1890,6 +1893,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         self.art_rej = art_rej
         self.correct_raster_latencies = correct_raster_latencies
         self.extra_epoch_samples = extra_epoch_samples
+
+        self.sign_correction = sign_correction
 
     def _assert_consistency(self, dataset: CVEPSpellerDataset):
         # TODO: this function is not necessary. Use CVEPSpellerDataset
@@ -2102,7 +2107,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 X = X.reshape((X.shape[0] * X.shape[1], X.shape[2]))
 
                 # Fit CCA and project the main template
-                cca.fit(X, R)
+                cca.fit(X, R, sign_correction=self.sign_correction)
                 main_template = cca.project(main_template, filter_idx=0,
                                             projection='Wy')
                 # Create all possible template shifts
