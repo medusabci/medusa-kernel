@@ -194,8 +194,8 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
 
     # Compute times and frequencies vectors
     t_lo, t_hi, f_lo, f_hi = SFT.extent(len(signal))
-    times = np.arange(t_lo, t_hi, SFT.delta_t)
-    frequencies = np.arange(f_lo, f_hi, SFT.delta_f)
+    times = np.linspace(t_lo, t_hi, Sx.shape[1])
+    frequencies = np.linspace(f_lo, f_hi, Sx.shape[0])
 
     return Sx, times, frequencies
 
