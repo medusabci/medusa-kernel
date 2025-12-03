@@ -137,7 +137,7 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
         Define if linear de-trending  is applied to the signal before the
         STFT. Default: True
     apply_normalization: bool
-        Define if normalization  is applied to the signal before the
+        Define if normalization  is applied to the spectrogram after the
         STFT. Default: True
     scale_to: ‘magnitude’, ‘psd’ | None
         Choose how the output is scaled, so each STFT column represents either
@@ -166,9 +166,6 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
     # Apply detrend and normalization
     if apply_detrend:
         signal = detrend(signal, type='linear')
-    if apply_normalization:
-        stddev = signal.std()
-        signal = signal / stddev
 
     # Convert window from seconds to numbers of samples
     window_nsamp = int(time_window * fs)
@@ -196,6 +193,9 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
     t_lo, t_hi, f_lo, f_hi = SFT.extent(len(signal))
     times = np.linspace(t_lo, t_hi, Sx.shape[1])
     frequencies = np.linspace(f_lo, f_hi, Sx.shape[0])
+
+    if apply_normalization:
+        Sx = Sx / Sx.sum(axis=0)
 
     return Sx, times, frequencies
 
@@ -241,7 +241,7 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
         Define if linear de-trending  is applied to the signal before the
         CWT. Default: True
     apply_normalization: bool
-        Define if normalization  is applied to the signal before the
+        Define if normalization  is applied to the spectrogram after the
         CWT. Default: True
 
 
@@ -265,9 +265,6 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
     # Apply detrend and normalization
     if apply_detrend:
         signal = detrend(signal, type='linear')
-    if apply_normalization:
-        stddev = signal.std()
-        signal = signal / stddev
 
     N = len(signal)
     dt = 1.0 / fs
@@ -288,7 +285,10 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
 
     coif = __cone_of_influency(center_frequency,N,fs)
 
-    return power[frequencies<=0.5*fs], times, frequencies[frequencies<=0.5*fs], \
+    if apply_normalization:
+        power = power[frequencies<=0.5*fs]/power[frequencies<=0.5*fs].sum(axis=0)
+
+    return power, times, frequencies[frequencies<=0.5*fs], \
         coif
 
 def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
