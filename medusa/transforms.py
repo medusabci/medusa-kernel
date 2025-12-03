@@ -399,5 +399,34 @@ def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
         coif
 
 
+def zscore_normalization(temp_features, temp_ica):
+    """
+    Apply Z-Score normalization per channel to the feature and ICA matrices.
+
+    Parameters
+    ----------
+    temp_features : np.ndarray
+        Features matrix (n_channels x n_samples).
+    temp_ica : np.ndarray
+        ICA components matrix (n_channels x n_components).
+
+    Returns
+    -------
+    temp_features_norm : np.ndarray
+        Normalized feature matrix.
+    temp_ica_norm : np.ndarray
+        Normalized ICA matrix.
+    """
+    # Z-score normalization for features
+    X_mean = np.mean(temp_features, axis=1, keepdims=True)
+    X_std = np.std(temp_features, axis=1, keepdims=True)
+    temp_features_norm = (temp_features - X_mean) / X_std
+
+    # Z-score normalization for ICA
+    ica_mean = np.mean(temp_ica, axis=1, keepdims=True)
+    ica_std = np.std(temp_ica, axis=1, keepdims=True)
+    temp_ica_norm = (temp_ica - ica_mean) / ica_std
+
+    return temp_features_norm, temp_ica_norm
 
 
