@@ -32,6 +32,8 @@ class SettingsTree(SerializableComponent):
         Recursively retrieves a nested item using a sequence of keys.
     edit_item(default_value=None, info=None, input_format=None, value_range=None, value_options=None)
         Edits the current item in the tree.
+    remove_item(*keys)
+        Removes a nested item from the tree using a sequence of keys
     update_tree_from_widget(tree_widget)
         Updates the tree with values from a QTreeWidget.
     validate_default_value(default_value)
@@ -230,6 +232,31 @@ class SettingsTree(SerializableComponent):
         if value_range is not None: tree['value_range'] = self.validate_value_range(value_range)
         if value_options is not None: tree['value_options'] = self.validate_value_options(value_options)
         return self
+
+    def remove_item(self, *keys):
+        """
+        Removes a nested item from the tree using a sequence of keys.
+
+        Parameters:
+            *keys: Sequence of keys to navigate through nested items.
+        """
+        current_node = self.tree
+        parent_items = None
+        index_to_delete = None
+        for key in keys:
+            found = None
+            items = current_node.get('items', []) if isinstance(current_node, dict) else current_node
+            for idx, item in enumerate(items):
+                if item.get('key') == key:
+                    found = item
+                    parent_items = items
+                    index_to_delete = idx
+                    break
+            if found is None:
+                raise KeyError(f"Key '{key}' not found in the tree.")
+            current_node = found
+        if parent_items is not None and index_to_delete is not None:
+            del parent_items[index_to_delete]
 
     def get_item_value(self, *keys):
         item = self.get_item(*keys)

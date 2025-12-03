@@ -1,7 +1,6 @@
 # External imports
 import numpy as np
 import traceback
-import mne
 from dateutil import parser
 from datetime import timezone
 
@@ -13,6 +12,12 @@ from medusa.bci import (mi_paradigms, cvep_spellers, ssvep_spellers,
                         erp_spellers, nft_paradigms)
 from medusa.epoching import get_nearest_idx
 
+# Optional imports
+try:
+    import mne
+except ImportError as e:
+    raise ImportError("This functionality requires 'mne' to be "
+                      "installed.")
 
 class MNEData:
 
