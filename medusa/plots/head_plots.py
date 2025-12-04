@@ -440,12 +440,10 @@ def __compute_nearest_values(coor_add, coor_neigh, val_neigh, k):
     return add_val
 
 def _plot_topography( values, axes, channel_set, head_handles,
-                          interpolate=False,
-                          extra_radius=0.29, interp_neighbors=3,
-                          interp_points=500,
-                          interp_contour_width=0.8, cmap="YlGnBu_r", clim=None,
-                          ):
-
+                      interpolate=False,
+                      extra_radius=0.29, interp_neighbors=3,
+                      interp_points=500,
+                      interp_contour_width=0.8, cmap="YlGnBu_r", clim=None):
         """ This function depicts a topographic map of the scalp
         over the desired channel locations.
 

@@ -40,6 +40,17 @@ EEG_10_05 = [
     'PO4H', 'PO6H', 'PO3H', 'PO5H', 'POO4', 'POO3', 'A1', 'A2', 'M1', 'M2'
 ]
 
+def get_camel_case_labels(ch_labels):
+    """ Converts a given list of channel labels to the common camel-case
+    format (e.g., 'FPZ' -> 'FPz').
+    """
+    assert isinstance(ch_labels, list)
+    camel_case_labels = []
+    for ch in ch_labels:
+        new_ch = ch.replace('Z', 'z').replace('H','h').replace('FP','Fp')
+        camel_case_labels.append(new_ch)
+    return camel_case_labels
+
 
 def get_standard_montage(standard, dim, coord_system):
     """Loads a standard from the ones included in MEDUSA
