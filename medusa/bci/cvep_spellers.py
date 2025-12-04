@@ -1016,6 +1016,8 @@ class CVEPModelBWRRiemannianLDA(CVEPSpellerModel):
         # Class balance
         if balance_needed:
             x, x_info['event_cvep_labels']=balance_classes(x, x_info['event_cvep_labels'])
+        if len(np.unique(x_info['event_cvep_labels'])) > 2:
+            x, x_info['event_cvep_labels']=binarize_classes(x, x_info['event_cvep_labels'])
         # Classification
         self.get_inst('clf_method').fit(x, x_info['event_cvep_labels'])
         # Save info
@@ -3422,20 +3424,23 @@ def autocorr_circular(x):
 
 def balance_classes(epochs, labels):
     # Step 1: Find indices for each class
-    class_0_idx = np.where(labels == 0)[0]
-    class_1_idx = np.where(labels == 1)[0]
-
+    idxs = [np.where(labels == label)[0] for label in np.unique(labels)]
     # Step 2: Determine the number of samples for each class (smallest class size)
-    n_samples = min(len(class_0_idx), len(class_1_idx))
-
+    n_samples = min([len(i) for i in idxs])
     # Step 3: Randomly sample 'n_samples' from each class without replacement
-    sampled_0 = resample(class_0_idx, replace=False, n_samples=n_samples, random_state=42)
-    sampled_1 = resample(class_1_idx, replace=False, n_samples=n_samples, random_state=42)
-
+    sampled_idxs = [resample(i, replace=False, n_samples=n_samples, random_state=42) for i in idxs]
     # Step 4: Combine sampled indices and shuffle them
-    selected_idx = np.concatenate([sampled_0, sampled_1])
+    selected_idx = np.concatenate(sampled_idxs)
     np.random.shuffle(selected_idx)
+    return epochs[selected_idx], labels[selected_idx]
 
+def binarize_classes(epochs, labels):
+    n_clases = len(np.unique(labels))
+    idxs_0 = np.where(labels < n_clases // 2)[0]
+    idxs_1 = np.where(labels > n_clases // 2)[0]
+    labels[idxs_0] = 0
+    labels[idxs_1] = 1
+    selected_idx = np.concatenate([idxs_0, idxs_1])
     return epochs[selected_idx], labels[selected_idx]
 
 
