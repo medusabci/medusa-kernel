@@ -1,5 +1,5 @@
 import numpy as np
-from medusa.graph_theory import degree,modularity
+from medusa.graph_metrics import degree,modularity
 
 def participation_coefficient(W):
     """
@@ -29,7 +29,7 @@ def participation_coefficient(W):
     
     deg = degree.degree(W, 'CPU') # Degree of each node
     
-    Gc = np.matmul(np.where(deg != 0, 1,0)[:,np.newaxis],community.T) # Multiplying each graph row by its community vector
+    Gc = np.matmul(np.where(deg != 0, 1,0)[:,np.newaxis],community.T) # Multiplying each graph_metrics row by its community vector
     
     # Add iteratively the participation of each node in each group
     Kc = np.zeros((N,1))

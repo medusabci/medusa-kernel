@@ -74,7 +74,7 @@ def power_spectral_density(signal, fs, segment_pct=80, overlap_pct=50,
     return f, psd
 
 
-def normalize_psd(psd, norm='rel'):
+def normalize_psd(psd, band=None, fxx=None, norm='rel'):
     """Normalizes the PSD using different methods.
 
     Parameters
@@ -88,13 +88,20 @@ def normalize_psd(psd, norm='rel'):
         relative power.
 
     """
+    # Check errors
+    if band is not None and fxx is None:
+        raise Exception('If "band" is defined, a frequency vector ("fxx") must also be provided')
+
     # To numpy arrays
     psd = np.array(psd)
 
-    # Check errors
-    if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
+    # Check dimensions
+    psd = check_dimensions(psd)
+
+    # If "band" is defined, set frequencies out of it to 0
+    if band is not None:
+        psd[:, fxx < band[0], :] = 0
+        psd[:, fxx > band[1], :] = 0
 
     if norm == 'rel':
         p = np.sum(psd, axis=1, keepdims=True)

@@ -5,7 +5,7 @@ import warnings, os
 import numpy as np
 
 # Medusa imports
-from medusa.graph_theory import degree
+from medusa.graph_metrics import degree
 from medusa import pytorch_integration
 
 

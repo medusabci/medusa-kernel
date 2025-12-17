@@ -2,7 +2,7 @@ import numpy as np
 
 def surrogate_graph(W):
     """
-    Calculates the graph degree.
+    Calculates the graph_metrics degree.
 
     Parameters
     ----------
@@ -12,7 +12,7 @@ def surrogate_graph(W):
     Returns
     -------
     surrog_W : numpy array
-        Surrogated graph.      
+        Surrogated graph_metrics.
 
     """
     if W.shape[0] is not W.shape[1]:

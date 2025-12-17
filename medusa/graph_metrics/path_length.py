@@ -112,7 +112,7 @@ def __distance_wei(L):
 
 def path_length(W,diagonal_dist=None,infinite_dist=None):
     """
-    Calculates the path length and other graph integration parameters
+    Calculates the path length and other graph_metrics integration parameters
     
     Note: L must be a connection-length matrix. One way of generating it is
     the inverse of the weight matrix.

@@ -79,10 +79,13 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
     # Error prevention
     epoch_feasibility = check_epochs_feasibility(timestamps, onsets, fs,
                                                  w_epoch_t)
+
     if epoch_feasibility == 'first':
         raise ValueError("Not enough EEG samples to get the first epoch")
     elif epoch_feasibility == 'last':
         raise ValueError("Not enough EEG samples to get the last epoch")
+    elif epoch_feasibility == 'out-of-range':
+        raise ValueError("At least one event do not fall within the timestamp range")
     if w_baseline_t is not None:
         baseline_feasibility = check_epochs_feasibility(timestamps, onsets, fs,
                                                         w_baseline_t)
@@ -90,6 +93,8 @@ def get_epochs_of_events(timestamps, signal, onsets, fs, w_epoch_t,
             raise ValueError("Not enough EEG samples to get the first baseline")
         elif baseline_feasibility == 'last':
             raise ValueError("Not enough EEG samples to get the last baseline")
+        elif epoch_feasibility == 'out-of-range':
+            raise ValueError("At least one event do not fall within the timestamp range")
         if norm is None:
             raise ValueError('If parameter w_baseline_t is not None, please '
                              'specify the normalization type with parameter '
@@ -214,7 +219,14 @@ def check_epochs_feasibility(timestamps, onsets, fs, t_window):
         "ok" If window extraction is feasible.
         "first" If window extraction is not feasible for the first onset.
         "last" If window extraction is not feasible for the last onset.
+        "incorrect" If window extraction is not feasible because at least one
+        onset is not contained in timestamps.
     """
+    for onset in onsets:
+        if onset > max(timestamps) or onset < min(timestamps):
+            feasibility = 'out-of-range'
+            return feasibility
+        
     first_sti_sam_onset = np.argmin(np.abs(timestamps - onsets[0]))
     last_sti_sam_onset = np.argmin(np.abs(timestamps - onsets[-1]))
     s_window = np.array(np.array(t_window) * fs / 1000, dtype=int)

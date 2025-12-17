@@ -4,9 +4,9 @@ def modularity(W,gamma):
     """
     Calculates the optimal node comunity and the modularity
     
-    Note: The optimal community structure subdivides the network in groups of 
+    Note: The optimal community structure subdivides the graph_metrics in groups of
     nodes (non-overlapping), maximizing withing-groups edges while minimising 
-    between-groups edges. Modularity quantifies the degree to which the graph 
+    between-groups edges. Modularity quantifies the degree to which the graph_metrics
     could be subdivided into the aforementioned communities
         
     Parameters

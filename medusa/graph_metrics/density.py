@@ -5,12 +5,12 @@ import warnings, os
 import numpy as np
 
 # Medusa imports
-from medusa.graph_theory import degree
+from medusa.graph_metrics import degree
 
 
 def __density_cpu(W):
     """
-    Calculates the graph density using CPU.
+    Calculates the graph_metrics density using CPU.
 
     Parameters
     ----------
@@ -50,7 +50,7 @@ def __density_cpu(W):
 
 def density(W):
     """
-    Calculates the graph density.
+    Calculates the graph_metrics density.
 
     Parameters
     ----------
