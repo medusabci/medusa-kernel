@@ -117,10 +117,9 @@ class CVEPSpellerData(components.ExperimentData):
     medusa.bci.cvep_paradigms. It is complicated, but powerful so.. use it well!
     """
 
-    def __init__(self, mode, paradigm_conf, commands_info, onsets, command_idx,
-                 unit_idx, level_idx, matrix_idx, cycle_idx, trial_idx,
-                 spell_result, fps_resolution, spell_target=None,
-                 raster_events=None, **kwargs):
+    def __init__(self, mode, paradigm_conf, commands_info, onsets, command_uids,
+                 cycle_idx, trial_idx, trial_available_cmmds, spell_result, fps_resolution,
+                 spell_target=None, raster_events=None, layout_pos=None, **kwargs):
 
         # Check errors
         if mode not in ('train', 'test'):
@@ -131,16 +130,15 @@ class CVEPSpellerData(components.ExperimentData):
         self.paradigm_conf = paradigm_conf
         self.commands_info = commands_info
         self.onsets = onsets
-        self.command_idx = command_idx
-        self.unit_idx = unit_idx
-        self.level_idx = level_idx
-        self.matrix_idx = matrix_idx
+        self.command_uids = command_uids
         self.cycle_idx = cycle_idx
         self.trial_idx = trial_idx
+        self.trial_available_cmmds = trial_available_cmmds
         self.spell_result = spell_result
         self.fps_resolution = fps_resolution
         self.spell_target = spell_target
         self.raster_events = raster_events
+        self.layout_pos = layout_pos
 
         # Optional attributes
         for key, value in kwargs.items():
@@ -240,19 +238,7 @@ class CVEPSpellerDataset(components.Dataset):
                 'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
-            'command_idx': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'unit_idx': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'level_idx': {
-                'track_mode': 'concatenate',
-                'parent': experiment_att_key
-            },
-            'matrix_idx': {
+            'command_uids': {
                 'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
@@ -261,6 +247,10 @@ class CVEPSpellerDataset(components.Dataset):
                 'parent': experiment_att_key
             },
             'trial_idx': {
+                'track_mode': 'concatenate',
+                'parent': experiment_att_key
+            },
+            'trial_available_cmmds': {
                 'track_mode': 'concatenate',
                 'parent': experiment_att_key
             },
@@ -466,7 +456,7 @@ def decode_commands_from_events(event_scores, commands_info, event_run_idx,
                 # Get target sequences
                 cmd_ids = list()
                 cmd_seqs = list()
-                for cmd_id, cmd_info in commands_info[r][0].items():
+                for cmd_id, cmd_info in commands_info[r].items():
                     cmd_ids.append(cmd_id)
                     cmd_seqs.append(cmd_info['sequence'] * (c + 1))
                 # Calculate correlations to all commands
@@ -1245,13 +1235,12 @@ class CVEPModelCircularShifting(components.Algorithm):
                 max_corr = corr
                 selected_seq = n
         spell_result = pred_item_by_no_cycles[-1][selected_seq][
-            'sorted_cmds'][0]['label']
+            'sorted_cmds'][0]['uid']
 
         # Extract the selected label depending on the number of cycles
         spell_result_per_cycle = {}
         for nc, pred in enumerate(pred_item_by_no_cycles):
-            spell_result_per_cycle[nc] = pred[selected_seq]['sorted_cmds'][
-                0]['label']
+            spell_result_per_cycle[nc] = pred[selected_seq]['sorted_cmds'][0]['uid']
 
         # Create the decoding dictionary
         cmd_decoding = {
@@ -1838,8 +1827,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
                 fs=rec_sig.fs,
                 cycle_onsets=rec_exp.onsets,
                 fps=rec_exp.fps_resolution,
-                code_len=len(rec_exp.commands_info[0]['0']['sequence'])
-            )
+                code_len=len(rec_exp.commands_info.values())[0]['sequence'])
             features = np.concatenate((features, rec_feat), axis=0) \
                 if features is not None else rec_feat
 
@@ -1849,7 +1837,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
             rec_exp.trial_idx = trial_counter + np.array(rec_exp.trial_idx)
 
             # Event tracking attributes
-            seq_len = len(list(rec_exp.commands_info[0].values())[0][
+            seq_len = len(list(rec_exp.commands_info.values())[0][
                               'sequence'])
             rec_exp.event_run_idx = np.repeat(rec_exp.run_idx, seq_len)
             rec_exp.event_trial_idx = np.repeat(rec_exp.trial_idx, seq_len)
@@ -1859,9 +1847,8 @@ class BWRFeatureExtraction(components.ProcessingMethod):
             if dataset.experiment_mode == 'train':
                 rec_exp.event_cvep_labels = np.array([])
                 for i, t in enumerate(np.unique(rec_exp.trial_idx)):
-                    # ToDo: add another loop for levels
                     cmd_id = rec_exp.spell_target[i]
-                    cmd_seq = rec_exp.commands_info[0][str(cmd_id)]['sequence']
+                    cmd_seq = rec_exp.commands_info[cmd_id]['sequence']
                     n_cycles = np.array(rec_exp.cycle_idx)[
                                    rec_exp.trial_idx == t][-1] + 1
                     rec_exp.event_cvep_labels = np.concatenate(
@@ -2166,8 +2153,8 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 new_unique_seqs = dict()
                 for key, value in unique_seqs.items():
                     c_ = rec_exp.command_idx[value[0]]
-                    c_lag_ = rec_exp.commands_info[0][str(int(c_))]['lag']
-                    c_seq_ = rec_exp.commands_info[0][str(int(c_))]['sequence']
+                    c_lag_ = rec_exp.commands_info[c_]['lag']
+                    c_seq_ = rec_exp.commands_info[c_]['sequence']
                     new_key = np.roll(c_seq_, c_lag_)
                     new_unique_seqs[tuple(new_key)] = value
                 unique_seqs = new_unique_seqs
@@ -2187,8 +2174,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
                 # Roll targets if training was not made with the 0 lag command
                 if roll_targets:
                     for idx_, c_ in enumerate(rec_exp.command_idx):
-                        # TODO: nested matrices
-                        c_lag_ = rec_exp.commands_info[0][str(int(c_))]['lag']
+                        c_lag_ = rec_exp.commands_info[c_]['lag']
                         lag_samples = int(
                             np.round(c_lag_ / fps_resolution * fs))
                         # Revert the lag in the epoch
@@ -3323,20 +3309,8 @@ def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
 
     sequences = dict()
     try:
-        # todo: command_idx, unit_idx y demas lo tiene que hacer medusa y no unity
-
-        for idx in range(len(experiment.command_idx)):
-            # todo: revisar lo de los levels
-            # Get the sequence used for the current command
-            # l_ = int(experiment.level_idx[idx])
-            # u_ = int(experiment.unit_idx[idx])
-            # curr_command = experiment.paradigm_conf[m_][l_][u_][c_]
-            m_ = int(experiment.matrix_idx[idx])
-            c_ = int(experiment.command_idx[idx])
-            curr_seq_ = experiment.commands_info[m_][str(c_)]['sequence']
-            # Note: str(c_) is used because the previous json serialization
-            #       interprets all dictionary keys as strings.
-
+        for id in experiment.command_idx:
+            curr_seq_ = experiment.commands_info[uid]['sequence']
             # Add the command index to its associated sequence
             if len(sequences) == 0:
                 sequences[tuple(curr_seq_)] = [idx]
@@ -3375,25 +3349,19 @@ def get_items_by_sorted_sequences(experiment: CVEPSpellerData,
         raise ValueError('[get_items_by_sorted_sequences] Trial with idx %i not'
                          ' found in the experiment data! ' + str(e) % trial_idx)
 
-    # Get the possible commands
-    m_ = int(experiment.matrix_idx[idx])
-    l_ = int(experiment.level_idx[idx])
-    u_ = int(experiment.unit_idx[idx])
-    possible_cmd = experiment.paradigm_conf[m_][l_][u_]
-
+    trial_cmmds = experiment.commands_info.keys()
     # For each sequence in descending order of probability of being selected
     sorted_commands = list()
     for i in range(sorted_seqs.shape[0]):
         # For each possible command
         curr_comm_dict = dict()
-        for cmd_id in possible_cmd:
-            cmd_seq = experiment.commands_info[m_][str(cmd_id)]['sequence']
+        for cmd_id in trial_cmmds:
+            cmd_seq = experiment.commands_info[cmd_id]['sequence']
             if np.all(np.array(cmd_seq) == sorted_seqs[i, :]):
                 # Found!
-                curr_comm_dict['item'] = experiment.commands_info[m_][str(
-                    cmd_id)]
-                curr_comm_dict['label'] = curr_comm_dict['item']['label']
-                curr_comm_dict['coords'] = [m_, l_, u_, int(cmd_id)]
+                curr_comm_dict['item'] = experiment.commands_info[cmd_id]
+                curr_comm_dict['uid'] = curr_comm_dict['item']['uid']
+                curr_comm_dict['coords'] = [int(cmd_id)]
                 curr_comm_dict['correlation'] = None
                 if sorted_corrs is not None:
                     curr_comm_dict['correlation'] = sorted_corrs[i]
