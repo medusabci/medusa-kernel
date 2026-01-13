@@ -4,12 +4,233 @@ import warnings, os
 # External imports
 import numpy as np
 from scipy import stats as sp_stats
+from scipy.io import loadmat
 
 # Medusa imports
 import medusa.components
 from medusa import signal_orthogonalization as orthogonalizate
-from medusa.transforms import hilbert
 from medusa.utils import check_dimensions
+from scipy.signal import hilbert
+from scipy.linalg import pinv
+from scipy.stats import zscore
+from joblib import Parallel, delayed
+
+def __iac_fixed(data):
+    """
+    Compute Instantaneous Amplitude Correlation (IAC) with pairwise leakage correction
+    (pairwise orthogonalisation) following the logic in the provided MATLAB code.
+    Reference: Tewarie et al., 2019 (as in the original code comment).
+
+    Parameters
+    ----------
+    data : np.ndarray
+        2D array with shape (n_channels, n_samples). Each row is a channel/time series.
+
+    Returns
+    -------
+    dyn_IAC : np.ndarray
+        3D array with shape (n_channels, n_channels, n_time_used) containing the
+        instantaneous amplitude product (env_x * env_y) for each pair (r1,r2) across time.
+    """
+
+    # Ensure input is a 2D numpy array: channels x samples
+    data = np.asarray(data, dtype=float)
+    if data.ndim != 2:
+        raise ValueError("data must be a 2D array with shape (n_channels, n_samples)")
+
+    n_chan, n_samp = data.shape
+
+    # Z-score across samples for each channel (axis=1).
+    data = zscore(data, axis=1, ddof=1)
+
+    # Pre-allocate dynamic IAC tensor (channels x channels x time)
+    dyn_IAC = np.zeros((n_chan, n_chan, n_samp), dtype=float)
+
+    # Main double loop over channel pairs
+    for r1 in range(n_chan):
+        x = data[r1, :]  # 1D array (n_samples,)
+        # compute pseudoinverse of the row-vector x (shape -> (n_samples,1))
+        inv_x = pinv(x.reshape(1, -1))  # shape (n_samples, 1)
+
+        # envelope of x (instantaneous amplitude)
+        env_x = np.abs(hilbert(x))
+
+        for r2 in range(n_chan):
+            if r1 == r2:
+                continue
+
+            y = data[r2, :]
+
+            # pairwise leakage correction / orthogonalisation:
+            # y_cor = y - x * (inv_x' * y')
+            # inv_x has shape (n_samples, 1). inv_x.T @ y.reshape(-1,1) gives a (1,1) scalar.
+            coef = float(inv_x.T.dot(y.reshape(-1, 1)))  # scalar
+            projection = x * coef  # 1D vector (n_samples,)
+            y_cor = y - projection
+
+            # envelope of the corrected y
+            env_y = np.abs(hilbert(y_cor))
+
+            # store pointwise product of envelopes
+            dyn_IAC[r1, r2, :] = env_x * env_y
+
+    return dyn_IAC
+
+
+def __iac_fixed_parallel(data, n_jobs=-1):
+    """
+    Parallel computation of Instantaneous Amplitude Correlation (IAC)
+    WITH pairwise orthogonalisation (leakage correction).
+
+    Parameters
+    ----------
+    data : np.ndarray (n_channels, n_samples)
+    n_jobs : int
+        Number of parallel workers (-1 = all CPUs)
+
+    Returns
+    -------
+    dyn_IAC : np.ndarray (n_channels, n_channels, n_samples)
+    mean_IAC : np.ndarray (n_channels, n_channels)
+    """
+
+    data = np.asarray(data, dtype=float)
+    n_chan, n_samp = data.shape
+
+    # Z-score across time
+    data = zscore(data, axis=1, ddof=1)
+
+    # Precompute analytic signal envelopes of original signals
+    envelopes = np.abs(hilbert(data, axis=1))
+
+    def compute_row(r1):
+        """Compute dyn_IAC for one seed channel r1."""
+        x = data[r1]
+        env_x = envelopes[r1]
+
+        # Pseudoinverse of x (matches MATLAB pinv(x))
+        inv_x = pinv(x.reshape(1, -1))
+
+        row = np.zeros((n_chan, n_samp))
+
+        for r2 in range(n_chan):
+            if r1 == r2:
+                continue
+
+            y = data[r2]
+
+            # Projection coefficient
+            coef = float(inv_x.T @ y.reshape(-1, 1))
+
+            # Orthogonalised signal
+            y_cor = y - x * coef
+
+            # Envelope of corrected signal
+            env_y = np.abs(hilbert(y_cor))
+
+            # Envelope product
+            row[r2, :] = env_x * env_y
+
+        return row
+
+    # Parallel over seed channels
+    rows = Parallel(n_jobs=n_jobs, prefer="threads")(
+        delayed(compute_row)(r1) for r1 in range(n_chan)
+    )
+
+    dyn_IAC = np.stack(rows, axis=0)
+
+    return dyn_IAC
+
+
+def __iac_fixed_no_ort(data):
+    """
+    Compute Instantaneous Amplitude Correlation (IAC)
+    WITHOUT orthogonalisation.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Array with shape (n_channels, n_samples)
+
+    Returns
+    -------
+    dyn_IAC : np.ndarray
+        (n_channels, n_channels, n_samples)
+    """
+
+    data = np.asarray(data, dtype=float)
+    n_chan, n_samp = data.shape
+
+    # Z-score across samples for each channel
+    data = zscore(data, axis=1, ddof=1)
+
+    dyn_IAC = np.zeros((n_chan, n_chan, n_samp))
+
+    for r1 in range(n_chan):
+        x = data[r1, :]
+        env_x = np.abs(hilbert(x))
+
+        for r2 in range(n_chan):
+            if r1 == r2:
+                continue
+
+            y = data[r2, :]
+            env_y = np.abs(hilbert(y))
+
+            # No orthogonalisation: direct envelope product
+            dyn_IAC[r1, r2, :] = env_x * env_y
+
+    return dyn_IAC
+
+
+def __iac_fixed_no_ort_parallel(data, n_jobs=-1):
+    """
+    Parallel computation of Instantaneous Amplitude Correlation (IAC)
+    WITHOUT leakage correction.
+
+    Parameters
+    ----------
+    data : np.ndarray (n_channels, n_samples)
+    n_jobs : int
+        Number of parallel workers (-1 = all CPUs)
+
+    Returns
+    -------
+    dyn_IAC : np.ndarray (n_channels, n_channels, n_samples)
+    mean_IAC : np.ndarray (n_channels, n_channels)
+    """
+
+    data = np.asarray(data, dtype=float)
+    n_chan, n_samp = data.shape
+
+    # Z-score across time
+    data = zscore(data, axis=1, ddof=1)
+
+    # Precompute envelopes once (big speedup)
+    envelopes = np.abs(hilbert(data, axis=1))   # shape: (n_chan, n_samp)
+
+    def compute_row(r1):
+        """Compute dyn_IAC for one seed channel r1."""
+        env_x = envelopes[r1]
+        row = np.zeros((n_chan, n_samp))
+
+        for r2 in range(n_chan):
+            if r1 == r2:
+                continue
+            row[r2, :] = env_x * envelopes[r2]
+
+        return row
+
+    # Parallel over rows
+    rows = Parallel(n_jobs=n_jobs, prefer="processes")(
+        delayed(compute_row)(r1) for r1 in range(n_chan)
+    )
+
+    dyn_IAC = np.stack(rows, axis=0)
+
+    return dyn_IAC
+
 
 def __iac_cpu(data):
     """
@@ -199,14 +420,49 @@ def iac(data, ort=True):
          raise ValueError('data matrix contains non-numeric values')
 
      if not ort:
-         iac = __iac_cpu(data)
+         iac = __iac_fixed(data)
 
      else:
-         iac = __iac_ort_cpu(data)
+         iac = __iac_fixed(data)
 
      for i in range(iac.shape[0]):
          for t in range(iac.shape[3]):
-             # np.fill_diagonal operates on the 2D slice m_4d[i, :, :, t]
+             iac[i, :, :, t] = (iac[i, :, :, t] + iac[i, :, :, t].T) / 2
              np.fill_diagonal(iac[i, :, :, t], 1)
 
      return iac
+
+
+
+# ----------------------------
+# Load MATLAB results
+# ----------------------------
+mat = loadmat(r"C:\Users\1993_\Desktop\test_dyn_env_data.mat")
+
+data_mat       = mat["data"]
+dyn_IAC_mat    = mat["dyn_IAC_mat"]
+mean_IAC_mat   = mat["mean_IAC_mat"]
+
+print("Loaded MATLAB data")
+
+# ----------------------------
+# Run Python version
+# ----------------------------
+dyn_IAC_py = __iac_fixed(data_mat)
+dyn_IAC_py_2 = __iac_fixed_parallel(data_mat)
+
+# ----------------------------
+# Numerical comparison
+# ----------------------------
+err_dyn  = np.max(np.abs(dyn_IAC_py - dyn_IAC_mat))
+
+print("\nMax absolute error:")
+print("dyn_IAC  =", err_dyn)
+
+# Tolerance check
+tol = 1e-10
+
+if err_dyn < tol:
+    print("\n✅ SUCCESS: MATLAB and Python results match within tolerance.")
+else:
+    print("\n⚠️ WARNING: Results differ more than expected.")
