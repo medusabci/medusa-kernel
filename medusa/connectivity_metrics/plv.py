@@ -1,12 +1,10 @@
 # Built-in imports
-import warnings, os
+import warnings
 
 # External imports
-import scipy.signal as sp_signal
 import numpy as np
 
 # Medusa imports
-from medusa import transforms
 from medusa.utils import check_dimensions
 from .__phase_conn import __phase_conn
 
