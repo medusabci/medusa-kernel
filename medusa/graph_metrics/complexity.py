@@ -6,7 +6,7 @@ import numpy as np
 import scipy.special as sps
 
 
-def __divergency_cpu(W):
+def __divergency(W):
     """
     Calculates the graph_metrics divergency. Its the entropic distance (as euclidean
     distance) between a uniform weight distribution (random graph_metrics) and the
@@ -45,7 +45,7 @@ def __divergency_cpu(W):
     return D
 
 
-def __graph_entropy_cpu(W):
+def __graph_entropy(W):
     """
     Calculates the Shannon entropy of a weighted graph_metrics using CPU
     
@@ -78,7 +78,7 @@ def __graph_entropy_cpu(W):
     return H         
     
 
-def __complexity_cpu(W):
+def __complexity(W):
     """
     Calculates the Shannon Graph Complexity of a graph_metrics that node i belong to
     one of the graph_metrics shortest paths using CPU
@@ -98,8 +98,8 @@ def __complexity_cpu(W):
         Network complexity.
         
     """
-    tmp_1 = __divergency_cpu(W)
-    tmp_2 = __graph_entropy_cpu(W)
+    tmp_1 = __divergency(W)
+    tmp_2 = __graph_entropy(W)
     C = tmp_1 * tmp_2
                 
     return C
@@ -126,7 +126,7 @@ def complexity(W):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
 
-    global_comp = __complexity_cpu(W)
+    global_comp = __complexity(W)
 
     return global_comp
  

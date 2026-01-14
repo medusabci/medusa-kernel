@@ -8,6 +8,7 @@ import numpy as np
 # Medusa imports
 from medusa import transforms
 from medusa.utils import check_dimensions
+from .__phase_conn import __phase_conn
 
 
 def wpli(data):
@@ -54,13 +55,8 @@ def wpli(data):
     n_samples = data.shape[1]
     n_chan = data.shape[2]
 
-    # Connectivity computation
-    phase_data = np.angle(transforms.hilbert(data))
-    phase_data = np.ascontiguousarray(phase_data)
-    angles_1 = np.reshape(np.tile(phase_data, (1, n_chan, 1)),
-                          (n_epochs, n_samples, n_chan * n_chan),
-                          order='F')
-    angles_2 = np.tile(phase_data, (1, 1, n_chan))
+    # Helper function to get phase angles
+    angles_1, angles_2 = __phase_conn(data, n_epochs, n_samples, n_chan)
 
     imz = np.sin(angles_1 - angles_2)
     with np.errstate(divide='ignore', invalid='ignore'):
