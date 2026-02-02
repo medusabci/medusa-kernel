@@ -9,7 +9,7 @@ def signal_orthogonalization_cpu(signal_1, signal_2):
     regarding all the channels in signal_2 using CPU
 
     REFERENCES: O’Neill, G. C., Barratt, E. L., Hunt, B. A., Tewarie, P. K., &
-    Brookes, M.J. (2015). Measuring electrophysiological connectivity by power
+    Brookes, M.J. (2015). Measuring electrophysiological connectivity_metrics by power
     envelope correlation: a technical review on MEG methods. Physics in Medicine
     & Biology, 60(21), R271.
 

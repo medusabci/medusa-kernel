@@ -4,7 +4,7 @@ import warnings, os
 # External imports
 import numpy as np
 
-def __aux_symm_triu_cpu(W):
+def __aux_symm_triu(W):
     N = np.shape(W)[0]
     aux = np.ones((N,N))
     aux = np.triu(aux,k=1)
@@ -14,14 +14,14 @@ def __aux_symm_triu_cpu(W):
     return W
 
 
-def __aux_no_match_cpu(W):
+def __aux_no_match(W):
     in_degree = np.sum(W,axis=0)
     out_degree = np.sum(W,axis=1)
     W = in_degree + out_degree
     return W    
 
 
-def __degree_cpu(W):
+def __degree(W):
     """
     Calculates node degree (also called strength in weighted networks) using CPU
 
@@ -48,9 +48,9 @@ def __degree_cpu(W):
         check_symmetry = 2
         
     if check_symmetry == 0:
-        nodal_degree = __aux_no_match_cpu(W)
+        nodal_degree = __aux_no_match(W)
     elif check_symmetry == 1:
-        nodal_degree =  __aux_symm_triu_cpu(W)
+        nodal_degree =  __aux_symm_triu(W)
     elif check_symmetry == 2:
         nodal_degree = -np.sum(W,axis=0)
     return nodal_degree
@@ -58,7 +58,7 @@ def __degree_cpu(W):
 
 def degree(W):
     """
-    Calculates the graph degree.
+    Calculates the graph_metrics degree.
 
     Parameters
     ----------
@@ -76,5 +76,5 @@ def degree(W):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')
 
-    nodal_degree = __degree_cpu(W)
+    nodal_degree = __degree(W)
     return nodal_degree

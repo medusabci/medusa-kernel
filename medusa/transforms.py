@@ -74,7 +74,7 @@ def power_spectral_density(signal, fs, segment_pct=80, overlap_pct=50,
     return f, psd
 
 
-def normalize_psd(psd, norm='rel'):
+def normalize_psd(psd, band=None, fxx=None, norm='rel'):
     """Normalizes the PSD using different methods.
 
     Parameters
@@ -88,13 +88,20 @@ def normalize_psd(psd, norm='rel'):
         relative power.
 
     """
+    # Check errors
+    if band is not None and fxx is None:
+        raise Exception('If "band" is defined, a frequency vector ("fxx") must also be provided')
+
     # To numpy arrays
     psd = np.array(psd)
 
-    # Check errors
-    if len(psd.shape) != 3:
-        raise Exception('Parameter psd must have shape [n_epochs x n_samples x '
-                        'n_channels]')
+    # Check dimensions
+    psd = check_dimensions(psd)
+
+    # If "band" is defined, set frequencies out of it to 0
+    if band is not None:
+        psd[:, fxx < band[0], :] = 0
+        psd[:, fxx > band[1], :] = 0
 
     if norm == 'rel':
         p = np.sum(psd, axis=1, keepdims=True)
@@ -109,8 +116,7 @@ def normalize_psd(psd, norm='rel'):
     return psd_norm
 
 def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
-                        smooth=True, smooth_sigma=2, apply_detrend=True,
-                        apply_normalization=True, scale_to=None):
+                        smooth=True, smooth_sigma=2, scale_to=None):
 
     """This method calculates the spectrogram of a signal from the Short Time
         Fourier Transform (STFT) with a gaussian window.
@@ -133,12 +139,6 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
         Default: True
     smooth_sigma: float
         Sigma value used for the gaussian filter if smooth option is True.
-    apply_detrend: bool
-        Define if linear de-trending  is applied to the signal before the
-        STFT. Default: True
-    apply_normalization: bool
-        Define if normalization  is applied to the signal before the
-        STFT. Default: True
     scale_to: ‘magnitude’, ‘psd’ | None
         Choose how the output is scaled, so each STFT column represents either
         'magnitude' or a PSD spectrum.
@@ -162,13 +162,6 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
     signal = signal.squeeze()
     if len(signal.shape) > 1:
         raise ValueError("Only one-channel signals are supported.")
-
-    # Apply detrend and normalization
-    if apply_detrend:
-        signal = detrend(signal, type='linear')
-    if apply_normalization:
-        stddev = signal.std()
-        signal = signal / stddev
 
     # Convert window from seconds to numbers of samples
     window_nsamp = int(time_window * fs)
@@ -194,8 +187,8 @@ def fourier_spectrogram(signal, fs, time_window=1, overlap_pct=80,
 
     # Compute times and frequencies vectors
     t_lo, t_hi, f_lo, f_hi = SFT.extent(len(signal))
-    times = np.arange(t_lo, t_hi, SFT.delta_t)
-    frequencies = np.arange(f_lo, f_hi, SFT.delta_f)
+    times = np.linspace(t_lo, t_hi, Sx.shape[1])
+    frequencies = np.linspace(f_lo, f_hi, Sx.shape[0])
 
     return Sx, times, frequencies
 
@@ -212,8 +205,7 @@ def __compute_scales(N, filters_per_octave):
     return scales
 
 def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
-                    bandwidth_frequency=1.5, apply_detrend=True,
-                    apply_normalization=True, smooth=True,smooth_sigma=2):
+                    bandwidth_frequency=1.5, smooth=True,smooth_sigma=2):
 
     """This method calculates the spectrogram of a signal from the Continuous
         Wavelet Transform (CWT) with complex Morlet wavelets.
@@ -237,12 +229,6 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
         Default: True
     smooth_sigma: float
         Sigma value used for the gaussian filter if smooth option is True.
-    apply_detrend: bool
-        Define if linear de-trending  is applied to the signal before the
-        CWT. Default: True
-    apply_normalization: bool
-        Define if normalization  is applied to the signal before the
-        CWT. Default: True
 
 
     Returns
@@ -261,13 +247,6 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
     signal = signal.squeeze()
     if len(signal.shape) > 1:
         raise ValueError("Only one-channel signals are supported.")
-
-    # Apply detrend and normalization
-    if apply_detrend:
-        signal = detrend(signal, type='linear')
-    if apply_normalization:
-        stddev = signal.std()
-        signal = signal / stddev
 
     N = len(signal)
     dt = 1.0 / fs
@@ -292,8 +271,7 @@ def cwt_spectrogram(signal, fs, filters_per_octave=5, center_frequency=1,
         coif
 
 def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
-              center_frequency=1, bandwidth_frequency=1.5, apply_detrend=True,
-                        apply_normalization=True, smooth=True,smooth_sigma=2):
+              center_frequency=1, bandwidth_frequency=1.5, smooth=True,smooth_sigma=2):
 
     """This method calculates the Cross Wavelet Transform of two signals from
         the Continuous Wavelet Transform (CWT) with complex Morlet wavelets.
@@ -323,12 +301,6 @@ def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
         Default: True
     smooth_sigma: float
         Sigma value used for the gaussian filter if smooth option is True.
-    apply_detrend: bool
-        Define if linear de-trending  is applied to the signal before the
-        CWT. Default: True
-    apply_normalization: bool
-        Define if normalization  is applied to the signal before the
-        CWT. Default: True
 
 
     Returns
@@ -357,16 +329,6 @@ def cross_cwt(signal1, signal2, fs, mode='spectrogram', filters_per_octave=5,
 
     if mode is None:
         mode = 'spectrogram'
-
-    # Apply detrend and normalization
-    if apply_detrend:
-        signal1 = detrend(signal1, type='linear')
-        signal2 = detrend(signal2, type='linear')
-    if apply_normalization:
-        stddev1 = signal1.std()
-        signal1 = signal1 / stddev1
-        stddev2 = signal2.std()
-        signal2 = signal2 / stddev2
 
     N = len(signal1)
     dt = 1.0 / fs

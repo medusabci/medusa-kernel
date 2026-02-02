@@ -8,7 +8,7 @@ long_description = (this_directory / "README.md").read_text()
 setup(
     name='medusa-kernel',
     packages=find_packages(),
-    version='1.4.2',
+    version='1.4.3',
     keywords=['Signal', 'Biosignal', 'EEG', 'BCI'],
     url='https://medusabci.com/',
     author='Eduardo Santamaría-Vázquez, '
@@ -32,7 +32,7 @@ setup(
     ],
     python_requires='>=3.10, <3.14',
     package_data={
-        'medusa': ['meeg/*.tsv', 'local_activation/*.dll',
+        'medusa': ['meeg/*.tsv', 'signal_metrics/*.dll',
                    'analysis/time_plot/icons/*.png',
                    'analysis/time_plot/time_plot.ui']
     },

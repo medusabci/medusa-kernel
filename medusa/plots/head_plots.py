@@ -1,6 +1,6 @@
 """
 
-In this module, you will find some functions to represent connectivity graphs
+In this module, you will find some functions to represent connectivity_metrics graphs
 and topographic plots over a 2D head model. Enjoy!
 
 """
@@ -204,7 +204,7 @@ class ConnectivityPlot:
          Parameters
         ------------
         adj_mat: numpy.ndarray
-            Numpy array with the connectivity values. It must be one of the
+            Numpy array with the connectivity_metrics values. It must be one of the
             following dimensions [n_channels, n_channels]
         """
         if self.plot_handles is not None:
@@ -440,12 +440,10 @@ def __compute_nearest_values(coor_add, coor_neigh, val_neigh, k):
     return add_val
 
 def _plot_topography( values, axes, channel_set, head_handles,
-                          interpolate=False,
-                          extra_radius=0.29, interp_neighbors=3,
-                          interp_points=500,
-                          interp_contour_width=0.8, cmap="YlGnBu_r", clim=None,
-                          ):
-
+                      interpolate=False,
+                      extra_radius=0.29, interp_neighbors=3,
+                      interp_points=500,
+                      interp_contour_width=0.8, cmap="YlGnBu_r", clim=None):
         """ This function depicts a topographic map of the scalp
         over the desired channel locations.
 
@@ -553,7 +551,7 @@ def _plot_topography( values, axes, channel_set, head_handles,
 def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
                        cmap="bwr", clim=None):
 
-    """This function depicts a connectivity map over the desired channel
+    """This function depicts a connectivity_metrics map over the desired channel
     locations.
 
     Returns
@@ -570,14 +568,14 @@ def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
     # Init handles
     handles = dict()
 
-    # Get connectivity values
+    # Get connectivity_metrics values
     values_indx = np.triu_indices(adj_mat.shape[0], 1)
     conn_values = (adj_mat)[values_indx]
     threshold = np.nanpercentile(np.abs(conn_values), percentile_th)
     mask = np.abs(adj_mat) >= threshold
     conn_values = conn_values[mask[values_indx]]
 
-    # Map connectivity values to colors
+    # Map connectivity_metrics values to colors
     if clim is None:
         clim = [conn_values.min(), conn_values.max()]
     norm = colors.Normalize(vmin=clim[0], vmax=clim[1], clip=True)
@@ -705,7 +703,7 @@ if __name__ == "__main__":
 
     # ---------------- CONNECTIVITY PLOT -------------------
 
-    # Random connectivity values
+    # Random connectivity_metrics values
     adj_mat = np.random.randn(channel_set.n_cha, channel_set.n_cha)
 
     # Initialize figure

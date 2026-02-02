@@ -5,12 +5,12 @@ import warnings, os
 import numpy as np
 
 # Medusa imports
-from medusa.graph_theory import degree
+from medusa.graph_metrics import degree
 
 
-def __density_cpu(W):
+def __density(W):
     """
-    Calculates the graph density using CPU.
+    Calculates the graph_metrics density using CPU.
 
     Parameters
     ----------
@@ -35,7 +35,7 @@ def __density_cpu(W):
         check_symmetry = 2
     
     N = W.shape[0]
-    deg = degree.__degree_cpu(W)
+    deg = degree.__degree(W)
     
     if check_symmetry == 0 or check_symmetry == 2:
         norm_value = N*(N-1)
@@ -50,7 +50,7 @@ def __density_cpu(W):
 
 def density(W):
     """
-    Calculates the graph density.
+    Calculates the graph_metrics density.
 
     Parameters
     ----------
@@ -71,6 +71,6 @@ def density(W):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')        
 
-    global_den,nodal_den = __density_cpu(W)
+    global_den,nodal_den = __density(W)
         
     return global_den, nodal_den

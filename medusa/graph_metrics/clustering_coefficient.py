@@ -5,9 +5,9 @@ import warnings, os
 import numpy as np
 
 
-def __clustering_cpu(W):
+def __clustering(W):
     """
-     Calculates the ClC of echa node of the graph contained in the matrix W.
+     Calculates the ClC of echa node of the graph_metrics contained in the matrix W.
 
     It is calculated as follows:
               ___   ___
@@ -21,7 +21,7 @@ def __clustering_cpu(W):
               k~=i (l~=k & l~=i)
 
     C.J. Stam, et ál. (2009). "Graph theoretical analysis of
-    magnetoencephalographic functional connectivity in Alzheimer’s
+    magnetoencephalographic functional connectivity_metrics in Alzheimer’s
     disease". Brain, 132:213–224.
 
     Parameters
@@ -70,5 +70,5 @@ def clustering_coefficient(W):
     """
     if W.shape[0] is not W.shape[1]:
         raise ValueError('W matrix must be square')
-    nodal_clc = __clustering_cpu(W)
+    nodal_clc = __clustering(W)
     return nodal_clc
