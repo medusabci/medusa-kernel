@@ -1,9 +1,9 @@
 # External imports
 import numpy as np
 import traceback
-import mne
 from dateutil import parser
 from datetime import timezone
+from scipy.interpolate import interp1d
 
 # MEDUSA imports
 from medusa import components
@@ -13,6 +13,12 @@ from medusa.bci import (mi_paradigms, cvep_spellers, ssvep_spellers,
                         erp_spellers, nft_paradigms)
 from medusa.epoching import get_nearest_idx
 
+# Optional imports
+try:
+    import mne
+except ImportError as e:
+    raise ImportError("This functionality requires 'mne' to be "
+                      "installed.")
 
 class MNEData:
 
@@ -100,6 +106,19 @@ class MNEData:
             # Set data
             raw_data = mne.io.RawArray(np.array(signal.signal).T, info)
 
+            # Check possible misalignment in timestamps
+            epsilon_s = 2   # ...if more than 2 seconds of deviation
+            n_seg_rec = signal.times[-1] - signal.times[0]
+            real_seg = signal.signal.shape[0] / signal.fs
+            times = signal.times.copy()
+            signal = signal.signal.copy()
+            if real_seg + epsilon_s < n_seg_rec:
+                signal, times = self.__interpolate_times(
+                    signal=signal,
+                    times=times,
+                    fs=sampling_freq
+                )
+
             # Set events if any
             exp_annotations = {
                 "onset": list(),
@@ -116,17 +135,17 @@ class MNEData:
                 for exp in exp_type.values():
                     ann = {}
                     if rec.experiments[key]['class_name'] == "CVEPSpellerData":
-                        ann = self.__get_cvepdata_annotations(signal.times, exp)
+                        ann = self.__get_cvepdata_annotations(times, exp)
                     elif rec.experiments[key]['class_name'] == "MIData":
-                        ann = self.__get_midata_annotations(signal.times, exp)
+                        ann = self.__get_midata_annotations(times, exp)
                     elif rec.experiments[key][
                         'class_name'] == "SSVEPSpellerData":
-                        ann = self.__get_ssvepdata_annotations(signal.times, exp)
+                        ann = self.__get_ssvepdata_annotations(times, exp)
                     elif rec.experiments[key][
                         'class_name'] == "NeurofeedbackData":
-                        ann = self.__get_nftdata_annotations(signal.times, exp)
+                        ann = self.__get_nftdata_annotations(times, exp)
                     elif rec.experiments[key]['class_name'] == "ERPSpellerData":
-                        ann = self.__get_erpdata_annotations(signal.times, exp)
+                        ann = self.__get_erpdata_annotations(times, exp)
                     else:
                         if (custom_onsets is not None) and \
                             (custom_durations is not None) and \
@@ -180,6 +199,17 @@ class MNEData:
                       f"More information: {traceback.format_exc()}")
 
         return mne_output
+
+    @staticmethod
+    def __interpolate_times(signal, times, fs):
+        # Uniform timestamps
+        t_uniform = np.arange(times[0], times[-1], 1 / fs)
+
+        # Linear interpolation
+        f = interp1d(times, signal, axis=0, kind="linear",
+                     fill_value="extrapolate")
+        x_uniform = f(t_uniform)  # (n_uniform, n_ch)
+        return t_uniform, x_uniform
 
     @staticmethod
     def __get_midata_annotations(times, midata):
