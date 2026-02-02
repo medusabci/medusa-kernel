@@ -103,9 +103,6 @@ class MNEData:
                     montage = 'standard_1005'
                 info.set_montage(montage, match_case=False, on_missing='warn')
 
-            # Set data
-            raw_data = mne.io.RawArray(np.array(signal.signal).T, info)
-
             # Check possible misalignment in timestamps
             epsilon_s = 2   # ...if more than 2 seconds of deviation
             n_seg_rec = signal.times[-1] - signal.times[0]
@@ -113,11 +110,14 @@ class MNEData:
             times = signal.times.copy()
             signal = signal.signal.copy()
             if real_seg + epsilon_s < n_seg_rec:
-                signal, times = self.__interpolate_times(
+                times, signal = self.__interpolate_times(
                     signal=signal,
                     times=times,
                     fs=sampling_freq
                 )
+
+            # Set data
+            raw_data = mne.io.RawArray(np.array(signal).T, info)
 
             # Set events if any
             exp_annotations = {
@@ -216,7 +216,10 @@ class MNEData:
         exp_annotations = {}
         start_offset = midata.w_trial_t[0] / 1000
         trial_duration = (midata.w_trial_t[1] - midata.w_trial_t[0])/1000
-        sample_onsets = midata.onsets - times[0] + start_offset
+        try:
+            sample_onsets = midata.onsets - times[0] + start_offset
+        except Exception as e:
+            print()
         exp_annotations["onset"] = sample_onsets.tolist()
         exp_annotations["description"] = midata.mi_labels.tolist()
         exp_annotations["duration"] = [trial_duration] * len(sample_onsets)
