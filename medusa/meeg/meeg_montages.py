@@ -1,25 +1,34 @@
 import csv, math, os
 
+# According to Jasper (1958)
 EEG_10_20 = [
-    'NZ', 'FP1', 'FPZ', 'FP2',
+    'NZ',
+    'FP1', 'FP2',
     'F7', 'F3', 'FZ', 'F4', 'F8',
-    'T7', 'C3', 'CZ', 'C4', 'T8',
-    'P7', 'P3', 'PZ', 'P4', 'P8',
+    'T3', 'C3', 'CZ', 'C4', 'T4',
+    'T5', 'P3', 'PZ', 'P4', 'T6',
+    'O1', 'O2',
+    'A1', 'A2', 'M1', 'M2'
+]
+
+# According to Nuwer et al. (1998)
+# doi.org/10.1016/S0013-4694(97)00106-5
+EEG_10_10 = [
+    'NZ',
+    'FP1', 'FPZ', 'FP2',
+    'AF7', 'AF3', 'AFZ', 'AF4', 'AF8',
+    'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8',
+    'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8',
+    'T3', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T4',
+    'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
+    'T5', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'T6',
+    'PO7', 'PO3', 'POZ', 'PO4', 'PO8',
     'O1', 'OZ', 'O2',
     'A1', 'A2', 'M1', 'M2'
 ]
 
-EEG_10_10 = [
-    'NZ', 'FP1', 'FPZ', 'FP2', 'AF7', 'AFZ', 'AF8',
-    'F9', 'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8', 'F10',
-    'FT9', 'FT7', 'FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'FT8', 'FT10',
-    'T9', 'T7', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'T8', 'T10',
-    'TP7', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'TP8',
-    'P9', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'P10',
-    'PO9', 'PO7', 'POZ', 'PO8', 'PO10', 'O1', 'OZ', 'O2',
-    'I1', 'IZ', 'I2', 'A1', 'A2', 'M1', 'M2'
-]
-
+# According to Oostenveld & Praamstra (2001)
+# doi.org/10.1016/S1388-2457(00)00527-7
 EEG_10_05 = [
     'T10', 'FT10', 'F10', 'NZ', 'F9', 'FT9', 'T9', 'TP9', 'P9', 'PO9',
     'I1', 'IZ', 'I2', 'PO10', 'P10', 'TP10', 'FTT10H', 'FFT10H',
