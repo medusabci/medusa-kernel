@@ -9,8 +9,8 @@ from scipy.interpolate import interp1d
 from medusa import components
 from medusa.meeg.meeg_montages import get_camel_case_labels
 from medusa import meeg, ecg, emg, eog
-from medusa.bci import (mi_paradigms, cvep_spellers, ssvep_spellers,
-                        erp_spellers, nft_paradigms)
+# from medusa.bci import (mi_paradigms, cvep_spellers, ssvep_spellers,
+#                         erp_spellers, nft_paradigms)
 from medusa.epoching import get_nearest_idx
 
 # Optional imports
