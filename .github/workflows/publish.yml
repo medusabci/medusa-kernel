@@ -1,0 +1,149 @@
+# Publish medusa-kernel to PyPI on GitHub release.
+#
+# Triggered when a GitHub Release is published. The release tag (e.g. `v2.0.0`)
+# must match the version in pyproject.toml, otherwise the build fails fast.
+#
+# Authentication uses **PyPI Trusted Publishing** (OIDC), not API tokens:
+#   - Configure once on PyPI: Project → Publishing → Add a new pending publisher
+#     - Owner: medusabci
+#     - Repository: medusa-kernel
+#     - Workflow filename: publish.yml
+#     - Environment name: pypi
+#   - No secrets to rotate; the GitHub OIDC token is exchanged for a short-lived
+#     upload token at publish time.
+#
+# Build is done with `uv build` (sdist + pure-Python wheel via hatchling).
+# When K4 introduces native C extensions, this workflow will be replaced /
+# extended with a cibuildwheel matrix producing per-OS wheels.
+
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target"
+        required: true
+        default: "testpypi"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Build sdist + wheel and upload as workflow artifact.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Verify release tag matches pyproject version
+        # Skip when triggered manually (workflow_dispatch has no release tag).
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PROJ_VERSION="$(uv run --no-sync python -c 'import tomllib,sys; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "Release tag (stripped): $TAG"
+          echo "pyproject version    : $PROJ_VERSION"
+          if [ "$TAG" != "$PROJ_VERSION" ]; then
+            echo "::error::Release tag '$TAG' does not match pyproject version '$PROJ_VERSION'."
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: List built distributions
+        run: ls -lah dist/
+
+      - name: Upload distributions as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 2) Publish to TestPyPI (manual dispatch only, for verification).
+  # ---------------------------------------------------------------------------
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/medusa-kernel
+    permissions:
+      id-token: write  # required for trusted publishing (OIDC)
+
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          skip-existing: true
+          verbose: true
+
+  # ---------------------------------------------------------------------------
+  # 3) Publish to PyPI (only when a GitHub release is published, or explicit
+  #    manual dispatch with target=pypi).
+  # ---------------------------------------------------------------------------
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: |
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/medusa-kernel
+    permissions:
+      id-token: write  # required for trusted publishing (OIDC)
+
+    steps:
+      - name: Download built distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          verbose: true
+

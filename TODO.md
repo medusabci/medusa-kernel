@@ -328,8 +328,9 @@ Why this layout:
 - [x] Generate and commit lockfile (`uv.lock`, 80 packages resolved).
 - [x] Add minimal CI workflow (`.github/workflows/tests.yml`, single Linux job) — full multi-OS matrix deferred to K7.
 - [x] Mark `setup.py` as deprecated (kept temporarily as fallback; `DeprecationWarning` raised on import). Remove after a full publish cycle on `pyproject.toml`.
-- [ ] Adapt the existing release workflow (`.github/workflows/python-publish.yml`) to use `uv build` + `uv publish` instead of `setup.py sdist bdist_wheel`.
-- [ ] Verify a full release cycle on TestPyPI (`uv publish --publish-url https://test.pypi.org/legacy/`) before deleting `setup.py`.
+- [x] Adapt the existing release workflow → replaced `.github/workflows/python-publish.yml` (Twine + API token + `python -m build`) with `.github/workflows/publish.yml` (`uv build` + `pypa/gh-action-pypi-publish` via **PyPI Trusted Publishing / OIDC**, no API token to rotate). Two jobs: TestPyPI on `workflow_dispatch`, PyPI on `release: published`. Tag-vs-pyproject version check fails fast on mismatch.
+- [ ] Configure the trusted publisher entries on PyPI and TestPyPI (one-time setup; pending account: project `medusa-kernel`, environments `pypi` and `testpypi`, workflow `publish.yml`).
+- [ ] Verify a full release cycle on TestPyPI (`Actions → publish → Run workflow → target=testpypi`) before deleting `setup.py`.
 - [ ] Delete `setup.py` once the release cycle is verified.
 
 **Open questions K2** *(resolved)*
