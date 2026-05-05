@@ -1,8 +1,7 @@
 # Add any directories, files, or patterns you don't want to be tracked by version control
 .idea/
 .idea/*
-medusa.egg-info/
-medusa.egg-info/*
+*.egg-info/
 *.pyc
 *.pyo
 *.mds
@@ -21,3 +20,11 @@ dist/
 # pyproject build artifacts (already covered by build/ and dist/, listed for clarity)
 *.whl
 *.tar.gz
+
+# pytest / mypy / ruff caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# bytecode caches inside the package (src-layout)
+src/**/__pycache__/

@@ -124,11 +124,31 @@ medusa/
 │       │                            functions, so both `from medusa.signal.metrics.spectral
 │       │                            import band_power` and `from medusa.signal.metrics.spectral
 │       │                            .band_power import band_power` work.
-│       ├── spectral/              ← band_power, median_frequency, spectral_edge_frequency,
-│       │                            shannon_spectral_entropy
-│       ├── complexity/            ← sample_entropy, multiscale_entropy,
-│       │                            lempelziv_complexity, multiscale_lempelziv_complexity
-│       ├── statistical/           ← central_tendency, signed_r2
+│       │
+│       │                            Buckets are organized by *operational question* (what
+│       │                            the metric tells you), not by mathematical lineage:
+│       │                              - spectral/        : "what frequencies dominate?"
+│       │                              - nonlinear/       : "how regular / structured is the dynamics?"
+│       │                              - discriminability/: "how well does this feature separate classes?"
+│       │                              - connectivity/    : "how do channels relate to each other?"
+│       │                            See "Open questions K1" for the entropy/complexity/non-linear
+│       │                            taxonomy discussion and why `nonlinear/` is kept flat.
+│       │
+│       ├── spectral/              ← band_power, median_frequency, spectral_edge_frequency.
+│       │                            (Note: `shannon_spectral_entropy` lives under `nonlinear/`
+│       │                            with the other entropies — taxonomy is by *concept*,
+│       │                            not by where it is computed from.)
+│       ├── nonlinear/             ← FLAT bucket for all nonlinear / information-theoretic
+│       │                            measures: sample_entropy, multiscale_entropy,
+│       │                            shannon_spectral_entropy, lempelziv_complexity,
+│       │                            multiscale_lempelziv_complexity, central_tendency_measure.
+│       │                            Future natural members: permutation_entropy, dispersion_entropy,
+│       │                            DFA, Hurst exponent, Lyapunov exponent, recurrence quantification.
+│       │                            Sub-grouping into {complexity, geometric, fractal, chaos}
+│       │                            is deliberately deferred (see Open questions K1).
+│       ├── discriminability/      ← signed_r2. Supervised, label-relative feature score
+│       │                            (signal + labels → score). Future natural members:
+│       │                            Fisher score, AUC, t-stat, mutual information.
 │       └── connectivity/          ← aec, iac, pli, plv, wpli (was connectivity_metrics/)
 │
 ├── graph/                         ← graph data type. Flat for now: 12 metric files
@@ -224,13 +244,13 @@ Migration mapping (1.x → 2.0):
 | `medusa.signal_metrics.band_power` | `medusa.signal.metrics.spectral.band_power` |
 | `medusa.signal_metrics.median_frequency` | `medusa.signal.metrics.spectral.median_frequency` |
 | `medusa.signal_metrics.spectral_edge_frequency` | `medusa.signal.metrics.spectral.spectral_edge_frequency` |
-| `medusa.signal_metrics.shannon_spectral_entropy` | `medusa.signal.metrics.spectral.shannon_spectral_entropy` |
-| `medusa.signal_metrics.sample_entropy` | `medusa.signal.metrics.complexity.sample_entropy` |
-| `medusa.signal_metrics.multiscale_entropy` | `medusa.signal.metrics.complexity.multiscale_entropy` |
-| `medusa.signal_metrics.lempelziv_complexity` | `medusa.signal.metrics.complexity.lempelziv_complexity` |
-| `medusa.signal_metrics.multiscale_lempelziv_complexity` | `medusa.signal.metrics.complexity.multiscale_lempelziv_complexity` |
-| `medusa.signal_metrics.central_tendency` | `medusa.signal.metrics.statistical.central_tendency` |
-| `medusa.signal_metrics.signed_r2` | `medusa.signal.metrics.statistical.signed_r2` |
+| `medusa.signal_metrics.shannon_spectral_entropy` | `medusa.signal.metrics.nonlinear.shannon_spectral_entropy` |
+| `medusa.signal_metrics.sample_entropy` | `medusa.signal.metrics.nonlinear.sample_entropy` |
+| `medusa.signal_metrics.multiscale_entropy` | `medusa.signal.metrics.nonlinear.multiscale_entropy` |
+| `medusa.signal_metrics.lempelziv_complexity` | `medusa.signal.metrics.nonlinear.lempelziv_complexity` |
+| `medusa.signal_metrics.multiscale_lempelziv_complexity` | `medusa.signal.metrics.nonlinear.multiscale_lempelziv_complexity` |
+| `medusa.signal_metrics.central_tendency` | `medusa.signal.metrics.nonlinear.central_tendency` |
+| `medusa.signal_metrics.signed_r2` | `medusa.signal.metrics.discriminability.signed_r2` |
 | `medusa.connectivity_metrics.*` | `medusa.signal.metrics.connectivity.*` |
 | `medusa.graph_metrics.*` | `medusa.graph.*` (flat for now) |
 | `medusa.classification_utils` | `medusa.ml.classification` |
@@ -292,7 +312,6 @@ Why this layout:
 
 **Required changes**
 
-- [ ] Branch `2.0` created in this repo from `main` (Kernel 1.4.x).
 - [ ] Create the new tree empty (no code yet) on a `2.0` branch, verify imports.
 - [ ] Create `medusa/widgets/` with `settings_tree/` and `time_plot/` subpackages; relocate `settings_schema.{SettingsTreeWidget, TreeViewer, TextToTreeItem}` to `widgets/settings_tree/` and `analysis/time_plot/` to `widgets/time_plot/`. Guarantee that nothing outside `medusa/widgets/` imports `PySide6`.
 - [ ] Add `core/data/signal.py` with the `Signal` abstract base (and `CustomSignal`); migrate biosignal modality classes (`EEG`/`ECG`/`EMG`/`EOG`/`NIRS`) to inherit from `Signal` directly. Drop the former `BiosignalData` base.
@@ -302,6 +321,22 @@ Why this layout:
 - [ ] Update `setup.py` / future `pyproject.toml` package data declarations (TSVs, `.ui` files and icons under `widgets/`, etc.).
 - [ ] Coordinated PRs in `medusa-platform`, `medusa-analyzer`, `medusa-tutorials`, and apps to update imports — Platform now imports settings widgets from `medusa.widgets.settings_tree` instead of carrying its own copy.
 - [ ] Update `medusa-docs/kernel/2.0/` API reference.
+
+**Open questions K1** *(resolved)*
+
+- ~~`signal/metrics/` taxonomy: split into `{spectral, complexity, statistical, connectivity}` (original draft) or by another axis?~~ → **`{spectral, nonlinear, discriminability, connectivity}`**. Reasons:
+  - The original `statistical/` was a category error: `central_tendency_measure` is a phase-space / nonlinear-dynamics metric (Cohen, Hudson & Deedwania 1996), not a descriptive statistic; `signed_r2` is a *supervised* class-discrimination score (signal + labels → number), not an intrinsic signal property.
+  - The original `complexity/` mixed information-theoretic entropies (sample/multiscale entropy) with algorithmic complexity (Lempel-Ziv). Both are nonlinear time-domain measures of *signal regularity*, so they sit together — but they are not the same concept (entropy quantifies pattern unpredictability; algorithmic complexity quantifies sequence compressibility).
+  - **Buckets are organized by *operational question*, not mathematical lineage**: `spectral/` (what frequencies dominate?), `nonlinear/` (how regular / structured is the dynamics?), `discriminability/` (how well does this feature separate classes?), `connectivity/` (how do channels relate?).
+  - `shannon_spectral_entropy` lives under `nonlinear/` (with the other entropies), **not** under `spectral/`. The taxonomy is by *concept*: it is an entropy measure, in the same family as `sample_entropy` / `multiscale_entropy`. The fact that it is computed from a PSD is an implementation detail — `multiscale_entropy` is computed from coarse-grained time series and `sample_entropy` from raw samples; binding the bucket to "what input I happened to compute on" would split a coherent family across two folders. Users searching for "all entropies in kernel" find them in one place.
+- ~~Should `nonlinear/` be sub-organized into `{complexity, geometric, fractal, chaos}/`?~~ → **No, kept FLAT** (5 functions today). Reasons:
+  - Premature nesting: only 4 entropy/LZ functions + 1 geometric (CTM) → sub-buckets would have 1–4 members each.
+  - Import depth: `medusa.signal.metrics.nonlinear.sample_entropy` is already 4 levels; adding a 5th (`...nonlinear.complexity.sample_entropy`) costs typing for the most commonly used metrics.
+  - Promotion criterion: when the 4th non-complexity nonlinear metric lands (e.g. DFA, Hurst, Lyapunov, recurrence quantification), promote to `nonlinear/{complexity, geometric, fractal, chaos}/`. Until then, the flat bucket is honest.
+- ~~`signed_r2` under `signal/metrics/discriminability/` or `ml/feature_selection/`?~~ → **`signal/metrics/discriminability/`**. Reasons:
+  - In BCI it is used as much for visualization (signed-r² topomaps over channel × time × frequency) as for feature selection.
+  - It has no scikit-learn interface (not a `SelectKBest`-style estimator), so it does not belong in an `ml/` sklearn-flavored subpackage.
+  - When more label-relative scores land (Fisher score, AUC, t-stat, mutual information), they form a coherent family under `discriminability/`. If/when a wrapper layer makes them sklearn-compatible, that wrapper goes to `ml/feature_selection/` and *imports* from here — separating the metric from the estimator interface.
 
 ---
 
@@ -329,9 +364,11 @@ Why this layout:
 - [x] Add minimal CI workflow (`.github/workflows/tests.yml`, single Linux job) — full multi-OS matrix deferred to K7.
 - [x] Mark `setup.py` as deprecated (kept temporarily as fallback; `DeprecationWarning` raised on import). Remove after a full publish cycle on `pyproject.toml`.
 - [x] Adapt the existing release workflow → replaced `.github/workflows/python-publish.yml` (Twine + API token + `python -m build`) with `.github/workflows/publish.yml` (`uv build` + `pypa/gh-action-pypi-publish` via **PyPI Trusted Publishing / OIDC**, no API token to rotate). Two jobs: TestPyPI on `workflow_dispatch`, PyPI on `release: published`. Tag-vs-pyproject version check fails fast on mismatch.
-- [ ] Configure the trusted publisher entries on PyPI and TestPyPI (one-time setup; pending account: project `medusa-kernel`, environments `pypi` and `testpypi`, workflow `publish.yml`).
-- [ ] Verify a full release cycle on TestPyPI (`Actions → publish → Run workflow → target=testpypi`) before deleting `setup.py`.
-- [ ] Delete `setup.py` once the release cycle is verified.
+- [x] Configure the trusted publisher entries on PyPI and TestPyPI (one-time setup; pending account: project `medusa-kernel`, environments `pypi` and `testpypi`, workflow `publish.yml`).
+- [x] Verify a full release cycle on TestPyPI (`Actions → publish → Run workflow → target=testpypi`) before deleting `setup.py`.
+- [x] Delete `setup.py` once the release cycle is verified.
+- [x] **Migrate to src-layout** (`medusa/` → `src/medusa/`). PyPA-recommended layout; guarantees `import medusa` always resolves to the *installed* package, not the working copy on disk. Updated `[tool.hatch.build.targets.wheel]` (`packages = ["src/medusa"]`), mirrored exclude rules to the wheel target so `medusa/test/` and `computeLZC.dll` no longer leak into published wheels, and added `--import-mode=importlib` to pytest so the test runner never imports the source tree directly.
+- [x] Remove the obsolete `medusa/test/` sandbox folder (was prototype code mislabeled as tests; not imported anywhere; not part of the test suite under `tests/`).
 
 **Open questions K2** *(resolved)*
 

@@ -86,32 +86,45 @@ all = [
 ]
 
 # -----------------------------------------------------------------------------
-# Build backend (Hatchling)
+# Build backend (Hatchling) — src-layout
 # -----------------------------------------------------------------------------
+# The package lives under `src/medusa/` (PEP 8 / PyPA-recommended src-layout).
+# This guarantees that `import medusa` always resolves to the *installed*
+# package, never to the working copy on disk — preventing the "tests pass
+# locally but fail after install" class of bugs.
 [tool.hatch.build.targets.wheel]
-packages = ["medusa"]
+packages = ["src/medusa"]
+# Exclude developer-only / platform-specific assets from the published wheel.
+# (Patterns are matched against project-root-relative paths, hence the
+# `src/medusa/...` prefix even though the wheel itself ships them under
+# `medusa/...`.)
+exclude = [
+    "**/__pycache__/**",
+    "**/*.pyc",
+    # Pre-built Windows DLL — replaced by Cython sources in K4. Keep excluded
+    # so it cannot ship to non-Windows users by accident.
+    "src/medusa/signal_metrics/computeLZC.dll",
+]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "medusa/**",
+    "src/medusa/**",
     "README.md",
     "LICENSE",
     "pyproject.toml",
 ]
 exclude = [
-    "medusa/test/**",
     "**/__pycache__/**",
     "**/*.pyc",
-    # Pre-built Windows DLL — replaced by Cython sources in K4. Keep excluded
-    # from sdist so it cannot ship by accident.
-    "medusa/signal_metrics/computeLZC.dll",
+    "src/medusa/signal_metrics/computeLZC.dll",
 ]
 
 # Package data (TSV channel maps, .ui files, icons) is included automatically
-# by hatchling because it lives inside the `medusa/` package tree and is not
-# excluded above. K1 (reorg) will move these assets under their new homes
+# by hatchling because it lives inside the `src/medusa/` package tree and is
+# not excluded above. K1 (reorg) will move these assets under their new homes
 # (`core/data/biosignals/eeg/*.tsv`, `widgets/time_plot/icons/*.png`, ...);
-# no extra config will be needed because they will still live inside `medusa/`.
+# no extra config will be needed because they will still live inside
+# `src/medusa/`.
 
 # -----------------------------------------------------------------------------
 # uv configuration
@@ -127,10 +140,15 @@ managed = true
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
+# `--import-mode=importlib` is required for src-layout: it prevents pytest
+# from injecting `cwd` into sys.path (which would otherwise let tests import
+# the source tree directly and bypass the installed package, defeating the
+# whole point of src-layout).
 addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    "--import-mode=importlib",
 ]
 
 [tool.ruff]
