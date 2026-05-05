@@ -1,0 +1,169 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+# -----------------------------------------------------------------------------
+# Project metadata (PEP 621)
+# -----------------------------------------------------------------------------
+[project]
+name = "medusa-kernel"
+version = "2.0.0.dev0"
+description = "Advanced biosignal processing toolbox — core of the MEDUSA© ecosystem"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { file = "LICENSE" }
+keywords = ["Signal", "Biosignal", "EEG", "BCI", "Neuroscience", "Neurotechnology"]
+authors = [
+    { name = "Eduardo Santamaría-Vázquez", email = "support@medusabci.com" },
+    { name = "Víctor Martínez-Cagigal" },
+    { name = "Diego Marcos-Martínez" },
+    { name = "Víctor Rodríguez-González" },
+    { name = "Sergio Pérez-Velasco" },
+]
+maintainers = [
+    { name = "MEDUSA© team", email = "support@medusabci.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+
+# Core runtime dependencies. matplotlib is intentionally core (see TODO K3):
+# the plotting helpers in `medusa.plots` are used pervasively and treating
+# matplotlib as optional would force late-import boilerplate everywhere.
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+    "statsmodels>=0.14",
+    "h5py>=3.9",
+    "tqdm>=4.65",
+    "PyWavelets>=1.4",
+    "bson>=0.5",
+    "dill>=0.3.7",
+]
+
+[project.urls]
+Homepage = "https://medusabci.com/"
+Documentation = "https://medusabci.com/market/"
+Repository = "https://github.com/medusabci/medusa-kernel"
+Issues = "https://github.com/medusabci/medusa-kernel/issues"
+
+# -----------------------------------------------------------------------------
+# Optional dependencies (extras) — see TODO K3
+# -----------------------------------------------------------------------------
+[project.optional-dependencies]
+# Qt-based reusable widgets (settings tree editor, interactive time-plot
+# viewer). The ONLY place in the package that imports PySide6.
+widgets = [
+    "PySide6>=6.5",
+]
+# PyTorch-based deep learning models in `medusa.ml.deep_learning`.
+# `medusa.ml.pytorch_utils` is core but does a lazy `try: import torch`,
+# so importing `medusa.ml` works without this extra.
+torch = [
+    "torch>=2.1",
+]
+# Developer tooling: tests, linting, typing.
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "mypy>=1.8",
+]
+# Convenience aggregator.
+all = [
+    "medusa-kernel[widgets,torch,dev]",
+]
+
+# -----------------------------------------------------------------------------
+# Build backend (Hatchling)
+# -----------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["medusa"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "medusa/**",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+exclude = [
+    "medusa/test/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    # Pre-built Windows DLL — replaced by Cython sources in K4. Keep excluded
+    # from sdist so it cannot ship by accident.
+    "medusa/signal_metrics/computeLZC.dll",
+]
+
+# Package data (TSV channel maps, .ui files, icons) is included automatically
+# by hatchling because it lives inside the `medusa/` package tree and is not
+# excluded above. K1 (reorg) will move these assets under their new homes
+# (`core/data/biosignals/eeg/*.tsv`, `widgets/time_plot/icons/*.png`, ...);
+# no extra config will be needed because they will still live inside `medusa/`.
+
+# -----------------------------------------------------------------------------
+# uv configuration
+# -----------------------------------------------------------------------------
+[tool.uv]
+# Lockfile uv.lock is committed; it is the single source of truth for CI
+# and for medusa-installer's resolution of medusa-platform's environment.
+managed = true
+
+# -----------------------------------------------------------------------------
+# Tool configurations
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+
+[tool.ruff]
+line-length = 80
+target-version = "py310"
+extend-exclude = [
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Conservative initial set — expand in K7.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+# Start permissive; tighten in K7.
+check_untyped_defs = false
+
+

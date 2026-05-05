@@ -13,3 +13,11 @@ python-env/
 build/
 dist/
 *.egg*
+
+# uv
+.venv/
+.venv-*/
+
+# pyproject build artifacts (already covered by build/ and dist/, listed for clarity)
+*.whl
+*.tar.gz

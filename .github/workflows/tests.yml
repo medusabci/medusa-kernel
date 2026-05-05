@@ -1,0 +1,45 @@
+name: tests
+
+# Minimal CI introduced with K2 (pyproject.toml + uv).
+# Today: single job, Linux, Python 3.12, runs the existing test suite.
+# K7 will expand this to the full matrix (linux × windows × macos × py3.10–3.13)
+# once K1 reorg + K4 native extensions stabilize the import paths and the
+# package builds wheels per OS via cibuildwheel.
+
+on:
+  push:
+    branches: [ main, developers, "2.0", "2.0-*" ]
+  pull_request:
+    branches: [ main, developers, "2.0" ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (linux, py3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Resolve and install (with dev extras)
+        run: uv sync --extra dev
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Smoke test — import core subpackages without optional extras
+        # Sanity check that the package is usable without [widgets] or [torch].
+        # Will be expanded in K3 / K7 once the v2.0 layout lands.
+        run: |
+          uv run --no-sync python -c "import medusa; print('medusa', medusa.__name__, 'OK')"
+

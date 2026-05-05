@@ -1,3 +1,21 @@
+# =============================================================================
+# DEPRECATED — kept only as a fallback for environments that still invoke
+# `python setup.py ...` directly. From medusa-kernel 2.0 the canonical
+# packaging metadata lives in `pyproject.toml` (PEP 621) and the build is
+# driven by `hatchling` via `uv build` / `python -m build`.
+#
+# This file will be removed once we verify a full release cycle (build +
+# publish to PyPI) using only `pyproject.toml`. See TODO K2.
+# =============================================================================
+import warnings
+
+warnings.warn(
+    "medusa-kernel: setup.py is deprecated. Use 'pyproject.toml' "
+    "(see TODO K2). This file will be removed in a future 2.0 alpha.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from setuptools import setup, find_packages
 from pathlib import Path
 
