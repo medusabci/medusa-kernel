@@ -48,7 +48,7 @@ setup(
         'PySide6',
         'PyWavelets'
     ],
-    python_requires='>=3.10, <3.14',
+    python_requires='>=3.13',
     package_data={
         'medusa': ['meeg/*.tsv', 'signal_metrics/*.dll',
                    'analysis/time_plot/icons/*.png',

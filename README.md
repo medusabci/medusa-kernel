@@ -13,6 +13,17 @@ Check the following links to know more about the MEDUSA environment for neurotec
 
 Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
 
+## Design philosophy
+
+MEDUSA Kernel adopts a **functional architecture**: signal-processing routines (filters, transforms, metrics, connectivity) are free functions that take their inputs as explicit parameters — a NumPy array, a sampling rate, a few configuration values — and return arrays or scalars. They are not methods bound to a container class.
+
+This is a deliberate departure from libraries such as MNE-Python, whose pipelines are expressed as method chains on a central container (`raw.filter()`, `epochs.average()`, …). The medusa style is lower-level and more verbose at the call site, in exchange for two properties:
+
+- **Transparency.** Every input a function uses appears in its signature. There are no implicit reads from a container's hidden attributes, which makes debugging, unit testing, and partial reuse of the processing chain straightforward.
+- **Flexibility.** Functions are independent of any biosignal type. The same filter or metric works on EEG, MEG, ECG, NIRS, or a synthetic test array, because all it sees is an `ndarray` plus the parameters it needs.
+
+Biosignal classes (`EEG`, `ECG`, `EMG`, …) still exist, but their role is **structuring data for persistence and capturing per-modality metadata** (channel sets, montages, reference schemes, sensor coordinates, …) — not dispatching processing methods. They describe *what was recorded*, not *what can be done with it*. This is what lets each modality keep its own rich, faithful schema instead of collapsing into a generic union container.
+
 ## Overview
 MEDUSA Kernel is a Python library, available in the Python Package Index (PyPI) repository, with a complete suite of functions for signal processing. The included functions can be categorized according to their different levels of abstraction. The first level is composed of low-level functions to process signals and calculate basic parameters, including the following:
 

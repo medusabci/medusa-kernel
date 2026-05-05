@@ -10,7 +10,7 @@ name = "medusa-kernel"
 version = "2.0.0.dev0"
 description = "Advanced biosignal processing toolbox — core of the MEDUSA© ecosystem"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.13"
 license = { file = "LICENSE" }
 keywords = ["Signal", "Biosignal", "EEG", "BCI", "Neuroscience", "Neurotechnology"]
 authors = [
@@ -21,7 +21,7 @@ authors = [
     { name = "Sergio Pérez-Velasco" },
 ]
 maintainers = [
-    { name = "MEDUSA© team", email = "support@medusabci.com" },
+    { name = "MEDUSA©", email = "support@medusabci.com" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,9 +32,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
@@ -138,7 +135,7 @@ addopts = [
 
 [tool.ruff]
 line-length = 80
-target-version = "py310"
+target-version = "py313"
 extend-exclude = [
     "build",
     "dist",
@@ -159,7 +156,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.13"
 warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true

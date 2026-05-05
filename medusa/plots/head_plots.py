@@ -1,6 +1,6 @@
 """
 
-In this module, you will find some functions to represent connectivity_metrics graphs
+In this module, you will find some functions to represent connectivity graphs
 and topographic plots over a 2D head model. Enjoy!
 
 """
@@ -204,7 +204,7 @@ class ConnectivityPlot:
          Parameters
         ------------
         adj_mat: numpy.ndarray
-            Numpy array with the connectivity_metrics values. It must be one of the
+            Numpy array with the connectivity values. It must be one of the
             following dimensions [n_channels, n_channels]
         """
         if self.plot_handles is not None:
@@ -551,7 +551,7 @@ def _plot_topography( values, axes, channel_set, head_handles,
 def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
                        cmap="bwr", clim=None):
 
-    """This function depicts a connectivity_metrics map over the desired channel
+    """This function depicts a connectivity map over the desired channel
     locations.
 
     Returns
@@ -568,14 +568,14 @@ def _plot_connectivity(adj_mat, axes, channel_set, percentile_th=85,
     # Init handles
     handles = dict()
 
-    # Get connectivity_metrics values
+    # Get connectivity values
     values_indx = np.triu_indices(adj_mat.shape[0], 1)
     conn_values = (adj_mat)[values_indx]
     threshold = np.nanpercentile(np.abs(conn_values), percentile_th)
     mask = np.abs(adj_mat) >= threshold
     conn_values = conn_values[mask[values_indx]]
 
-    # Map connectivity_metrics values to colors
+    # Map connectivity values to colors
     if clim is None:
         clim = [conn_values.min(), conn_values.max()]
     norm = colors.Normalize(vmin=clim[0], vmax=clim[1], clip=True)
@@ -651,7 +651,6 @@ if __name__ == "__main__":
     """ Example of use: """
     from matplotlib import pyplot as plt
     from medusa.meeg.meeg import EEGChannelSet
-    from medusa.plots.head_plots import *
     import numpy as np
 
     # Set channel set
@@ -703,7 +702,7 @@ if __name__ == "__main__":
 
     # ---------------- CONNECTIVITY PLOT -------------------
 
-    # Random connectivity_metrics values
+    # Random connectivity values
     adj_mat = np.random.randn(channel_set.n_cha, channel_set.n_cha)
 
     # Initialize figure

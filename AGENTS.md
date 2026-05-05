@@ -141,7 +141,7 @@ A breaking change in Kernel cascades through every consumer above. See `../AGENT
 
 ## 5. Code conventions
 
-- **Python ≥3.10, <3.14** (see `setup.py`).
+- **Python ≥3.13** (see `pyproject.toml`).
 - **NumPy + SciPy** are the lingua franca. Any new algorithm should follow the signature `np.ndarray → np.ndarray` (or return a serializable dataclass / component).
 - **Free functions, not methods on biosignal containers** (see §2.ter). Processing / metric / transform code takes arrays + explicit params and is independent of `EEG`, `ECG`, etc. Biosignal classes are for persistence + per-modality metadata, not for dispatching processing.
 - **Serializable components**: classes that persist to disk inherit from `SerializableComponent` in `components.py`. Define `to_serializable_obj` / `from_serializable_obj` and the file extensions (`.cvep.mdl`, `.mi.mdl`, `.rec.mat`, etc.).

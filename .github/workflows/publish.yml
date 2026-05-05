@@ -55,8 +55,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
+      - name: Set up Python 3.13
+        run: uv python install 3.13
 
       - name: Verify release tag matches pyproject version
         # Skip when triggered manually (workflow_dispatch has no release tag).

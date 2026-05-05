@@ -527,7 +527,7 @@ Today everything importable from `medusa.<module>` is *de facto* public. No dist
 **Proposed solution**
 
 - Add `.github/workflows/test.yml`:
-  - Matrix: `python-version: [3.10, 3.11, 3.12, 3.13]` × `os: [ubuntu-latest, windows-latest, macos-latest]`.
+  - Matrix: `python-version: [3.13]` × `os: [ubuntu-latest, windows-latest, macos-latest]` (extend with newer Python releases as they ship).
   - `uv sync --extra dev`, then `pytest --cov=medusa --cov-report=xml`.
   - Upload coverage to Codecov or equivalent.
 - Priority tests to add post-reorg (when paths are stable):
