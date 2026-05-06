@@ -1,7 +1,7 @@
-import numpy as np
+﻿import numpy as np
 from scipy.signal import welch as welch_sp
 from scipy.signal import hilbert as hilbert_sp
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 import pywt
 from scipy import ndimage
 from scipy.signal import windows, ShortTimeFFT, detrend

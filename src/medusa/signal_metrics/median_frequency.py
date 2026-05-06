@@ -1,5 +1,5 @@
-import numpy as np
-from medusa.utils import check_dimensions
+﻿import numpy as np
+from medusa.core.utils import check_dimensions
 from .spectral_edge_frequency import spectral_edge_frequency
 
 def median_frequency(psd, fs, target_band=None, eps=1e-20):

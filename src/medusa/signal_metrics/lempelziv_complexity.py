@@ -1,4 +1,4 @@
-# Built-in imports
+﻿# Built-in imports
 import math
 import ctypes
 import os
@@ -10,7 +10,7 @@ from scipy.signal import decimate
 
 # Medusa imports
 from medusa.components import ThreadWithReturnValue
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 from medusa.signal_metrics.multiscale_lempelziv_complexity import __multiscale_median_threshold
 
 def lempelziv_complexity(signal):

@@ -312,18 +312,3 @@ class MNEData:
             exp_annotations["duration"] = [len(seq) / fps] * len(sample_onsets)
 
         return exp_annotations
-
-if __name__ == '__main__':
-    EXAMPLE_MEDUSA_CVEP = (r"D:\Users\Victor\OneDrive - "
-                           r"UVa\Datasets\cvep-pary\data\btfc\btfc_2_train1.cvep.bson")
-    EXAMPLE_M3ROB = (r"D:\Users\Victor\OneDrive - "
-                      r"UVa\Datasets\m3rob-benito-menni\eegs\s001_KG099_QJ189\sesion04\KG099_TEST_04_10TRIAL.m3rob.bson")
-    EXAMPLE_SSVEP = r"Z:\BBDD\BCI\studies\2025_neurobot\S01\ssvep\ej2.cvep.bson"
-    EXAMPLE_BRAINGYM = (r"Z:\BBDD\BCI\studies\2024_braingym\Recordings"
-                        r"\Braingym\BRAINGYM\Subject_5\Session_9\R4.mi.bson")
-    EXAMPLE_VIDEOGAME = r"Z:\BBDD\BCI\studies\2025_videogame\S2\R8.rec.bson"
-    EXAMPLE_NFT = (r"Z:\BBDD\BCI\databases\2022_nft_itaca_diego\Sujetos\S02"
-                   r"\Sesiones\s_3\registros\run_4.nft.bson")
-    EXAMPLE_ERP = r"Z:\BBDD\BCI\databases\asynchrony\medusa20\U01-control-r10.rcp.bson"
-    convert = MNEData()
-    convert.medusa_to_mne(EXAMPLE_ERP, None)

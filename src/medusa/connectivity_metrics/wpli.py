@@ -1,11 +1,11 @@
-# Built-in imports
+﻿# Built-in imports
 import warnings
 
 # External imports
 import numpy as np
 
 # Medusa imports
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 from .__phase_conn import __phase_conn
 
 

@@ -1,4 +1,4 @@
-# Built-in imports
+﻿# Built-in imports
 import warnings, os
 
 # External imports
@@ -9,7 +9,7 @@ from scipy import stats as sp_stats
 import medusa.components
 from medusa import signal_orthogonalization as orthogonalizate
 from medusa.transforms import hilbert
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 
 
 def __aec(data):

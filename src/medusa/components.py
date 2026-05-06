@@ -12,7 +12,7 @@ import scipy.io
 import dill
 
 # Medusa imports
-from medusa.performance_analysis import perf_analysis
+from medusa.core.profiling import perf_analysis
 
 
 class SerializableComponent(ABC):

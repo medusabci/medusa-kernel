@@ -1,4 +1,4 @@
-"""
+﻿"""
 Created on Thu Aug 25 17:09:18 2022
 Edited on Mon Jan 09 14:00:00 2023
 @author: Diego Marcos-Martínez
@@ -13,7 +13,7 @@ import matplotlib
 from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 # Medusa imports
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 
 
 def __plot_epochs_lines(ax, blocks, samples_per_block, fs, min_val, max_val):

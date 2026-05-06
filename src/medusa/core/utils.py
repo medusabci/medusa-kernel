@@ -95,5 +95,3 @@ def check_dimensions(data, mode='time-series'):
 
     else:
         raise ValueError(f"Mode {mode} not recognized")
-
-

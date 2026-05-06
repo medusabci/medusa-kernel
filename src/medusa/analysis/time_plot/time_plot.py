@@ -1,4 +1,4 @@
-# External imports
+﻿# External imports
 import os
 from abc import ABC, abstractmethod
 from sys import orig_argv
@@ -22,7 +22,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.ticker import FuncFormatter
 
 # MEDUSA imports
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 
 # Constants
 HOVER_LEFT_PREVIEW_LIMIT = 0

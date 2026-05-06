@@ -1,6 +1,6 @@
-import numpy as np
+﻿import numpy as np
 import warnings
-from medusa.utils import check_dimensions
+from medusa.core.utils import check_dimensions
 
 
 def signal_orthogonalization_cpu(signal_1, signal_2):
