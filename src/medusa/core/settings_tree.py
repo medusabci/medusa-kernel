@@ -1,4 +1,4 @@
-from medusa.components import SerializableComponent
+from medusa.core.serialization import SerializableComponent
 
 
 class SettingsTree(SerializableComponent):
