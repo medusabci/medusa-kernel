@@ -241,8 +241,31 @@ class SerializableComponent(ABC):
                           'substitute them for None objects before calling '
                           'this function to save time')
             ser_obj_dict = cls.__none_to_null(ser_obj_dict)
-        return cls.from_serializable_obj(cls.__null_to_none(ser_obj_dict))
 
+        def _sanitize_and_reconstruct(data):
+            if isinstance(data, dict):
+                # Clean MATLAB metadata (e.g., __header__, __version__, __globals__)
+                clean_dict = {k: _sanitize_and_reconstruct(v)
+                              for k, v in data.items() if not k.startswith('__')}
+                return clean_dict
+
+            elif isinstance(data, np.ndarray):
+                # Convert problematic arrays to native lists
+
+                # If it's an array of objects (typical when loading MATLAB structs)
+                if data.dtype == 'O':
+                    return [_sanitize_and_reconstruct(i) for i in data.tolist()]
+
+                return data.tolist()
+
+            elif isinstance(data, list):
+                return [_sanitize_and_reconstruct(i) for i in data]
+
+            return data
+
+        # Apply the sanitizer to the loaded data
+        sane_dict = _sanitize_and_reconstruct(cls.__null_to_none(ser_obj_dict))
+        return cls.from_serializable_obj(cls.__null_to_none(sane_dict))
     @classmethod
     def load_from_pickle(cls, path):
         with open(path, 'rb') as f:

@@ -89,8 +89,11 @@ def central_tendency_measure(signal, r):
     max_value = np.empty((n_epo, n_cha))
     for ep in range(n_epo):
         for ch in range(n_cha):
-            max_value[ep, ch] = np.max(
-                abs(signal[ep, idx_within_range[ep, :, ch], ch]), axis=0)
+            val = signal[ep, idx_within_range[ep, :, ch], ch]
+            if len(val) > 0:
+                max_value[ep, ch] = np.max(np.abs(val), axis=0)
+            else:
+                max_value[ep, ch] = np.nan
 
     # Normalize the values within the range by its maximum.Values above that
     # range will be 1, and below the range will be - 1

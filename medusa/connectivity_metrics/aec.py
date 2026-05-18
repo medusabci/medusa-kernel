@@ -12,7 +12,7 @@ from medusa.transforms import hilbert
 from medusa.utils import check_dimensions
 
 
-def __aec_cpu(data):
+def __aec(data):
     """
     Computes the Amplitude Envelope Correlation (AEC) on M/EEG data using the CPU.
     This version does not apply signal orthogonalization and may be affected by
@@ -68,7 +68,7 @@ def __aec_cpu(data):
     return aec
 
 
-def __aec_ort_cpu(data):
+def __aec_ort(data):
     """
     Computes the Orthogonalized Amplitude Envelope Correlation (AEC) on M/EEG data.
     This version reduces zero-lag artifacts by orthogonalizing the signals before
@@ -242,7 +242,7 @@ def aec(data, ort=True):
         raise ValueError('data matrix contains non-numeric values')
 
     if not ort:
-        aec = __aec_cpu(data)
+        aec = __aec(data)
     else:
-        aec = __aec_ort_cpu(data)
+        aec = __aec_ort(data)
     return aec

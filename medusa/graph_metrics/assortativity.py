@@ -9,7 +9,7 @@ from medusa.graph_metrics import degree
 from medusa import pytorch_integration
 
 
-def __assort_cpu(W):
+def __assort(W):
     """
     Calculates the assortativity using CPU
 
@@ -66,6 +66,6 @@ def assortativity(W):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')
 
-    global_assort = __assort_cpu(W)
+    global_assort = __assort(W)
 
     return global_assort

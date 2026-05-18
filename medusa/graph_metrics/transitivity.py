@@ -5,7 +5,7 @@ import warnings, os
 import numpy as np
 
 
-def __trans_cpu(W):
+def __trans(W):
     """
     Calculates the transitivity using CPU
 
@@ -51,5 +51,5 @@ def transitivity(W):
     if not np.issubdtype(W.dtype, np.number):
         raise ValueError('W matrix contains non-numeric values')
 
-    global_trans = __trans_cpu(W)
+    global_trans = __trans(W)
     return global_trans
