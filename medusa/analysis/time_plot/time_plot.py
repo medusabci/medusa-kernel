@@ -294,7 +294,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         self.current_vis_ch = np.array([0, cha_to_show]) if not (
             reverse_channels) else np.array([n_cha - cha_to_show, n_cha])
         self._preview_curr_focused = None
-        self.preview_epsilon = 2      # Hardcoded precision to click the window
+        self.preview_epsilon = 2  # Hardcoded precision to click the window
         self.plot_count = 0
         self.legend_items = {
             "data": dict(),
@@ -306,16 +306,14 @@ class TimePlot(QtWidgets.QDialog, ui_file):
     def fast_forward(self):
         """ This method makes the time plot go forward. """
         self.current_vis_window = self._make_window_feasible(
-            self.current_vis_window + self.vis_step_s
-        )
+            np.asarray(self.current_vis_window, dtype=float) + self.vis_step_s)
         self.update_xlim()
         self.update_preview_window()
 
     def rewind(self):
         """ This method makes the time plot go backward. """
         self.current_vis_window = self._make_window_feasible(
-            self.current_vis_window - self.vis_step_s
-        )
+            np.asarray(self.current_vis_window, dtype=float) - self.vis_step_s)
         self.update_xlim()
         self.update_preview_window()
 
@@ -402,14 +400,17 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         return min_times
 
     def _make_window_feasible(self, new_window):
+        new_window = np.asarray(new_window, dtype=float).copy()
         max_length_s = self._get_max_timestamp()
-        l = self.current_vis_window[1] - self.current_vis_window[0]
+        min_length_s = self._get_min_timestamp()
+        l = new_window[1] - new_window[0]
         if new_window[1] > max_length_s:
             # Stick to the end
             new_window[0] = max_length_s - l
             new_window[1] = max_length_s
         if new_window[0] < 0:
-            new_window = np.array([0, l])
+            new_window[0] = min_length_s
+            new_window[1] = min_length_s + l
         return new_window
 
     def update_legend(self):
@@ -502,6 +503,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         ValueError
             If any structure, type, or time range check fails.
         """
+
         def check_structure(name, data_dict, expected_keys):
             if not isinstance(data_dict, dict):
                 raise ValueError(f"'{name}' must be a dictionary.")
@@ -546,7 +548,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
                                  "even (start/end pairs).")
             for i in range(0, len(labels), 2):
                 if labels[i] != labels[i + 1]:
-                    raise ValueError(f"Condition labels at index {i} and {i+1} "
+                    raise ValueError(f"Condition labels at index {i} and {i + 1} "
                                      f"must be equal (start/end pair).")
             for t in times:
                 if not (signal_min <= t <= signal_max):
@@ -892,7 +894,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
             line_ = self.canvas.axes.vlines(
                 x=event_time,
                 ymin=-self.current_offset,
-                ymax= self.n_cha * self.current_offset,
+                ymax=self.n_cha * self.current_offset,
                 linestyles="dashed",
                 label=desc_name,
                 colors=event_color,
@@ -1136,7 +1138,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
             # Moving all the window
             len_ = self.current_vis_window[1] - self.current_vis_window[0]
             self.current_vis_window = self._make_window_feasible(
-                [event.xdata - len_/2, event.xdata + len_/2]
+                [event.xdata - len_ / 2, event.xdata + len_ / 2]
             )
             QApplication.setOverrideCursor(QCursor(Qt.ClosedHandCursor))
         self.update_preview_window()
@@ -1146,7 +1148,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
         # Convert the event position into coordinates inside graph
         t = self.canvas_preview.axes.transData.inverted()
         xy = t.transform([event.x, event.y])
-        
+
         # Determine the focused item
         if np.abs(xy[1]) > self.preview_handles["maxy"] + self.preview_epsilon:
             return None
@@ -1154,7 +1156,7 @@ class TimePlot(QtWidgets.QDialog, ui_file):
             return HOVER_LEFT_PREVIEW_LIMIT
         elif np.abs(xy[0] - self.current_vis_window[1]) < self.preview_epsilon:
             return HOVER_RIGHT_PREVIEW_LIMIT
-        elif ((xy[0] > self.current_vis_window[0]) & 
+        elif ((xy[0] > self.current_vis_window[0]) &
               (xy[0] < self.current_vis_window[1])):
             return HOVER_CENTER_PREVIEW
         return None
@@ -1689,14 +1691,17 @@ class TimeHeatmapPlot(TimePlot):
         self.canvas.draw_idle()
 
     def _make_window_feasible(self, new_window):
+        new_window = np.asarray(new_window, dtype=float).copy()
         max_length_s = self._get_max_timestamp()
-        l = self.current_vis_window[1] - self.current_vis_window[0]
+        min_length_s = self._get_min_timestamp()
+        l = new_window[1] - new_window[0]
         if new_window[1] > max_length_s:
             # Stick to the end
             new_window[0] = max_length_s - l
             new_window[1] = max_length_s
         if new_window[0] < 0:
-            new_window = np.array([0, l])
+            new_window[0] = min_length_s
+            new_window[1] = min_length_s + l
         return new_window
 
     def add_data(self, times, data, cha_idx=None, data_label=None,
@@ -1939,7 +1944,7 @@ if __name__ == '__main__':
     fs = 500
     n_channels = 16
     t_range = [0, 300]
-    n_samples =  (t_range[1] - t_range[0]) * fs
+    n_samples = (t_range[1] - t_range[0]) * fs
     t = np.linspace(t_range[0], t_range[1], n_samples)
 
     # Generate noisy sine signals
@@ -2034,6 +2039,7 @@ if __name__ == '__main__':
 
     # Spectrogram
     from medusa.transforms import fourier_spectrogram
+
     spec_params = {
         'fs': fs,
         'time_window': 10.0,
