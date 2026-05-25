@@ -130,10 +130,10 @@ class CVEPSpellerData(components.ExperimentData):
         self.paradigm_conf = paradigm_conf
         self.commands_info = commands_info
         self.onsets = onsets
-        self.command_uids = command_uids
+        self.command_uids = command_uids #train_targets_uids the same as 'spell_target' but for every cycle instead of trial
         self.cycle_idx = cycle_idx
         self.trial_idx = trial_idx
-        self.trial_available_cmmds = trial_available_cmmds
+        self.trial_available_cmmds = trial_available_cmmds #save per trial instead of per cycle (unity sends the info by cycle, not sure this can be done)
         self.spell_result = spell_result
         self.fps_resolution = fps_resolution
         self.spell_target = spell_target
@@ -1827,7 +1827,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
                 fs=rec_sig.fs,
                 cycle_onsets=rec_exp.onsets,
                 fps=rec_exp.fps_resolution,
-                code_len=len(rec_exp.commands_info.values())[0]['sequence'])
+                code_len=len(next(iter(rec_exp.commands_info.values()))['sequence']))
             features = np.concatenate((features, rec_feat), axis=0) \
                 if features is not None else rec_feat
 
@@ -1837,8 +1837,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
             rec_exp.trial_idx = trial_counter + np.array(rec_exp.trial_idx)
 
             # Event tracking attributes
-            seq_len = len(list(rec_exp.commands_info.values())[0][
-                              'sequence'])
+            seq_len = len(next(iter(rec_exp.commands_info.values()))['sequence'])
             rec_exp.event_run_idx = np.repeat(rec_exp.run_idx, seq_len)
             rec_exp.event_trial_idx = np.repeat(rec_exp.trial_idx, seq_len)
             rec_exp.event_cycle_idx = np.repeat(rec_exp.cycle_idx, seq_len)
@@ -3309,9 +3308,9 @@ def get_unique_sequences_from_targets(experiment: CVEPSpellerData):
 
     sequences = dict()
     try:
-        for id in experiment.command_idx:
+        for idx, uid in enumerate(experiment.command_uids):
             curr_seq_ = experiment.commands_info[uid]['sequence']
-            # Add the command index to its associated sequence
+            # Add the command to its associated sequence
             if len(sequences) == 0:
                 sequences[tuple(curr_seq_)] = [idx]
             elif tuple(curr_seq_) in sequences:
