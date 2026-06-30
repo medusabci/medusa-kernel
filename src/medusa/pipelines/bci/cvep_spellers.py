@@ -1,4 +1,4 @@
-"""
+﻿"""
 In this module you will find useful functions and classes to operate with data
 recorded using spellers based on code-modulated visual evoked potentials
 (c-VEP), which are widely used by the BCI community. Enjoy!
@@ -6,15 +6,17 @@ recorded using spellers based on code-modulated visual evoked potentials
 @author: Víctor Martínez-Cagigal
 """
 import medusa as mds
-from medusa import components
-from medusa import meeg
-from medusa import spatial_filtering as sf
-from medusa import epoching as ep
-from medusa import classification_utils as clf_utils
+from medusa.core.data.experiment import ExperimentData
+from medusa.core.data.recording import ConsistencyChecker
+from medusa.core.pipeline import Algorithm, ProcessingClassWrapper, ProcessingMethod
+from medusa.ml.dataset import Dataset
+from medusa.core.data.biosignals import eeg
+from medusa.signal import spatial_filtering as sf, segmentation as ep
+from medusa.ml import classification as clf_utils
 import copy, warnings
 import itertools
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import numpy as np
 from tqdm import tqdm
 
@@ -105,7 +107,7 @@ LFSR_PRIMITIVE_POLYNOMIALS = \
 
 
 # --------------------------- c-VEP DATA MANAGEMENT -------------------------- #
-class CVEPSpellerData(components.ExperimentData):
+class CVEPSpellerData(ExperimentData):
     """Experiment info class for c-VEP-based spellers. It supports nested
     multi-level paradigms. This unified class can be used to represent a run
     of every c-VEP stimulation paradigm designed to date, and is the expected
@@ -154,7 +156,7 @@ class CVEPSpellerData(components.ExperimentData):
         return cls(**dict_data)
 
 
-class CVEPSpellerDataset(components.Dataset):
+class CVEPSpellerDataset(Dataset):
     """ This class inherits from medusa.data_structures.Dataset, increasing
     its functionality for datasets with data from c-VEP-based spellers. It
     provides common ground for the rest of functions in the module.
@@ -167,7 +169,7 @@ class CVEPSpellerDataset(components.Dataset):
 
         Parameters
         ----------
-        channel_set : meeg.EEGChannelSet
+        channel_set : eeg.EEGChannelSet
             EEG channel set. Only these channels will be kept in the dataset,
             the others will be discarded. Also, the signals will be rearranged,
             keeping the same channel order, avoiding errors in future stages of
@@ -303,7 +305,7 @@ class CVEPSpellerDataset(components.Dataset):
             Standard consistency checker for c-VEP feature extraction
         """
         # Create consistency checker
-        checker = components.ConsistencyChecker()
+        checker = ConsistencyChecker()
         # Check that the biosignal exists
         checker.add_consistency_rule(
             rule='check-attribute',
@@ -312,7 +314,7 @@ class CVEPSpellerDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.biosignal_att_key,
-                         'type': meeg.EEG}
+                         'type': eeg.EEG}
         )
         # Check channels
         checker.add_consistency_rule(
@@ -560,7 +562,7 @@ def command_decoding_accuracy_per_cycle(selected_commands_per_cycle,
 
 
 # ---------------------------------- MODELS ---------------------------------- #
-class CVEPSpellerModel(components.Algorithm):
+class CVEPSpellerModel(Algorithm):
 
     def __init__(self):
         """Class constructor
@@ -655,7 +657,7 @@ class CMDModelBWRLDA(CVEPSpellerModel):
             concatenate_channels=True, safe_copy=True))
 
         # Feature classification
-        clf = components.ProcessingClassWrapper(
+        clf = ProcessingClassWrapper(
             LinearDiscriminantAnalysis(solver='eigen', shrinkage='auto'),
             fit=[], predict_proba=['y_pred']
         )
@@ -814,7 +816,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
             concatenate_channels=False, safe_copy=True))
 
         # Feature classification
-        from medusa.deep_learning_models import EEGInceptionv1
+        from medusa.ml.deep_learning import EEGInceptionv1
         input_time = \
             self.settings['w_epoch_t'][1] - self.settings['w_epoch_t'][0]
         clf = EEGInceptionv1(
@@ -933,7 +935,7 @@ class CMDModelBWREEGInception(CVEPSpellerModel):
         return sel_cmd, sel_cmd_per_cycle, scores
 
 
-class CVEPModelCircularShifting(components.Algorithm):
+class CVEPModelCircularShifting(Algorithm):
 
     def __init__(self, bpf=[[7, (1.0, 30.0)]], notch=[7, (49.0, 51.0)],
                  art_rej=None, correct_raster_latencies=False,
@@ -1189,7 +1191,7 @@ class CVEPModelCircularShifting(components.Algorithm):
     #     )
 
 
-class CVEPModelTRCAGoldCodes(components.Algorithm):
+class CVEPModelTRCAGoldCodes(Algorithm):
 
     def __init__(self, bpf=[[7, (1.0, 30.0)]], notch=[7, (49.0, 51.0)],
                  art_rej=None, correct_raster_latencies=False,
@@ -1345,7 +1347,7 @@ class CVEPModelTRCAGoldCodes(components.Algorithm):
 
 
 # ------------------------------- ALGORITHMS -------------------------------- #
-class StandardPreprocessing(components.ProcessingMethod):
+class StandardPreprocessing(ProcessingMethod):
     """Just the common preprocessing applied in c-VEP-based spellers. Simple,
     quick and effective: frequency IIR band-pass and notch filters
     """
@@ -1459,7 +1461,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         return dataset
 
 
-class BWRFeatureExtraction(components.ProcessingMethod):
+class BWRFeatureExtraction(ProcessingMethod):
     """Feature extraction method designed to extract event-wise epochs from
     c-VEP stimulation paradigms to perform bitwise reconstruction (BWR)
     """
@@ -1729,7 +1731,7 @@ class BWRFeatureExtraction(components.ProcessingMethod):
         return features, track_info
 
 
-class FilterBankPreprocessing(components.ProcessingMethod):
+class FilterBankPreprocessing(ProcessingMethod):
     """Just the common preprocessing applied in c-VEP-based spellers. Simple,
     quick and effective: frequency IIR band-pass and notch filters
     """
@@ -1877,7 +1879,7 @@ class FilterBankPreprocessing(components.ProcessingMethod):
         return dataset
 
 
-class CircularShiftingClassifier(components.ProcessingMethod):
+class CircularShiftingClassifier(ProcessingMethod):
     """Standard feature classification method for c-VEP-based spellers.
     Basically, it computes a template for each sequence.
     """
@@ -2406,7 +2408,7 @@ class CircularShiftingClassifier(components.ProcessingMethod):
         return pred_items_by_no_cycles
 
 
-class CircularShiftingAsyncESExtension(components.ProcessingMethod):
+class CircularShiftingAsyncESExtension(ProcessingMethod):
 
     def __init__(self, predict_by_cycles_callback, **kwargs):
         self.predict_by_cycles_callback = predict_by_cycles_callback
@@ -2570,7 +2572,7 @@ class CircularShiftingAsyncESExtension(components.ProcessingMethod):
         return pred_items_by_no_cycles
 
 
-class TRCAGoldCodesClassifier(components.ProcessingMethod):
+class TRCAGoldCodesClassifier(ProcessingMethod):
     """Standard feature extraction method for c-VEP-based spellers. Basically,
     it computes a template for each sequence, using TRCA. ATTENTION: Only if
     works if the test matrix is 4x4.
@@ -3048,7 +3050,7 @@ class TRCAGoldCodesClassifier(components.ProcessingMethod):
         return pred_items_by_no_cycles
 
 
-class CircularShiftingEarlyStopping(components.ProcessingMethod):
+class CircularShiftingEarlyStopping(ProcessingMethod):
     def __init__(self, **kwargs):
         """ Class constructor """
         super().__init__()

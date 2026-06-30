@@ -1,14 +1,12 @@
-"""
+﻿"""
 In this module you will find useful functions and classes to apply on-line
 Neurofeedback models. Each model is based on different features to be used
 as target to train. Enjoy!
 
-@author: Diego Marcos-Martínez
+@author: Diego Marcos-MartÃ­nez
 """
 
 # Built-in imports
-from abc import ABC, abstractmethod
-import concurrent
 
 # External imports
 import numpy as np
@@ -16,18 +14,19 @@ import scipy.signal
 
 # Medusa imports
 import medusa as mds
-from medusa import components
-from medusa import meeg
-from medusa.spatial_filtering import LaplacianFilter, car
-from medusa.connectivity.phase_connectivity import phase_connectivity
-from medusa.connectivity.iac import __aec_ort_cpu as aec
-from medusa.graph_theory import degree
-from medusa.artifact_removal import reject_noisy_epochs
-from medusa.epoching import get_epochs_of_events
-from medusa.local_activation.shannon_spectral_entropy import band_power
+from medusa.core.data.experiment import ExperimentData
+from medusa.core.pipeline import Algorithm, ProcessingMethod
+from medusa.core.utils import ThreadWithReturnValue
+from medusa.signal.spatial_filtering import LaplacianFilter, car
+from medusa.signal.metrics.connectivity.wpli import wpli
+from medusa.signal.metrics.connectivity.aec import aec
+from medusa.graph import degree
+from medusa.signal.artifact_removal import reject_noisy_epochs
+from medusa.signal.segmentation import get_epochs_of_events
+from medusa.signal.metrics.spectral.band_power import band_power
 
 
-class SignalPreprocessing(components.ProcessingMethod):
+class SignalPreprocessing(ProcessingMethod):
     """
     Common preprocessing applied in Neurofeedback applications.
     It is composed by a frequency IIR filter followed by a spatial
@@ -188,7 +187,7 @@ class SignalPreprocessing(components.ProcessingMethod):
             if parallel_computing:
                 filt_threads = []
                 for filter in self.artifact_iir_filters:
-                    t = components.ThreadWithReturnValue(target=
+                    t = ThreadWithReturnValue(target=
                                                          filter.transform,
                                                          args=(signal__,))
                     filt_threads.append(t)
@@ -251,7 +250,7 @@ class SignalPreprocessing(components.ProcessingMethod):
         if parallel_computing:
             filt_threads = []
             for filter in self.target_iir_filters:
-                t = components.ThreadWithReturnValue(target=
+                t = ThreadWithReturnValue(target=
                                                      filter.transform,
                                                      args=(signal,))
                 filt_threads.append(t)
@@ -351,7 +350,7 @@ def make_windows(signal, fs, update_feature_window, update_rate,
     return good_epochs, idx
 
 
-class ConnectivityExtraction(components.ProcessingMethod):
+class ConnectivityExtraction(ProcessingMethod):
     """
     Functional Connectivity-based features to extract from user's EEG.
     """
@@ -459,7 +458,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
         filt_threads = []
         baseline_values = []
         for epoch_mat in adj_mat:
-            t = components.ThreadWithReturnValue(target=self.calculate_feature,
+            t = ThreadWithReturnValue(target=self.calculate_feature,
                                                  args=(epoch_mat,))
             filt_threads.append(t)
             t.start()
@@ -524,7 +523,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
         # Calculate adjacency matrix depending on FC measure chosen
         adj_mat = None
         if self.fc_measure == "WPLI":
-            adj_mat = phase_connectivity(signal, 'wpli')
+            adj_mat = wpli(signal)
         # This is under development
         elif self.fc_measure == "AECORT":
             adj_mat = aec(signal)
@@ -571,7 +570,7 @@ class ConnectivityExtraction(components.ProcessingMethod):
         return np.mean(c)
 
 
-class PowerExtraction(components.ProcessingMethod):
+class PowerExtraction(ProcessingMethod):
     """
     Power-based features to extract from user's EEG.
     """
@@ -755,7 +754,7 @@ class PowerExtraction(components.ProcessingMethod):
         return powers
 
 
-class ConnectivityBasedNFTModel(components.Algorithm):
+class ConnectivityBasedNFTModel(Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
                  update_rate, montage, target_channels, fc_measure, mode,
                  apply_car, pct_tol_ocular=None, pct_tol_muscular=None):
@@ -763,9 +762,9 @@ class ConnectivityBasedNFTModel(components.Algorithm):
                          training=['feedback_value'])
         """
         Pipeline for Connectivity-based Neurofeedback training. This class
-        inherits from components.Algorithm. Therefore, it can be used to create
+        inherits from Algorithm. Therefore, it can be used to create
         standalone algorithms that can be used in compatible apps from
-        medusa-platform for online experiments. See components.Algorithm to know
+        medusa-platform for online experiments. See Algorithm to know
         more about this functionality.
         """
 
@@ -874,16 +873,16 @@ class ConnectivityBasedNFTModel(components.Algorithm):
             return False
 
 
-class PowerBasedNFTModel(components.Algorithm):
+class PowerBasedNFTModel(Algorithm):
     def __init__(self, fs, filter_dict, l_baseline_t, update_feature_window,
                  update_rate, montage, target_channels, mode, apply_car,
                  apply_laplacian, right_ch_idx=None,
                  pct_tol_ocular=None, pct_tol_muscular=None):
         """
         Pipeline for Power-based Neurofeedback training. This class
-        inherits from components.Algorithm. Therefore, it can be used to create
+        inherits from Algorithm. Therefore, it can be used to create
         standalone algorithms that can be used in compatible apps from
-        medusa-platform for online experiments. See components.Algorithm to know
+        medusa-platform for online experiments. See Algorithm to know
         more about this functionality.
         """
         super().__init__(calibration=['baseline_parameters'],
@@ -991,7 +990,7 @@ class PowerBasedNFTModel(components.Algorithm):
                 return False
 
 
-class NeurofeedbackData(components.ExperimentData):
+class NeurofeedbackData(ExperimentData):
     """Experiment info class for Neurofeedback training experiments. It records
     the important events that take place during a Neurofeedback run,
     allowing offline analysis."""

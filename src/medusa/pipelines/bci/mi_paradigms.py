@@ -1,4 +1,4 @@
-"""
+﻿"""
 In this module you will find useful functions and classes to operate with data
 recorded using motor imagery paradigms, which are widely used by the BCI
 community. Enjoy!
@@ -17,14 +17,18 @@ from sklearn.metrics import classification_report
 
 # Medusa imports
 from medusa import IIRFilter, car
-from medusa.epoching import normalize_epochs
+from medusa.signal.segmentation import normalize_epochs
 from medusa import get_epochs_of_events, resample_epochs
-from medusa import components
-from medusa import meeg
-from medusa.spatial_filtering import CSP, LaplacianFilter
-from medusa import classification_utils as cu
+from medusa.core.data.experiment import ExperimentData
+from medusa.core.data.recording import ConsistencyChecker
+from medusa.core.pipeline import Algorithm, ProcessingClassWrapper, ProcessingMethod
+from medusa.ml.dataset import Dataset
+from medusa.core.data.biosignals import eeg
+from medusa.signal.spatial_filtering import CSP
+from medusa.ml import classification as cu
 
-class MIData(components.ExperimentData):
+
+class MIData(ExperimentData):
     # TODO: Check everything
 
     """Class with the necessary attributes to define motor imagery (MI)
@@ -117,7 +121,7 @@ class MIData(components.ExperimentData):
         return cls(**dict_data)
 
 
-class MIDataset(components.Dataset):
+class MIDataset(Dataset):
     """This class inherits from medusa.data_structures.Dataset, increasing
     its functionality for datasets with data from MI experiments. It
     provides common ground for the rest of functions in the module.
@@ -130,7 +134,7 @@ class MIDataset(components.Dataset):
 
         Parameters
         ----------
-        channel_set : meeg.EEGChannelSet
+        channel_set : eeg.EEGChannelSet
             EEG channel set. Only these channels will be kept in the dataset,
             the others will be discarded. Also, the signals will be rearranged,
             keeping the same channel order, avoiding errors in future stages of
@@ -264,7 +268,7 @@ class MIDataset(components.Dataset):
             Standard consistency checker for MI feature extraction
         """
         # Create consistency checker
-        checker = components.ConsistencyChecker()
+        checker = ConsistencyChecker()
         # Check that the biosignal exists
         checker.add_consistency_rule(
             rule='check-attribute',
@@ -273,7 +277,7 @@ class MIDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.biosignal_att_key,
-                         'type': meeg.EEG}
+                         'type': eeg.EEG}
         )
         # Check channels
         checker.add_consistency_rule(
@@ -330,7 +334,7 @@ class MIDataset(components.Dataset):
         return recording
 
 
-class StandardPreprocessing(components.ProcessingMethod):
+class StandardPreprocessing(ProcessingMethod):
     """Just the common preprocessing applied in MI-based BCI. Simple,
     quick and effective: frequency IIR filter followed by common average
     reference (CAR) spatial filter.
@@ -448,7 +452,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         return dataset
 
 
-class StandardFeatureExtraction(components.ProcessingMethod):
+class StandardFeatureExtraction(ProcessingMethod):
     """
     Standard feature extraction method for MI-based spellers. Basically,
     it gets the raw epoch for each MI event.
@@ -752,7 +756,7 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         return features, track_info
 
 
-class CSPFeatureExtraction(components.ProcessingMethod):
+class CSPFeatureExtraction(ProcessingMethod):
     """Common Spatial Patterns (CSP) feature extraction method for MI-based
     spellers.
 
@@ -887,11 +891,11 @@ class CSPFeatureExtraction(components.ProcessingMethod):
             return np.log(np.var(projection, axis=1))
 
 
-class MIModel(components.Algorithm):
+class MIModel(Algorithm):
     """Skeleton class for MI-based BCIs models. This class inherits from
-    components.Algorithm. Therefore, it can be used to create standalone
+    Algorithm. Therefore, it can be used to create standalone
     algorithms that can be used in compatible apps from medusa-platform
-    for online experiments. See components.Algorithm to know more about this
+    for online experiments. See Algorithm to know more about this
     functionality.
 
     Related tutorials:
@@ -1085,7 +1089,7 @@ class MIModelCSP(MIModel):
         # Hz)
         self.add_method('ext_method', CSPFeatureExtraction(**self.settings))
         # Feature classification (rLDA)
-        clf = components.ProcessingClassWrapper(
+        clf = ProcessingClassWrapper(
             LinearDiscriminantAnalysis(solver='eigen', shrinkage='auto'),
             fit=[], predict_proba=['y_pred']
         )
@@ -1364,7 +1368,7 @@ class MIModelEEGSym(MIModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGSym
+        from medusa.ml.deep_learning import EEGSym
         # Preprocessing (default: bandpass IIR filter [0.5, 45] Hz + CAR)
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=self.settings['p_filt_cutoff']))
@@ -1386,7 +1390,7 @@ class MIModelEEGSym(MIModel):
         self.is_fit = False
         if self.settings['init_weights_path'] is not None:
             clf.load_weights(self.settings['init_weights_path'])
-            self.channel_set = meeg.EEGChannelSet()
+            self.channel_set = eeg.EEGChannelSet()
             standard_lcha = ['F7', 'C3', 'PO3', 'CZ', 'PZ', 'F8', 'C4', 'PO4']
             self.channel_set.set_standard_montage(standard_lcha)
             self.get_inst('prep_method').fit(fs=250, n_cha=8)

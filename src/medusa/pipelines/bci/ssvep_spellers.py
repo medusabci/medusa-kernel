@@ -1,15 +1,17 @@
-from abc import ABC, abstractmethod
-import math, copy, warnings
+﻿from abc import abstractmethod
+import copy, warnings
 import numpy as np
-from matplotlib import pyplot as plt
 import medusa as mds
-from medusa import meeg
-from medusa import components
+from medusa.core.data.biosignals import eeg
+from medusa.core.data.experiment import ExperimentData
+from medusa.core.data.recording import ConsistencyChecker
+from medusa.core.pipeline import Algorithm, ProcessingMethod
+from medusa.ml.dataset import Dataset
 from tqdm import tqdm
 
 
 # --------------------------- SSVEP DATA MANAGEMENT -------------------------- #
-class SSVEPSpellerData(components.ExperimentData):
+class SSVEPSpellerData(ExperimentData):
     """Experiment info class for SSVEP-based spellers. It supports nested
     multi-matrix multi-level paradigms. This unified class can be used to
     represent a run of every SSVEP stimulation paradigm designed to date,
@@ -108,7 +110,7 @@ class SSVEPSpellerData(components.ExperimentData):
         return cls(**dict_data)
 
 
-class SSVEPSpellerDataset(components.Dataset):
+class SSVEPSpellerDataset(Dataset):
 
     """This class inherits from medusa.data_structures.Dataset, increasing
     its functionality for datasets with data from ERP-based spellers. It
@@ -122,7 +124,7 @@ class SSVEPSpellerDataset(components.Dataset):
 
         Parameters
         ----------
-        channel_set : meeg.EEGChannelSet
+        channel_set : eeg.EEGChannelSet
             EEG channel set. Only these channels will be kept in the dataset,
             the others will be discarded. Also, the signals will be rearranged,
             keeping the same channel order, avoiding errors in future stages of
@@ -255,7 +257,7 @@ class SSVEPSpellerDataset(components.Dataset):
             Standard consistency checker for ERP feature extraction
         """
         # Create consistency checker
-        checker = components.ConsistencyChecker()
+        checker = ConsistencyChecker()
         # Check that the biosignal exists
         checker.add_consistency_rule(
             rule='check-attribute',
@@ -264,7 +266,7 @@ class SSVEPSpellerDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.biosignal_att_key,
-                         'type': meeg.EEG}
+                         'type': eeg.EEG}
         )
         # Check channels
         checker.add_consistency_rule(
@@ -451,7 +453,7 @@ def get_selected_commands_info(selected_commands, commands_info):
     return selected_commands_info
 
 
-class StandardPreprocessing(components.ProcessingMethod):
+class StandardPreprocessing(ProcessingMethod):
     """Just the common preprocessing applied in SSVEP-based spellers. Simple,
     quick and effective: frequency IIR filter followed by common average
     reference (CAR) spatial filter.
@@ -543,7 +545,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         return dataset
 
 
-class StandardFeatureExtraction(components.ProcessingMethod):
+class StandardFeatureExtraction(ProcessingMethod):
     """Standard feature extraction method for ERP-based spellers. Basically,
     it gets the raw epoch for each stimulation event.
     """
@@ -716,11 +718,11 @@ class StandardFeatureExtraction(components.ProcessingMethod):
         return features, track_info
 
 
-class SSVEPSpellerModel(components.Algorithm):
+class SSVEPSpellerModel(Algorithm):
     """Skeleton class for SSVEP-based spellers models. This class inherits from
-    components.Algorithm. Therefore, it can be used to create standalone
+    Algorithm. Therefore, it can be used to create standalone
     algorithms that can be used in compatible apps from medusa-platform
-    for online experiments. See components.Algorithm to know more about this
+    for online experiments. See Algorithm to know more about this
     functionality.
 
     Related tutorials:

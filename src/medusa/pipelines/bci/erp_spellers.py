@@ -1,4 +1,4 @@
-"""Created on Monday March 15 19:27:14 2021
+﻿"""Created on Monday March 15 19:27:14 2021
 
 In this module you will find useful functions and classes to operate with data
 recorded using spellers based on event-related pontentials (ERP), which are
@@ -9,21 +9,23 @@ widely used by the BCI community. Enjoy!
 
 # Built-in imports
 import copy, warnings
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
 # External imports
 import numpy as np
-from scipy import signal
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from tqdm import tqdm
 
 # Medusa imports
 import medusa as mds
-from medusa import components
-from medusa import meeg
+from medusa.core.data.experiment import ExperimentData
+from medusa.core.data.recording import ConsistencyChecker
+from medusa.core.pipeline import Algorithm, ProcessingClassWrapper, ProcessingMethod
+from medusa.ml.dataset import Dataset
+from medusa.core.data.biosignals import eeg
 
 
-class ERPSpellerData(components.ExperimentData):
+class ERPSpellerData(ExperimentData):
     """Experiment info class for ERP-based spellers. It supports nested
     multi-level paradigms. This unified class can be used to represent a run
     of every ERP stimulation paradigm designed to date, and is the expected
@@ -452,7 +454,7 @@ class ERPSpellerData(components.ExperimentData):
         return cls(**dict_data)
 
 
-class ERPSpellerDataset(components.Dataset):
+class ERPSpellerDataset(Dataset):
 
     """This class inherits from medusa.data_structures.Dataset, increasing
     its functionality for datasets with data from ERP-based spellers. It
@@ -466,7 +468,7 @@ class ERPSpellerDataset(components.Dataset):
 
         Parameters
         ----------
-        channel_set : meeg.EEGChannelSet
+        channel_set : eeg.EEGChannelSet
             EEG channel set. Only these channels will be kept in the dataset,
             the others will be discarded. Also, the signals will be rearranged,
             keeping the same channel order, avoiding errors in future stages of
@@ -622,7 +624,7 @@ class ERPSpellerDataset(components.Dataset):
             Standard consistency checker for ERP feature extraction
         """
         # Create consistency checker
-        checker = components.ConsistencyChecker()
+        checker = ConsistencyChecker()
         # Check that the biosignal exists
         checker.add_consistency_rule(
             rule='check-attribute',
@@ -631,7 +633,7 @@ class ERPSpellerDataset(components.Dataset):
         checker.add_consistency_rule(
             rule='check-attribute-type',
             rule_params={'attribute': self.biosignal_att_key,
-                         'type': meeg.EEG}
+                         'type': eeg.EEG}
         )
         # Check channels
         checker.add_consistency_rule(
@@ -696,7 +698,7 @@ class ERPSpellerDataset(components.Dataset):
         return recording
 
 
-class StandardPreprocessing(components.ProcessingMethod):
+class StandardPreprocessing(ProcessingMethod):
     """Just the common preprocessing applied in ERP-based spellers. Simple,
     quick and effective: frequency IIR filter followed by common average
     reference (CAR) spatial filter.
@@ -790,7 +792,7 @@ class StandardPreprocessing(components.ProcessingMethod):
         return dataset
 
 
-class StandardFeatureExtraction(components.ProcessingMethod):
+class StandardFeatureExtraction(ProcessingMethod):
     """Standard feature extraction method for ERP-based spellers. Basically,
     it gets the raw epoch for each stimulation event.
     """
@@ -1621,11 +1623,11 @@ def split_erp_features(sets_pct, trial_idx_key="trial_idx", **kwargs):
     return sets
 
 
-class ERPSpellerModel(components.Algorithm):
+class ERPSpellerModel(Algorithm):
     """Skeleton class for ERP-based spellers models. This class inherits from
-    components.Algorithm. Therefore, it can be used to create standalone
+    Algorithm. Therefore, it can be used to create standalone
     algorithms that can be used in compatible apps from medusa-platform
-    for online experiments. See components.Algorithm to know more about this
+    for online experiments. See Algorithm to know more about this
     functionality.
 
     Related tutorials:
@@ -1870,7 +1872,7 @@ class CMDModelRLDA(ERPSpellerModel):
             target_fs=self.settings['f_target_fs'],
         ))
         # Feature classification (rLDA)
-        clf = components.ProcessingClassWrapper(
+        clf = ProcessingClassWrapper(
             LinearDiscriminantAnalysis(solver='eigen', shrinkage='auto'),
             fit=[], predict_proba=['y_pred']
         )
@@ -2027,7 +2029,7 @@ class CMDModelEEGNet(ERPSpellerModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGNet
+        from medusa.ml.deep_learning import EEGNet
         # Preprocessing (bandpass IIR filter [0, 10] Hz + CAR)
         self.add_method('prep_method', StandardPreprocessing(cutoff=(0.5, 45)))
         # Feature extraction (epochs [0, 1000] ms + resampling to 128 Hz)
@@ -2198,7 +2200,7 @@ class CMDModelEEGInception(ERPSpellerModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGInceptionV1
+        from medusa.ml.deep_learning import EEGInceptionV1
         # Preprocessing (bandpass IIR filter [0.5, 45] Hz + CAR)
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=(0.5, 45)))
@@ -2386,7 +2388,7 @@ class CSDModelEEGInception(ERPSpellerModel):
         if not self.is_configured:
             raise ValueError('Function configure must be called first!')
         # Only import deep learning models if necessary
-        from medusa.deep_learning_models import EEGInceptionV1
+        from medusa.ml.deep_learning import EEGInceptionV1
         # Preprocessing (bandpass IIR filter [0, 10] Hz + CAR)
         self.add_method('prep_method',
                         StandardPreprocessing(cutoff=(0.5, 45)))

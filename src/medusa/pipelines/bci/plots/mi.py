@@ -1,13 +1,10 @@
-from medusa import frequency_filtering as ff
-from medusa import spatial_filtering as sf
+﻿from medusa.signal import frequency_filtering as ff, spatial_filtering as sf
 # from medusa.storage.medusa_data import MedusaData
-from medusa.components import Recording
+from medusa.core.data.recording import Recording
 # from medusa.bci.mi_feat_extraction import extract_mi_trials_from_midata
-from medusa.signal_metrics import signed_r2
 # from medusa.bci.mi_models import MIModelSettings
 from medusa.plots import head_plots
-from medusa.bci.mi_paradigms import StandardPreprocessing, \
-    StandardFeatureExtraction, MIDataset
+from medusa.pipelines.bci.mi_paradigms import StandardFeatureExtraction, MIDataset
 
 import numpy as np
 from scipy.ndimage import uniform_filter1d
