@@ -116,7 +116,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -993,7 +993,9 @@ dependencies = [
     { name = "dill" },
     { name = "h5py" },
     { name = "matplotlib" },
+    { name = "medusa-style" },
     { name = "numpy" },
+    { name = "pyside6" },
     { name = "pywavelets" },
     { name = "scikit-learn" },
     { name = "scipy" },
@@ -1011,7 +1013,6 @@ all = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
     { name = "mypy" },
-    { name = "pyside6" },
     { name = "pytest" },
     { name = "pytest-benchmark" },
     { name = "pytest-cov" },
@@ -1033,9 +1034,6 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
-widgets = [
-    { name = "pyside6" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -1043,7 +1041,8 @@ requires-dist = [
     { name = "dill", specifier = ">=0.3.7" },
     { name = "h5py", specifier = ">=3.9" },
     { name = "matplotlib", specifier = ">=3.7" },
-    { name = "medusa-kernel", extras = ["widgets", "dev", "docs"], marker = "extra == 'all'" },
+    { name = "medusa-kernel", extras = ["dev", "docs"], marker = "extra == 'all'" },
+    { name = "medusa-style", git = "https://github.com/medusabci/medusa-style.git?branch=main" },
     { name = "mike", marker = "extra == 'docs'", specifier = ">=2.1" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-gen-files", marker = "extra == 'docs'", specifier = ">=0.5" },
@@ -1053,7 +1052,7 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=1.24" },
-    { name = "pyside6", marker = "extra == 'widgets'", specifier = ">=6.5" },
+    { name = "pyside6", specifier = ">=6.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "pytest-benchmark", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
@@ -1064,7 +1063,16 @@ requires-dist = [
     { name = "statsmodels", specifier = ">=0.14" },
     { name = "tqdm", specifier = ">=4.65" },
 ]
-provides-extras = ["widgets", "dev", "docs", "all"]
+provides-extras = ["dev", "docs", "all"]
+
+[[package]]
+name = "medusa-style"
+version = "0.2.0"
+source = { git = "https://github.com/medusabci/medusa-style.git?branch=main#7ed92d1e96ec88f02fd4385136ba570512cf39d3" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "pyside6" },
+]
 
 [[package]]
 name = "mergedeep"
@@ -1528,7 +1536,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
