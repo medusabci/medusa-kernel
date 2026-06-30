@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<!-- saved from url=(0026)https://www.medusabci.com/ -->
+<html lang="en" class=" js no-touch"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+		<!-- SEO -->
+		<title>MEDUSA©</title>
+		<meta name="description" content="Open-source python-based platform for modern non-invasive Brain−Computer Interfaces (BCIs) and neuroscience experiments">
+		<meta property="og:site_name" content="MEDUSA©">
+		<meta property="og:title" content="MEDUSA©">
+		<meta property="og:description" content="Open-source python-based platform for modern non-invasive Brain−Computer Interfaces (BCIs) and neuroscience experiments">
+		
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="author" content="Biomedical Engineering Group">
+		<meta name="keywords" content="MEDUSA, brain-computer interface, BCI, human-machine interface, HMI, electroencephalography, EEG, open-source, python, c-VEP, VEP, ERP, P300, motor imagery, SMR, neurofeedback">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<script type="application/ld+json">
+		{
+		  "@context": "https://schema.org",
+		  "@type": "WebSite",
+		  "name": "MEDUSA©",
+		  "alternateName": "Medusa BCI",
+		  "url": "https://www.medusabci.com/"
+		}
+		</script>
+			
+  		<!-- SITE TITLE -->
+		<title>MEDUSA©</title>
+
+        <!-- FAVICON AND TOUCH ICONS -->
+		<link rel="shortcut icon" href="https://www.medusabci.com/static/images/medusa_icon_60x60.png" type="image/x-icon">
+		<link rel="icon" href="https://www.medusabci.com/static/images/medusa-favicon.ico" type="image/x-icon">
+        <link rel="apple-touch-icon" sizes="152x152" href="https://www.medusabci.com/static/images/medusa_icon_152x152.png">
+        <link rel="apple-touch-icon" sizes="120x120" href="https://www.medusabci.com/static/images/medusa_icon_152x152.png">
+        <link rel="apple-touch-icon" sizes="76x76" href="https://www.medusabci.com/static/images/medusa_icon_76x76.png">
+		<link rel="apple-touch-icon" href="https://www.medusabci.com/static/images/medusa_icon_60x60.png">
+		<link rel="icon" href="https://www.medusabci.com/static/images/medusa_icon_60x60.png" type="image/x-icon">
+
+		<!-- GOOGLE FONTS -->
+		<link href="./MEDUSA©_files/css2" rel="stylesheet">
+
+		<!-- BOOTSTRAP CSS -->
+		<link href="./MEDUSA©_files/bootstrap.min.css" rel="stylesheet">
+
+		<!-- FONT ICONS -->
+		<link href="./MEDUSA©_files/flaticon.css" rel="stylesheet">
+        <link rel="stylesheet" href="./MEDUSA©_files/css2(1)">
+
+		<!-- PLUGINS STYLESHEET -->
+        <link href="./MEDUSA©_files/menu.css" rel="stylesheet">
+		<link id="effect" href="./MEDUSA©_files/fade-down.css" media="all" rel="stylesheet">
+		<link href="./MEDUSA©_files/magnific-popup.css" rel="stylesheet">
+		<link href="./MEDUSA©_files/owl.carousel.min.css" rel="stylesheet">
+		<link href="./MEDUSA©_files/owl.theme.default.min.css" rel="stylesheet">
+
+		<!-- ON SCROLL ANIMATION -->
+		<link href="./MEDUSA©_files/animate.css" rel="stylesheet">
+
+		<!-- TEMPLATE CSS -->
+        <link href="./MEDUSA©_files/medusa.css" rel="stylesheet">
+        <link href="./MEDUSA©_files/spacing.css" rel="stylesheet">
+		<link href="./MEDUSA©_files/style.css" rel="stylesheet">
+
+		<!-- RESPONSIVE CSS -->
+		<link href="./MEDUSA©_files/responsive.css" rel="stylesheet">
+
+        <!-- EDITOR -->
+        <script src="./MEDUSA©_files/tinymce.min.js.descarga" referrerpolicy="origin"></script>
+		
+         
+
+	<style type="text/css"></style><style type="text/css">.privacypolicies-com---reset{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;-ms-overflow-style:scrollbar;-webkit-tap-highlight-color:rgba(0,0,0,0);margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";font-size:1rem;font-weight:400;line-height:1.5;color:#212529;text-align:left;background-color:#fff}.privacypolicies-com---reset *,.privacypolicies-com---reset *::before,.privacypolicies-com---reset *::after{box-sizing:border-box}.privacypolicies-com---reset a,.privacypolicies-com---reset li,.privacypolicies-com---reset p,.privacypolicies-com---reset h1,.privacypolicies-com---reset h2,.privacypolicies-com---reset input,.privacypolicies-com---reset button,.privacypolicies-com---reset select{border-style:none;box-shadow:none;margin:0;padding:0;border:0;font-size:100%;font:inherit;vertical-align:baseline;outline:none}@-ms-viewport{.privacypolicies-com---reset{width:device-width}}.privacypolicies-com---reset [tabindex="-1"]:focus{outline:0 !important}.privacypolicies-com---reset h1,.privacypolicies-com---reset h2,.privacypolicies-com---reset h3,.privacypolicies-com---reset h4,.privacypolicies-com---reset h5,.privacypolicies-com---reset h6{margin-top:0;margin-bottom:0;color:#000}.privacypolicies-com---reset p{margin-top:0;margin-bottom:1rem}.privacypolicies-com---reset div{display:block}.privacypolicies-com---reset ol,.privacypolicies-com---reset ul,.privacypolicies-com---reset dl{margin-top:0;margin-bottom:1rem}.privacypolicies-com---reset ol ol,.privacypolicies-com---reset ul ul,.privacypolicies-com---reset ol ul,.privacypolicies-com---reset ul ol{margin-bottom:0}.privacypolicies-com---reset b,.privacypolicies-com---reset strong{font-weight:bolder}.privacypolicies-com---reset small{font-size:80%}.privacypolicies-com---reset a{color:#007bff;text-decoration:none;background-color:rgba(0,0,0,0);-webkit-text-decoration-skip:objects}.privacypolicies-com---reset a:hover{color:#0056b3;text-decoration:underline}.privacypolicies-com---reset a:not([href]):not([tabindex]){color:inherit;text-decoration:none}.privacypolicies-com---reset a:not([href]):not([tabindex]):hover,.privacypolicies-com---reset a:not([href]):not([tabindex]):focus{color:inherit;text-decoration:none}.privacypolicies-com---reset a:not([href]):not([tabindex]):focus{outline:0}.privacypolicies-com---reset label{display:inline-block;margin-bottom:.5rem}.privacypolicies-com---reset button{border-radius:2px;padding:.5rem 1rem;outline:none;background:#dcdae5;color:#111;cursor:pointer;border:none;transition:all ease .3s}.privacypolicies-com---reset button:focus{outline:none}.privacypolicies-com---reset select{border-style:none}.privacypolicies-com---reset input,.privacypolicies-com---reset button,.privacypolicies-com---reset select,.privacypolicies-com---reset optgroup,.privacypolicies-com---reset textarea{margin:0;font-family:inherit;font-size:inherit;line-height:inherit}.privacypolicies-com---reset button,.privacypolicies-com---reset input{overflow:visible}.privacypolicies-com---reset button,.privacypolicies-com---reset select{text-transform:none}.privacypolicies-com---reset button,.privacypolicies-com---reset html [type=button],.privacypolicies-com---reset [type=reset],.privacypolicies-com---reset [type=submit]{-webkit-appearance:button}.privacypolicies-com---reset button::-moz-focus-inner,.privacypolicies-com---reset [type=button]::-moz-focus-inner,.privacypolicies-com---reset [type=reset]::-moz-focus-inner,.privacypolicies-com---reset [type=submit]::-moz-focus-inner{padding:0;border-style:none}.privacypolicies-com---reset input[type=radio],.privacypolicies-com---reset input[type=checkbox]{box-sizing:border-box;padding:0}.privacypolicies-com---reset [hidden]{display:none !important}</style><style type="text/css">.privacypolicies-com---nb{overflow:auto;z-index:99999999999;font-size:16px}.privacypolicies-com---nb .cc-nb-main-container{padding:3rem}.privacypolicies-com---nb .cc-nb-title{font-size:24px;font-weight:600}.privacypolicies-com---nb .cc-nb-text{font-size:16px;margin:0 0 1.25rem 0}.privacypolicies-com---nb .cc-nb-okagree,.privacypolicies-com---nb .cc-nb-reject,.privacypolicies-com---nb .cc-nb-changep{font-weight:bold;font-size:14px;margin-right:.25rem !important;margin-bottom:.25rem !important}@media(max-width: 480px){.privacypolicies-com---nb .cc-nb-okagree,.privacypolicies-com---nb .cc-nb-reject,.privacypolicies-com---nb .cc-nb-changep{display:block;width:100%}}.privacypolicies-com---nb-headline{right:0;top:auto;bottom:0;left:0;max-width:100%;position:relative}@media(max-width: 320px),(max-height: 480px){.privacypolicies-com---nb-headline{overflow:auto;height:200px;max-width:100%;right:0;top:auto;bottom:0;left:auto;position:fixed}}.privacypolicies-com---nb-simple{right:0;top:auto;bottom:0;left:auto;max-width:50%;position:fixed}@media screen and (max-width: 600px){.privacypolicies-com---nb-simple{max-width:80%}}@media(max-width: 320px),(max-height: 480px){.privacypolicies-com---nb-simple{overflow:auto;height:200px;max-width:100%}}.privacypolicies-com---nb-interstitial-overlay{position:fixed;top:0;left:0;height:100%;width:100%;background:rgba(0,0,0,.8);z-index:9999999999}.privacypolicies-com---nb-interstitial{right:3vw;top:3vh;left:3vw;max-width:100%;position:fixed}@media(max-width: 320px),(max-height: 480px){.privacypolicies-com---nb-interstitial{overflow:auto;height:200px;right:0;top:auto;bottom:0;left:auto;position:fixed}}.privacypolicies-com---nb-standalone{position:fixed;top:0;left:0;height:100%;width:100%}@media(max-width: 320px),(max-height: 480px){.privacypolicies-com---nb-standalone{overflow:auto;height:200px;max-width:100%;right:0;top:auto;bottom:0;left:auto;position:fixed}}.privacypolicies-com---pc-overlay{width:100%;height:100%;position:fixed;background:rgba(0,0,0,.5);z-index:999999999999;top:0;left:0;display:none}@media screen and (max-width: 600px){.privacypolicies-com---pc-overlay{overflow-y:scroll}}.privacypolicies-com---pc-dialog{position:absolute;margin:30px auto;width:750px;max-width:90%;height:auto;left:0;right:0}.privacypolicies-com---pc-dialog>div{width:100%}.privacypolicies-com---pc-dialog .cc-pc-container{width:100%;display:flex;background:#fff;flex-direction:column}.privacypolicies-com---pc-dialog .cc-pc-head{background:#fff;color:#111;display:flex;flex-direction:row;justify-content:space-between}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-pc-head{flex-direction:column}}.privacypolicies-com---pc-dialog .cc-pc-head-title{display:flex;padding-left:15px;flex-direction:column;justify-content:center;align-items:baseline}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-pc-head-title{align-items:center;padding:15px 0 0 0}}.privacypolicies-com---pc-dialog .cc-pc-head-title-text{font-size:16px;line-height:1.5;margin:0}.privacypolicies-com---pc-dialog .cc-pc-head-title-headline{font-size:20px;font-weight:600;margin:0}.privacypolicies-com---pc-dialog .cc-pc-head-lang{display:flex;align-items:center;padding-right:15px;min-height:80px;justify-content:center}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-pc-head-lang{padding:15px 0;min-height:20px}}.privacypolicies-com---pc-dialog .cc-pc-head-close{display:flex;align-items:center;justify-content:center;margin-left:15px}.privacypolicies-com---pc-dialog .cc-cp-body{display:flex;flex-direction:row;align-items:stretch;background:#292929;color:#f5f5f5;border-bottom:none}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-cp-body{flex-direction:column}}.privacypolicies-com---pc-dialog .cc-cp-body-tabs{font-family:Arial,sans-serif !important;width:150px;margin:0;padding:0;background:#e6e6e6;min-width:150px}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-cp-body-tabs{width:100%}}.privacypolicies-com---pc-dialog .cc-cp-body-tabs-item{margin:0;padding:0;float:left;display:block;width:100%;color:#666;background:#e6e6e6;border-bottom:1px solid #ccc;border-right:1px solid #ccc;transition:all ease .1s;box-sizing:content-box}@media screen and (max-width: 600px){.privacypolicies-com---pc-dialog .cc-cp-body-tabs-item{border-right:0}}.privacypolicies-com---pc-dialog .cc-cp-body-tabs-item[active=true]{background:#292929;color:#f5f5f5}.privacypolicies-com---pc-dialog .cc-cp-body-tabs-item-link{text-decoration:none;color:#666;display:block;padding:10px 5px 10px 10px;font-weight:700;font-size:12px;line-height:19px;position:relative}.privacypolicies-com---pc-dialog .cc-cp-body-content{background:#292929;color:#f5f5f5}.privacypolicies-com---pc-dialog .cc-cp-body-content-entry{width:100%;display:none;padding:25px;box-sizing:border-box}.privacypolicies-com---pc-dialog .cc-cp-body-content-entry[active=true]{display:block}.privacypolicies-com---pc-dialog .cc-cp-body-content-entry-title{font-size:24px;font-weight:600}.privacypolicies-com---pc-dialog .cc-cp-body-content-entry-text{font-size:16px;line-height:1.5}.privacypolicies-com---pc-dialog .cc-cp-foot{background:#f2f2f2;display:flex;flex-direction:row;align-items:center;border-top:1px solid #ccc;justify-content:space-between}.privacypolicies-com---pc-dialog .cc-cp-foot-byline{padding:20px 10px;font-size:14px;color:#333;display:block !important}.privacypolicies-com---pc-dialog .cc-cp-foot-byline a{color:#999}.privacypolicies-com---pc-dialog .cc-cp-foot-save{margin-right:10px;opacity:.9;transition:all ease .3s;font-size:14px;font-weight:bold;height:auto}.privacypolicies-com---pc-dialog .cc-cp-foot-save:hover{opacity:1}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox{position:absolute;margin:2px 0 0 16px;cursor:pointer;appearance:none}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox+label{position:relative;padding:4px 0 0 50px;line-height:2em;cursor:pointer;display:inline;font-size:14px}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox+label:before{content:"";position:absolute;display:block;left:0;top:0;width:40px;height:24px;border-radius:16px;background:#fff;border:1px solid #d9d9d9;-webkit-transition:all .3s;transition:all .3s}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox+label:after{content:"";position:absolute;display:block;left:0px;top:0px;width:24px;height:24px;border-radius:16px;background:#fff;border:1px solid #d9d9d9;-webkit-transition:all .3s;transition:all .3s}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox+label:hover:after{box-shadow:0 0 5px rgba(0,0,0,.3)}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox:checked+label:after{margin-left:16px}.privacypolicies-com---pc-dialog input[type=checkbox].cc-custom-checkbox:checked+label:before{background:#55d069}</style><style type="text/css">.privacypolicies-com---palette-dark.privacypolicies-com---nb{background-color:#111;color:#fff}.privacypolicies-com---palette-dark .cc-nb-title{color:#fff}.privacypolicies-com---palette-dark .cc-nb-text{color:#fff}.privacypolicies-com---palette-dark .cc-nb-text a{color:#fff;text-decoration:underline}.privacypolicies-com---palette-dark .cc-nb-text a:hover{text-decoration:none}.privacypolicies-com---palette-dark .cc-nb-text a:focus{box-shadow:0 0 0 2px #3dd000}.privacypolicies-com---palette-dark .cc-nb-okagree{color:#000;background-color:#ff0}.privacypolicies-com---palette-dark .cc-nb-okagree:focus{box-shadow:0 0 0 2px #3dd000}.privacypolicies-com---palette-dark .cc-nb-reject{color:#000;background-color:#ff0}.privacypolicies-com---palette-dark .cc-nb-reject:focus{box-shadow:0 0 0 2px #3dd000}.privacypolicies-com---palette-dark .cc-nb-changep{background-color:#eaeaea;color:#111}.privacypolicies-com---palette-dark .cc-nb-changep:focus{box-shadow:0 0 0 2px #3dd000}.privacypolicies-com---palette-dark .cc-pc-container{background:#212121}.privacypolicies-com---palette-dark .cc-pc-head{background:#212121;color:#fff;border-bottom:1px solid #111}.privacypolicies-com---palette-dark .cc-pc-head-title-headline{color:#fff}.privacypolicies-com---palette-dark .cc-pc-head-title-text{color:#fff}.privacypolicies-com---palette-dark .cc-pc-head-lang select{color:#212121}.privacypolicies-com---palette-dark .cc-pc-head-lang select:focus{box-shadow:0 0 0 2px #ff0}.privacypolicies-com---palette-dark .cc-pc-head-close{background:none;color:#e6e6e6}.privacypolicies-com---palette-dark .cc-pc-head-close:active,.privacypolicies-com---palette-dark .cc-pc-head-close:focus{border:2px solid #ff0}.privacypolicies-com---palette-dark .cc-cp-body{background:#292929 !important;color:#f5f5f5}.privacypolicies-com---palette-dark .cc-cp-body-tabs{color:#666;background:#e6e6e6}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item{border-right-color:#ccc;border-bottom-color:#ccc}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item-link{color:#666}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item-link:hover{color:#666}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item-link:focus{box-shadow:0 0 0 2px #292929}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item[active=true]{background:#292929 !important}.privacypolicies-com---palette-dark .cc-cp-body-tabs-item[active=true] a{color:#f5f5f5}.privacypolicies-com---palette-dark .cc-cp-body-content{background:#292929 !important;color:#f5f5f5}.privacypolicies-com---palette-dark .cc-cp-body-content-entry-title{color:#fff}.privacypolicies-com---palette-dark .cc-cp-body-content-entry-text{color:#fff}.privacypolicies-com---palette-dark .cc-cp-body-content-entry a{color:#fff;text-decoration:underline}.privacypolicies-com---palette-dark .cc-cp-body-content-entry a:hover{text-decoration:none}.privacypolicies-com---palette-dark .cc-cp-body-content-entry a:focus{box-shadow:0 0 0 2px #ff0}.privacypolicies-com---palette-dark .cc-cp-foot{background:#212121;border-top-color:#111}.privacypolicies-com---palette-dark .cc-cp-foot-byline{color:#fff}.privacypolicies-com---palette-dark .cc-cp-foot-byline a:focus{box-shadow:0 0 0 2px #ff0}.privacypolicies-com---palette-dark .cc-cp-foot-save{background:#ff0;color:#000}.privacypolicies-com---palette-dark .cc-cp-foot-save:focus{box-shadow:0 0 0 2px #3dd000}</style><style type="text/css">.privacypolicies-com---palette-light.privacypolicies-com---nb{background-color:#f2f2f2;color:#111}.privacypolicies-com---palette-light .cc-nb-title{color:#111}.privacypolicies-com---palette-light .cc-nb-text{color:#111}.privacypolicies-com---palette-light .cc-nb-text a{color:#111;text-decoration:underline}.privacypolicies-com---palette-light .cc-nb-text a:hover{text-decoration:none}.privacypolicies-com---palette-light .cc-nb-text a:focus{box-shadow:0 0 0 2px #ff8d00}.privacypolicies-com---palette-light .cc-nb-okagree{color:#fff;background-color:green}.privacypolicies-com---palette-light .cc-nb-okagree:focus{box-shadow:0 0 0 2px #ff8d00}.privacypolicies-com---palette-light .cc-nb-reject{color:#fff;background-color:green}.privacypolicies-com---palette-light .cc-nb-reject:focus{box-shadow:0 0 0 2px #ff8d00}.privacypolicies-com---palette-light .cc-nb-changep{background-color:#eaeaea;color:#111}.privacypolicies-com---palette-light .cc-nb-changep:focus{box-shadow:0 0 0 2px #ff8d00}.privacypolicies-com---palette-light .cc-pc-container{background:#fff}.privacypolicies-com---palette-light .cc-pc-head{background:#fff;color:#111;border-bottom:1px solid #ccc}.privacypolicies-com---palette-light .cc-pc-head-title-headline{color:#111}.privacypolicies-com---palette-light .cc-pc-head-title-text{color:#111}.privacypolicies-com---palette-light .cc-pc-head-lang select{color:#111}.privacypolicies-com---palette-light .cc-pc-head-lang select:focus{box-shadow:0 0 0 2px green}.privacypolicies-com---palette-light .cc-pc-head-close{background:none;color:#666}.privacypolicies-com---palette-light .cc-pc-head-close:active,.privacypolicies-com---palette-light .cc-pc-head-close:focus{border:2px solid green}.privacypolicies-com---palette-light .cc-cp-body{background:#fbfbfb !important;color:#111}.privacypolicies-com---palette-light .cc-cp-body-tabs{color:#666;background:#e6e6e6}.privacypolicies-com---palette-light .cc-cp-body-tabs-item{border-right-color:#ccc;border-bottom-color:#ccc}.privacypolicies-com---palette-light .cc-cp-body-tabs-item-link{color:#666}.privacypolicies-com---palette-light .cc-cp-body-tabs-item-link:hover{color:#666}.privacypolicies-com---palette-light .cc-cp-body-tabs-item-link:focus{box-shadow:0 0 0 2px #fbfbfb}.privacypolicies-com---palette-light .cc-cp-body-tabs-item[active=true]{background:#fbfbfb !important}.privacypolicies-com---palette-light .cc-cp-body-tabs-item[active=true] a{color:#111}.privacypolicies-com---palette-light .cc-cp-body-content{background:#fbfbfb !important;color:#111}.privacypolicies-com---palette-light .cc-cp-body-content-entry-title{color:#111}.privacypolicies-com---palette-light .cc-cp-body-content-entry-text{color:#111}.privacypolicies-com---palette-light .cc-cp-body-content-entry a{color:#111;text-decoration:underline}.privacypolicies-com---palette-light .cc-cp-body-content-entry a:hover{text-decoration:none}.privacypolicies-com---palette-light .cc-cp-body-content-entry a:focus{box-shadow:0 0 0 2px green}.privacypolicies-com---palette-light .cc-cp-foot{background:#f2f2f2;border-top-color:#ccc}.privacypolicies-com---palette-light .cc-cp-foot-byline{color:#111}.privacypolicies-com---palette-light .cc-cp-foot-byline a:focus{box-shadow:0 0 0 2px green}.privacypolicies-com---palette-light .cc-cp-foot-save{background:green;color:#fff}.privacypolicies-com---palette-light .cc-cp-foot-save:focus{box-shadow:0 0 0 2px #ff8d00}</style><style type="text/css">.privacypolicies-com---is-hidden{display:none}.privacypolicies-com---is-visible{display:block}</style><style type="text/css">.privacypolicies-com---nb.privacypolicies-com---lang-ar,.privacypolicies-com---pc-overlay.privacypolicies-com---lang-ar{text-align:right}</style><script type="text/javascript" initial-cookie-consent="tracking" src="./MEDUSA©_files/js" async=""></script><script type="text/javascript" initial-cookie-consent="tracking">
+                  window.dataLayer = window.dataLayer || [];
+                  function gtag(){dataLayer.push(arguments);}
+                  gtag('js', new Date());
+
+                  gtag('config', 'G-TR1SSRES4Q');
+                </script></head>
+
+	<body><div class="wsmenucontainer">
+
+		<!-- PRELOADER SPINNER
+		============================================= -->
+		<div id="loading" class="red-loading" style="display: none;">
+			<div id="loading-center">
+				<div id="loading-center-absolute" style="display: none;">
+					<div class="object" id="object_one"></div>
+					<div class="object" id="object_two"></div>
+					<div class="object" id="object_three"></div>
+					<div class="object" id="object_four"></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- PAGE CONTENT
+		============================================= -->
+		<div id="page" class="page">
+
+			<!-- HEADER
+			============================================= -->
+			<header id="header" class="header 
+     tra-menu navbar-light 
+">
+				<div class="header-wrapper">
+
+					<!-- MOBILE HEADER -->
+				    <div class="wsmobileheader clearfix">
+				    	<span class="smllogo"><img src="./MEDUSA©_files/logo-01.png" alt="mobile-logo"></span>
+				    	<a id="wsnavtoggle" class="wsanimated-arrow"><span></span></a>
+				 	</div>
+
+				 	<!-- NAVIGATION MENU -->
+				  	<div class="wsmainfull menu clearfix">
+	    				<div class="wsmainwp clearfix">
+
+	    					<!-- HEADER LOGO -->
+	    					<div class="desktoplogo"><a href="https://www.medusabci.com/home/" class="logo-black"><img src="./MEDUSA©_files/logo-01.png" alt="header-logo"></a></div>
+	    					<div class="desktoplogo"><a href="https://www.medusabci.com/home/" class="logo-white"><img src="./MEDUSA©_files/logo-white.png" alt="header-logo"></a></div>
+
+	    					<!-- MAIN MENU -->
+	      					<nav class="wsmenu clearfix"><div class="overlapblackbg"></div>
+	        					<ul class="wsmenu-list nav-red-hover">
+									<!-- HOME -->
+									<li aria-haspopup="true"><span class="wsmenu-click"><i class="wsmenu-arrow"></i></span><a href="https://www.medusabci.com/home/">Home<span class="wsarrow"></span></a>
+	            						<ul class="sub-menu">
+	            							<li aria-haspopup="true"><a href="https://www.medusabci.com/home/#strengths">Strengths</a></li>
+	            							<li aria-haspopup="true"><a href="https://www.medusabci.com/home/#features">Features</a></li>
+											<li aria-haspopup="true"><a href="https://www.medusabci.com/home/#services">Services</a></li>
+											<li aria-haspopup="true"><a href="https://www.medusabci.com/home/#faq">FAQ</a></li>
+											<li aria-haspopup="true"><a href="https://www.medusabci.com/home/#start">How to start</a></li>
+						           		</ul>
+								    </li>
+
+									<!-- ABOUT -->
+									<li class="nl-simple" aria-haspopup="true"><a href="https://www.medusabci.com/about/">About</a></li>
+
+									<!-- COMMUNITY -->
+                                    <!--<li class="nl-simple" aria-haspopup="true"><a href="https://forum.medusabci.com">Community</a></li>-->
+                                    <li class="nl-simple" aria-haspopup="true"><a href="https://discord.gg/G8dWPXtBsC">Community</a></li>
+									<!--
+                                    <li aria-haspopup="true"><a href="/community/">Community <span class="wsarrow"></span></a>
+	            						<ul class="sub-menu">
+	            							<li aria-haspopup="true"><a href="/community/blog/">Blog</a></li>
+	            							<li aria-haspopup="true"><a href="/community/forum/" target="_blank">Forum</a></li>
+						           		</ul>
+								    </li>
+								    -->
+
+									<!-- SOLUTIONS -->
+									<li aria-haspopup="true"><span class="wsmenu-click"><i class="wsmenu-arrow"></i></span><a href="https://www.medusabci.com/solutions/get-started/">Solutions <span class="wsarrow"></span></a>
+	            						<ul class="sub-menu">
+	            							<li aria-haspopup="true"><a href="https://www.medusabci.com/solutions/get-started/">Getting started</a></li>
+	            							<li aria-haspopup="true"><a href="https://www.medusabci.com/solutions/medusa-platform/">MEDUSA© Platform</a></li>
+											<li aria-haspopup="true"><a href="https://www.medusabci.com/solutions/medusa-kernel/">MEDUSA© Kernel</a></li>
+                                            <li aria-haspopup="true"><a href="https://github.com/medusabci/medusa-analyzer">MEDUSA© Analyzer</a></li>
+											<li aria-haspopup="true"><a href="https://www.medusabci.com/solutions/services/">Our services</a></li>
+						           		</ul>
+								    </li>
+
+									<!-- APP MARKET -->
+									<li class="nl-simple" aria-haspopup="true"><a href="https://www.medusabci.com/market/">App Market</a></li>
+
+                                    
+
+                                        <!-- BUTTON LOGIN -->
+                                        <li class="nl-simple" aria-haspopup="true">
+                                            <a href="https://www.medusabci.com/login/" class="btn btn-red tra-white-hover last-link">Login</a>
+                                        </li>
+
+                                        <!-- BUTTON SIGN UP -->
+                                        <li class="nl-simple" aria-haspopup="true">
+                                            <a href="https://www.medusabci.com/signup/" class="btn btn-tra-white orange-red-hover last-link">Sign up</a>
+                                        </li>
+
+                                    
+	        					</ul>
+	        				</nav>	<!-- END MAIN MENU -->
+	    				</div>
+	    			</div>	<!-- END NAVIGATION MENU -->
+				</div>     <!-- End header-wrapper -->
+			</header>	<!-- END HEADER -->
+
+            
+
+<!-- HERO
+============================================= -->
+<section id="medusa-hero" class="bg-scroll rel hero-section division">
+	<div class="container">
+
+		<!-- HERO TITLE -->
+		<div class="row">
+			<div class="col-md-9 col-lg-8">
+				<div class="hero-17-title white-color mb-50">
+					<h2 class="h2-xl">This is MEDUSA<sup>©</sup></h2>
+				</div>
+			</div>
+		</div>
+
+		<div class="row">
+
+			<!-- HERO TEXT -->
+			<div class="col-md-6 col-lg-5">
+				<div class="hero-17-txt">
+
+					<!-- DESCRIPTION -->
+					<p class="p-xl white-color">
+						A novel general-purpose platform for modern non-invasive Brain−Computer Interfaces (BCIs). Let's get started downloading the binaries or taking a look at our open-source code!
+					</p>
+
+					<!-- DOWNLOAD BUTTONS -->
+					<a href="https://www.medusabci.com/static/files/medusa-installer/medusa_installer_amd64_latest.exe" class="os-btn bg-white d-flex align-items-center">
+						<div class="os-btn-ico">
+							<div class="ico-50">
+								<img loading="lazy" src="./MEDUSA©_files/windows.png" alt="os-icon">
+							</div>
+						</div>
+						<div class="os-btn-txt">
+							<h6 class="h6-lg">Download for Windows</h6>
+							<p>Release v2024 (x64)</p>
+						</div>
+					</a>
+					<a href="https://github.com/medusabci" target="_blank" class="os-btn bg-white d-flex align-items-center">
+						<div class="os-btn-ico">
+							<div class="ico-50">
+								<img loading="lazy" src="./MEDUSA©_files/github.png" alt="os-icon">
+							</div>
+						</div>
+						<div class="os-btn-txt">
+                            <h6 class="h6-lg">Get the source code</h6>
+							<p>v2025 [RHEA]</p>
+						</div>
+					</a>
+
+
+					<!-- STRENGTHS LIST -->
+					<ul class="advantages white-color clearfix mt-30">
+						<li class="first-li"><p>Open-source</p></li>
+						<li class="li"><p>Python-based</p></li>
+						<li class="last-li"><p>LSL compatible</p></li>
+					</ul>
+
+				</div>
+			</div>
+
+			<!-- HERO IMAGE -->
+			<div class="col-md-6 col-lg-7">
+				<div class="hero-17-img video-preview">
+					<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/dashboard-04.png" alt="hero-image">
+				</div>
+			</div>
+
+		</div>    <!-- End row -->
+	</div>	   <!-- End container -->
+</section>	<!-- END HERO-17 -->
+
+
+    
+                    <!-- CITE US
+============================================= -->
+<section id="cite-us" class="content-7 bg-whitesmoke pt-20 pb-20 content-section division">
+	<div class="container">
+		<div class="row d-flex align-items-center justify-content-center">
+
+			<div class="col-lg-12 col-xl-10">
+				<div class="section-title title-01">
+					<span class="section-id txt-upcase">How to cite us</span>
+				</div>
+				<div class="txt-block">
+					<p class="p-sm pb-0 mb-0" style="text-align: justify">
+						Eduardo Santamaría-Vázquez, Víctor Martínez-Cagigal, Diego Marcos-Martínez,
+                        Víctor Rodríguez-González, Sergio Pérez-Velasco, Selene Moreno-Calderón,
+                        Roberto Hornero, MEDUSA©: A novel Python-based software ecosystem to accelerate
+                        brain-computer interface and cognitive neuroscience research.
+                        Computer Methods and Programs in Biomedicine, 2023, DOI:
+                        <a href="https://doi.org/10.1016/j.cmpb.2023.107357" target="_blank">
+                            doi.org/10.1016/j.cmpb.2023.107357
+                        </a>.
+					</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+                
+
+
+<!-- STRENGTHS
+============================================= -->
+<section id="strengths"></section>
+<section id="features-8" class="pt-100 pb-60 features-section division">
+	<div class="container">
+
+		<!-- SECTION TITLE -->
+		<div class="row justify-content-center">
+			<div class="col-lg-10 col-xl-8">
+				<div class="section-title title-01 mb-70">
+
+					<!-- Title -->
+					<h2 class="h2-md">What makes MEDUSA<sup>©</sup> different</h2>
+
+					<!-- Text -->
+					<p class="p-xl">Our platform has been developed thinking of making the development of BCI experiments easier and more comfortable
+					</p>
+				</div>
+			</div>
+		</div>
+
+		<!-- FEATURES-4 WRAPPER -->
+		<div class="fbox-4-wrapper fbox-4-wide">
+			<div class="row row-cols-1 row-cols-md-2">
+
+
+				<!-- FEATURE BOX #1 -->
+				<div class="col">
+					<div class="fbox-4 pr-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-open-source"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">Open-source</h5>
+
+							<!-- Text -->
+							<p class="p-lg">Besides providing a simple installer, MEDUSA<sup>©</sup> is an open-source project. Feel free to develop custom apps and experiments for your research!
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+
+
+				<!-- FEATURE BOX #2 -->
+				<div class="col">
+					<div class="fbox-4 pl-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-python"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">Full python-based</h5>
+
+							<!-- Text -->
+							<p class="p-lg">MEDUSA<sup>©</sup> logic is fully written in Python, although it is possible to develop apps in other languages and use TCP/IP communication!
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+
+
+				<!-- FEATURE BOX #3 -->
+				<div class="col">
+					<div class="fbox-4 pr-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-radar"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">LSL compatible</h5>
+
+							<!-- Text -->
+							<p class="p-lg">MEDUSA<sup>©</sup> can record and process any signal streamed through lab streaming layer, being compatible with most of the biomedical devices
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+
+
+				<!-- FEATURE BOX #4 -->
+				<div class="col">
+					<div class="fbox-4 pl-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-puzzle"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">Modular design</h5>
+
+							<!-- Text -->
+							<p class="p-lg">MEDUSA<sup>©</sup> is composed of the platform (user interface and signal management) and the kernel (a PyPI package with processing functions and classes)
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+
+
+				<!-- FEATURE BOX #5 -->
+				<div class="col">
+					<div class="fbox-4 pr-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-process"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">Control signals</h5>
+
+							<!-- Text -->
+							<p class="p-lg">We know that developing BCI paradigms is tiresome, that's why MEDUSA<sup>©</sup> already provides examples for P300, c-VEP, SMR and NF apps
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+
+
+				<!-- FEATURE BOX #6 -->
+				<div class="col">
+					<div class="fbox-4 pl-25 mb-40 wow fadeInUp" style="visibility: visible; animation-name: fadeInUp;">
+
+						<!-- Icon -->
+						<div class="fbox-ico">
+							<div class="ico-65">
+								<span class="flaticon-cloud-computing"></span>
+							</div>
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+
+							<!-- Title -->
+							<h5 class="h5-md">App management on the web</h5>
+
+							<!-- Text -->
+							<p class="p-lg">Paradigms (or apps) are independent of the MEDUSA<sup>©</sup> platform and can be freely uploaded to and downloaded from this website
+							</p>
+
+						</div>
+
+					</div>
+				</div>
+			</div>
+		</div>    <!-- END FEATURES-4 WRAPPER -->
+	</div>	   <!-- End container -->
+</section>	<!-- END FEATURES-8 -->
+
+    <!-- BRANDS
+                ============================================= -->
+    <section id="brands-1" class="bg-lightgrey pt-70 pb-70 brands-section division">
+        <div class="container">
+
+
+            <!-- BRANDS TITLE -->
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="brands-title text-center">
+                        <p class="p-xl">Currently, several
+                            companies and research groups are
+                            incorporating MEDUSA© into their ongoing
+                            experiments.</p>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Brands Carousel -->
+            <div class="row">
+                <div class="col text-center">
+                    <div class="owl-carousel brands-carousel owl-loaded owl-drag">
+                        <div class="owl-stage-outer">
+                            <div class="owl-stage" style="transform: translate3d(-1814px, 0px, 0px); transition: 2s; width: 3888px;"><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://gib.tel.uva.es/?lang=en_EN" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_gib.png" alt="GIB at University of Valladolid">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://www.neuroelectrics.com/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_neuroelectrics.png" alt="Neuroelectrics">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://spauldingrehab.org/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_spaulding.png" alt="Spaulding
+                                                 Rehabilitation Institute">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://bci-lab.hochschule-rhein-waal.de/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_kleve.png" alt="BCI Kleve at Rhein-Waal University">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://complexmind.es/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_uja.png" alt="Complexmind lab at UJA">
+                                        </a>
+                                    </div>
+                                </div>
+
+                                
+                                
+                                
+                                
+                                
+
+                            <div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://gib.tel.uva.es/?lang=en_EN" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_gib.png" alt="GIB at University of Valladolid">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://www.neuroelectrics.com/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_neuroelectrics.png" alt="Neuroelectrics">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned active" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://spauldingrehab.org/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_spaulding.png" alt="Spaulding
+                                                 Rehabilitation Institute">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned active" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://bci-lab.hochschule-rhein-waal.de/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_kleve.png" alt="BCI Kleve at Rhein-Waal University">
+                                        </a>
+                                    </div>
+                                </div><div class="owl-item cloned active" style="width: 259.2px;">
+                                    <div class="brand-logo">
+                                        <a href="https://complexmind.es/" target="_blank">
+                                            <img loading="lazy" class="img-fluid" src="./MEDUSA©_files/brands_uja.png" alt="Complexmind lab at UJA">
+                                        </a>
+                                    </div>
+                                </div></div>
+                        </div>
+                        <div class="owl-nav disabled">
+                            <button type="button" role="presentation" class="owl-prev"><span aria-label="Previous">‹</span></button>
+                            <button type="button" role="presentation" class="owl-next"><span aria-label="Next">›</span></button>
+                        </div>
+                        <div class="owl-dots">
+                            <button role="button" class="owl-dot active">
+                                <span></span></button>
+                            <button role="button" class="owl-dot"><span></span>
+                            </button>
+                        </div>
+                    <div class="owl-nav disabled"><button type="button" role="presentation" class="owl-prev"><span aria-label="Previous">‹</span></button><button type="button" role="presentation" class="owl-next"><span aria-label="Next">›</span></button></div><div class="owl-dots disabled"><button role="button" class="owl-dot active"><span></span></button></div></div>
+                </div>
+            </div>    <!-- End Brands Carousel -->
+        </div>        <!-- End container -->
+    </section>
+
+
+<!-- PRODUCTIVITY - 1
+============================================= -->
+<section id="features"></section>
+<section id="content-3" class="bg-snow content-3 wide-60 content-section division">
+	<div class="container">
+
+		<!-- SECTION TITLE -->
+		<div class="row justify-content-center">
+			<div class="col-lg-10 col-xl-8">
+				<div class="section-title title-01 mb-70">
+
+					<!-- Title -->
+					<h2 class="h2-md">More productivity with less effort</h2>
+
+					<!-- Text -->
+					<p class="p-xl">Use our examples to save you work when developing BCI paradigms and experiments
+					</p>
+
+				</div>
+			</div>
+		</div>
+
+		<!-- TOP ROW -->
+		<div class="top-row pb-0">
+			<div class="row d-flex align-items-center">
+				<!-- IMAGE BLOCK -->
+				<div class="col-md-5 col-lg-6">
+					<div class="img-block left-column wow fadeInRight" style="visibility: visible; animation-name: fadeInRight;">
+						<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/img_demo.png" alt="content-image">
+					</div>
+				</div>
+
+
+				<!-- TEXT BLOCK -->
+				<div class="col-md-7 col-lg-6">
+					<div class="txt-block right-column wow fadeInLeft" style="visibility: visible; animation-name: fadeInLeft;">
+
+						<!-- Section ID -->
+						<span class="section-id txt-upcase">Use PyQt5 or Unity</span>
+
+						<!-- Title -->
+						<h2 class="h2-xs">Create your own apps</h2>
+
+						<!-- Text -->
+						<p class="p-lg"><a href="https://www.medusabci.com/solutions/medusa-platform/">MEDUSA<sup>©</sup> Platform</a> includes two demonstration examples to develop BCI experiments under PyQt5 (entirely Python) or Unity (using C#) so you can use them as initial skeletons to build your apps easily. These examples already implements signal monitoring, synchronized communication between the platform and the app, simple processing and saving
+						</p>
+
+						<!-- Tools List -->
+						<div class="tools-list ico-40 mt-30">
+
+							<!-- Text -->
+							<h6 class="h6-xl">When should I use Unity instead of PyQt5?</h6>
+
+							<p class="p-lg">We recommend using Unity when exact synchronization between stimuli and data recording need to be strongly ensured, when the attractiveness of user interface must be a key aspect of the app, or when the app is designed to be a multiplayer game. Communication between <a href="https://www.medusabci.com/solutions/medusa-platform/">MEDUSA<sup>©</sup> Platform</a> and the Unity app is performed using an asynchronous multi-client TCP/IP server
+							</p>
+						</div>
+
+						<a href="https://www.medusabci.com/solutions/get-started/" class="btn btn-medusablue tra-medusablue-hover">Check our tutorials</a>
+					</div>
+				</div>	<!-- END TEXT BLOCK -->
+
+
+			</div>
+		</div>	<!-- END TOP ROW -->
+	</div>	   <!-- End container -->
+</section>	<!-- END CONTENT-3 -->
+
+<!-- PRODUCTIVITY - 2
+============================================= -->
+<section id="tabs-2" class="bg-snow wide-60 tabs-section division pt-0">
+	<div class="container">
+		<div class="row row-cols-1 row-cols-md-2 d-flex align-items-center">
+
+			<!-- TABS NAVIGATION -->
+			<div class="col txt-block ">
+
+				<!-- Section ID -->
+				<span class="section-id txt-upcase">Select a control signal</span>
+
+				<!-- Title -->
+				<h2 class="h2-xs">Control signals</h2>
+
+				<!-- Text -->
+				<p class="p-lg mb-30">Decoding users intentions from brain activity is a major issue when developing BCIs, that's why MEDUSA<sup>©</sup> provides fully functional apps that use different state-of-the-art paradigms
+				</p>
+
+				<div class="tabs-nav clearfix">
+					<ul class="tabs-1">
+
+
+						<!-- TAB-1 LINK -->
+						<li class="tab-link current" data-tab="tab-1">
+
+							<!-- Title -->
+							<h5 class="h5-md">C-VEP speller</h5>
+
+							<!-- Text -->
+							<p class="p-md">The code-modulated visual evoked potentials (c-VEP) speller encodes commands using shifted-versions of a pseudorandom code, providing reliable, high-speed communication
+							</p>
+
+						</li>
+
+						<!-- TAB-2 LINK -->
+						<li class="tab-link" data-tab="tab-2">
+
+							<!-- Title -->
+							<h5 class="h5-md">P300 speller</h5>
+
+							<!-- Text -->
+							<p class="p-md">A classical implementation of the row-col paradigm (RCP), where rows and columns flash randomly, producing P300 responses according to the oddball paradigm
+							</p>
+
+						</li>
+
+						<!-- TAB-3 LINK -->
+						<li class="tab-link" data-tab="tab-3">
+
+							<!-- Title -->
+							<h5 class="h5-md">Motor imagery</h5>
+
+							<!-- Text -->
+							<p class="p-md">Self-regulated sensorimotor rhythms (SMR) can be used to move the ball using two degrees of freedom when imagining left/right hand movements
+							</p>
+
+						</li>
+
+						<!-- TAB-4 LINK -->
+						<li class="tab-link" data-tab="tab-4">
+
+							<!-- Title -->
+							<h5 class="h5-md">Neurofeedback</h5>
+
+							<!-- Text -->
+							<p class="p-md">Learn to increment EEG power in specific locations and frequency bands via closed-loop operant conditioning
+							</p>
+
+						</li>
+
+					</ul>
+				</div>
+			</div>	<!-- END TABS NAVIGATION -->
+
+
+			<!-- IMAGE BLOCK -->
+			<div class="col">
+				<div class="img-block right-column wow fadeInLeft" style="visibility: visible; animation-name: fadeInLeft;">
+					<div class="tabs-content">
+
+						<!-- TAB #1 IMAGE -->
+						<div id="tab-1" class="tab-content current">
+							<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/img_cvepspeller.png" alt="tab-image">
+						</div>
+
+						<!-- TAB #2 IMAGE -->
+						<div id="tab-2" class="tab-content">
+							<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/img_rcpspeller.png" alt="tab-preview">
+						</div>
+
+						<!-- TAB #3 IMAGE -->
+						<div id="tab-3" class="tab-content">
+							<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/img_miapp.png" alt="tab-image">
+						</div>
+
+						<!-- TAB #4 IMAGE -->
+						<div id="tab-4" class="tab-content">
+							<img class="img-fluid" src="./MEDUSA©_files/img_nftapp.png" alt="tab-image">
+						</div>
+
+					</div>
+				</div>
+			</div>	<!-- END IMAGE BLOCK -->
+
+
+		</div>	   <!-- End row -->
+	</div>	    <!-- End container -->
+</section>	 <!-- END TABS-2 -->
+
+<!-- PRODUCTIVITY - 3
+============================================= -->
+<section id="content-3" class="bg-snow content-3 wide-60 content-section division pt-0">
+	<div class="container">
+		<!-- TOP ROW -->
+		<div class="top-row pb-50">
+			<div class="row d-flex align-items-center">
+				<!-- IMAGE BLOCK -->
+				<div class="col-md-5 col-lg-6">
+					<div class="img-block left-column wow fadeInRight" style="visibility: visible; animation-name: fadeInRight;">
+						<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/img_cognitivetasks.png" alt="content-image">
+					</div>
+				</div>
+
+
+				<!-- TEXT BLOCK -->
+				<div class="col-md-7 col-lg-6">
+					<div class="txt-block right-column wow fadeInLeft" style="visibility: visible; animation-name: fadeInLeft;">
+
+						<!-- Section ID -->
+						<span class="section-id txt-upcase">cognitive-psychological tasks</span>
+
+						<!-- Title -->
+						<h2 class="h2-xs">Perform functional experiments</h2>
+
+						<!-- Text -->
+						<p class="p-lg"><a href="https://www.medusabci.com/solutions/medusa-platform/">MEDUSA<sup>©</sup> Platform</a> can also be used to run non closed-loop applications, such as cognitive-psychological experiments while recording any biomedical signal
+						</p>
+
+						<!-- TEXT BOX -->
+						<div class="txt-box">
+
+							<!-- Title -->
+							<h5 class="h5-md">Try our experiments</h5>
+
+							<!-- List -->
+							<ul class="simple-list">
+
+								<li class="list-item">
+									<p class="p-md"><span style="font-weight: 500;">Dual N-Back.</span> Train your fluid intelligence by remembering spatial and auditory cues across different difficulty levels
+									</p>
+								</li>
+
+								<li class="list-item">
+									<p class="p-md"><span style="font-weight: 500;">Digit Span Test.</span> Assess your short term memory by remembering sequences of digits
+									</p>
+								</li>
+
+								<li class="list-item">
+									<p class="p-md"><span style="font-weight: 500;">Corsi Block-Tapping.</span> Test your working memory as you remember the order in which the different rectangles are highlighted in forward or backward mode
+									</p>
+								</li>
+
+							</ul>
+
+						</div>
+
+						<!--<a href="#" class="btn btn-medusablue tra-medusablue-hover">Learn more</a>-->
+
+					</div>
+				</div>	<!-- END TEXT BLOCK -->
+			</div>
+		</div>	<!-- END TOP ROW -->
+	</div>	   <!-- End container -->
+</section>	<!-- END CONTENT-3 -->
+
+
+<!-- SERVICES
+============================================= -->
+<section id="services"></section>
+<section id="features-8" class="wide-60 pb-60 features-section division">
+	<div class="container">
+		<!-- SECTION TITLE -->
+		<div class="row justify-content-center">
+			<div class="col-lg-10 col-xl-8">
+				<div class="section-title title-01 mb-70">
+
+					<!-- Title -->
+					<h2 class="h2-md">Our services</h2>
+
+					<!-- Text -->
+					<p class="p-xl">
+						Do you need help creating your own experiments? Are you interested in acquiring a customized closed-loop BCI application? Check our services!
+					</p>
+
+				</div>
+			</div>
+		</div>
+	</div>	   <!-- End container -->
+
+	<div class="container">
+		<div class="row d-flex align-items-center">
+			<!-- TEXT BLOCK -->
+			<div class="col-md-6 order-last order-md-2">
+				<div class="txt-block left-column wow fadeInLeft" style="visibility: visible; animation-name: fadeInLeft;">
+
+					<!-- TEXT BOX -->
+					<div class="txt-box mb-25">
+
+						<!-- Title -->
+						<h5 class="h5-lg">Customized MEDUSA<sup>©</sup> Apps</h5>
+
+						<!-- Text -->
+						<p class="p-lg">
+							We can develop for you completely customized MEDUSA<sup>©</sup> apps to help you develop your research experiments
+						</p>
+					</div>
+
+					<!-- TEXT BOX -->
+					<div class="txt-box mb-25">
+
+						<!-- Title -->
+						<h5 class="h5-lg">Complete BCI Experiments</h5>
+
+						<!-- Text -->
+						<p class="p-lg">
+							We have proven experience developing practical closed-loop BCI experiments with neurorehabilitation, cognitive training or alternative communication purposes for public and private clinics, hospital and day centres
+						</p>
+					</div>
+
+					<!-- TEXT BOX -->
+					<div class="txt-box mb-25">
+
+						<!-- Title -->
+						<h5 class="h5-lg">Artificial Intelligence (AI) Consultancy</h5>
+
+						<!-- Text -->
+						<p class="p-lg">
+							We also provide consulting services to help business leverage the potential of artificial intelligence, machine learning and deep learning methods in their projects
+						</p>
+					</div>
+				</div>
+
+				<a href="https://www.medusabci.com/solutions/services/" class="btn btn-red tra-red-hover last-link">More information</a>
+			</div>	<!-- END TEXT BLOCK -->
+
+
+			<!-- IMAGE BLOCK -->
+			<div class="col-md-6 order-first order-md-2">
+				<div class="content-7-img wow fadeInRight" style="visibility: visible; animation-name: fadeInRight;">
+					<img loading="lazy" class="img-fluid" src="./MEDUSA©_files/code_dashboard.png" alt="content-image">
+				</div>
+			</div>
+
+
+		</div>	  <!-- End row -->
+	</div>	   <!-- End container -->
+</section>	<!-- END FEATURES-8 -->
+
+<!-- FAQ
+============================================= -->
+<section id="faq"></section>
+<section id="faqs-2" class="bg-snow wide-60 pb-60 faqs-section division">
+				<div class="container">
+
+
+					<!-- SECTION TITLE -->
+					<div class="row justify-content-center">
+						<div class="col-md-10 col-lg-8">
+							<div class="section-title title-02 mb-75">
+
+								<!-- Section ID -->
+					 			<span class="section-id txt-upcase">Frequently Asked Questions</span>
+
+								<!-- Title -->
+								<h3 class="h3-lg">Everything you need to know before getting started</h3>
+
+							</div>
+						</div>
+					</div>
+
+					<!-- FAQs-2 QUESTIONS -->
+					<div class="faqs-2-questions">
+						<div class="row row-cols-1 row-cols-lg-2">
+
+
+							<!-- QUESTIONS HOLDER -->
+							<div class="col">
+								<div class="questions-holder pr-15">
+
+
+									<!-- QUESTION #1 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">Is MEDUSA<sup>©</sup> compatible with any operating system?</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">For now, MEDUSA<sup>©</sup> has only been tested on Windows 10/11 systems. Unfortunately, compatibility for other operating systems is not guaranteed.
+										</p>
+
+									</div>
+
+
+									<!-- QUESTION #2 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">What signal recording systems is MEDUSA<sup>©</sup> compatible with?</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">MEDUSA<sup>©</sup> is compatible with any signal that is sent via the lab streaming layer (LSL) protocol. Check the <a href="https://labstreaminglayer.org/" target="_blank">original LSL website</a> for more information.
+										</p>
+
+									</div>
+
+
+									<!-- QUESTION #3 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">How much experience do I need to have as a programmer/developer to use MEDUSA<sup>©</sup>?</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">Any non-technical proffesional can use MEDUSA<sup>©</sup> by downloading the most suitable app for their experiment.
+										</p>
+										<p class="p-lg">If you want to contribute by developing your own custom app, then experience with Python is a must (and C# if the app requires visualization through Unity).
+										</p>
+
+									</div>
+
+
+								</div>
+							</div>	<!-- END QUESTIONS HOLDER -->
+
+
+							<!-- QUESTIONS HOLDER -->
+							<div class="col">
+								<div class="questions-holder pl-15">
+
+
+									<!-- QUESTION #4 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">I have a great idea for an app but I have no programming expertise</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">Feel free to <a href="https://www.medusabci.com/solutions/services">contact our team</a> to get a custom quote to develop the app for you. Alternatively, you can share your idea with the community in our <a href="https://forum.medusabci.com/" target="_blank">discussion forum</a> to seek help or contact someone interested in collaborating with you.
+										</p>
+
+									</div>
+
+
+									<!-- QUESTION #5 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">What kind of applications can I implement with MEDUSA<sup>©</sup>?</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">Although MEDUSA<sup>©</sup> was carefully designed to develop any BCI application, it also provides a comfortable framework to develop any open- or closed-loop experiment related (or not) with BCIs (e.g. psychology experiments, basal recordings, etc.)!
+										</p>
+									</div>
+
+
+									<!-- QUESTION #6 -->
+									<div class="question wow fadeInUp" style="visibility: hidden; animation-name: none;">
+
+										<!-- Question -->
+										<h5 class="h5-md">I have other issues</h5>
+
+										<!-- Answer -->
+										<p class="p-lg">We will be happy to
+                                            help you! Contact us in our
+                                            <a href="https://discord.gg/G8dWPXtBsC" target="_blank">discord community
+                                            </a>
+                                            or via
+                                            <a href="mailto:support@medusabci.com">email
+                                            </a>.
+										</p>
+
+									</div>
+
+
+								</div>
+							</div>	<!-- END QUESTIONS HOLDER -->
+
+
+						</div>	<!-- End row -->
+					</div>	<!-- END FAQs-2 QUESTIONS -->
+
+
+					<!-- MORE QUESTIONS BUTTON -->
+					<!--<div class="row">
+						<div class="col">
+							<div class="more-questions">
+								<h5 class="h5-sm">Have more questions? <a href="contacts.html">Ask your question here</a></h5>
+							</div>
+						</div>
+					</div>-->
+
+				</div>	   <!-- End container -->
+			</section>	<!-- END FAQs-2 -->
+
+<!-- GETTING STARTED
+============================================= -->
+<section id="start"></section>
+<section id="cta-9" class="bg-medusa wide-80 cta-section division">
+	<div class="container">
+		<div class="row justify-content-md-center">
+
+
+			<!-- CALL TO ACTION TEXT -->
+			<div class="col col-lg-10">
+				<div class="cta-9-txt text-center">
+
+					<!-- Title -->
+					<h2 class="h2-xs white-color">Getting Started is Fast &amp; Easy</h2>
+					<p class="p-xl white-color mb-35">Check our tutorials to learn how to install MEDUSA<sup>©</sup> and start coding your own apps</p>
+
+					<a href="https://www.medusabci.com/solutions/get-started/" class="btn btn-red tra-red-hover">Get Started Now</a>
+
+				</div>
+			</div>	<!-- END CALL TO ACTION TEXT -->
+
+
+		</div>    <!-- End row -->
+	</div>	   <!-- End container -->
+</section>	<!-- END CALL TO ACTION-9 -->
+
+
+
+			<!-- DIVIDER LINE -->
+			<hr class="divider">
+
+			<!-- FOOTER-4
+			============================================= -->
+			<footer id="footer-4" class="footer division">
+				<div class="container">
+					<!-- FOOTER CONTENT -->
+					<div class="row">
+						<div class="col-lg-3">
+							<div class="footer-info">
+								<img class="footer-logo" src="./MEDUSA©_files/logo-01.png" alt="footer-logo">
+							</div>
+						</div>
+						<div class="col-sm-6 col-md-3 col-lg-2 col-lg-3 col-xl-3">
+							<div class="footer-links">
+								<ul class="foo-links text-secondary clearfix text-center">
+									<li><p class="p-md"><a href="https://www.medusabci.com/about/">About</a></p></li>
+									<li><p class="p-md"><a href="https://www.medusabci.com/home/#faq">FAQs</a></p></li>
+								</ul>
+							</div>
+						</div>
+						<div class="col-sm-6 col-md-3 col-lg-2 col-lg-3 col-xl-3">
+							<div class="footer-links">
+								<ul class="foo-links text-secondary clearfix text-center">
+									<li><p class="p-md"><a href="https://www.medusabci.com/cookies/">Cookie Policy</a></p></li>
+									<li><p class="p-md"><a href="mailto:support@medusabci.com">Contact Us</a></p></li>
+								</ul>
+							</div>
+						</div>
+						<div class="col-sm-6 col-md-3 col-lg-3 col-xl-3">
+							<div class="footer-links  text-center">
+								<h6 class="h6-xl" style="margin-bottom: 15px !important;">Connect With Us</h6>
+								<ul class="footer-socials text-secondary ico-25 text-center clearfix">
+									<li><a href="https://twitter.com/medusabci" target="_blank"><span class="flaticon-twitter"></span></a></li>
+									<li><a href="https://github.com/medusabci" target="_blank"><span class="flaticon-github"></span></a></li>
+									<li><a href="https://www.youtube.com/@medusabci" target="_blank"><span class="flaticon-youtube"></span></a></li>
+                                    <li><a href="https://www.linkedin.com/company/82978032/" target="_blank"><span class="flaticon-linkedin"></span></a></li>
+								</ul>
+							</div>
+						</div>
+					</div>	<!-- END FOOTER CONTENT -->
+					<hr>
+					<!-- BOTTOM FOOTER -->
+					<div class="bottom-footer">
+						<div class="row row-cols-1 row-cols-md-2 d-flex align-items-center">
+							<div class="col">
+								<div class="footer-copyright">
+									<p>2022 - MEDUSA© All Rights Reserved</p>
+									<p class="gib">Powered by <a href="http://www.gib.tel.uva.es/" target="_blank">Biomedical Engineering Group</a> at University of Valladolid (Spain)</p>
+								</div>
+							</div>
+							<div class="col">
+								<ul class="mb-0 text-secondary text-end">
+									<li><p><a href="https://www.medusabci.com/terms/">Privacy Policy &amp; Terms</a></p></li>
+								</ul>
+							</div>
+						</div>  <!-- End row -->
+					</div>	<!-- BOTTOM FOOTER -->
+				</div>
+			</footer>	<!-- FOOTER-4 -->
+
+		</div>	<!-- END PAGE CONTENT -->
+
+        <!-- Cookies -->
+        <script src="./MEDUSA©_files/cookie-consent-4.0.0.js.descarga"></script>
+		<script type="text/javascript" charset="UTF-8">
+		document.addEventListener('DOMContentLoaded', function () {
+		cookieConsent400.run({"notice_banner_type":"simple","consent_type":"implied","palette":"dark","language":"en","page_load_consent_levels":["strictly-necessary","functionality","tracking","targeting"],"notice_banner_reject_button_hide":false,"preferences_center_close_button_hide":false,"page_refresh_confirmation_buttons":false,"website_name":"MEDUSA©"});
+		});
+		</script>
+
+        <!-- Google Analytics -->
+        
+                
+        <!-- end of Google Analytics-->
+
+		<!-- EXTERNAL SCRIPTS
+		============================================= -->
+		<script src="./MEDUSA©_files/jquery-3.6.0.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/bootstrap.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/modernizr.custom.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.easing.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.appear.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.scrollto.js.descarga"></script>
+		<script src="./MEDUSA©_files/menu.js.descarga"></script>
+		<script src="./MEDUSA©_files/imagesloaded.pkgd.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/isotope.pkgd.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/owl.carousel.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.magnific-popup.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/quick-form.js.descarga"></script>
+		<script src="./MEDUSA©_files/request-form.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.validate.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/jquery.ajaxchimp.min.js.descarga"></script>
+		<script src="./MEDUSA©_files/wow.js.descarga"></script>
+
+		<!-- Custom Script -->
+		<script src="./MEDUSA©_files/custom.js.descarga"></script>
+
+         
+	
+
+</div><a id="scrollUp" href="https://www.medusabci.com/#top" title="" style="position: fixed; z-index: 99999; display: none;"></a></body></html>

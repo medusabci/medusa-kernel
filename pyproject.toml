@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 # -----------------------------------------------------------------------------
@@ -11,7 +11,10 @@ version = "2.0.0.dev0"
 description = "Advanced biosignal processing toolbox — core of the MEDUSA© ecosystem"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { file = "LICENSE" }
+# PEP 639: SPDX license expression. The legal text lives in LICENSE
+# (Apache 2.0), and the attribution / NOTICE file is shipped alongside.
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 keywords = ["Signal", "Biosignal", "EEG", "BCI", "Neuroscience", "Neurotechnology"]
 authors = [
     { name = "Eduardo Santamaría-Vázquez", email = "support@medusabci.com" },
@@ -36,9 +39,16 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-# Core runtime dependencies. matplotlib is intentionally core (see TODO K3):
-# the plotting helpers in `medusa.plots` are used pervasively and treating
-# matplotlib as optional would force late-import boilerplate everywhere.
+# Core runtime dependencies. Notes (see TODO K3):
+# - matplotlib: intentionally core (small, pervasive across `plots/` and
+#   several `pipelines/` modules). Treating it as optional would force
+#   late-import boilerplate everywhere.
+# - bson, dill: kept as core. Both are tiny pure-Python packages (<1 MB
+#   each) that back `medusa.core.serialization` (`SerializableComponent`
+#   bson/json/mat formats; `PickleableComponent` dill format).
+#   `Recording.load()` + the .rec.* file format depend on them, so making
+#   them optional would push every consumer to install the same extra
+#   anyway. Re-evaluate only if a strictly JSON-only path is desired.
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.11",
@@ -50,39 +60,54 @@ dependencies = [
     "PyWavelets>=1.4",
     "bson>=0.5",
     "dill>=0.3.7",
+    "PySide6>=6.5",
+    "medusa-style>=0.2",
 ]
 
 [project.urls]
 Homepage = "https://medusabci.com/"
-Documentation = "https://medusabci.com/market/"
+Documentation = "https://medusabci.github.io/medusa-kernel/"
 Repository = "https://github.com/medusabci/medusa-kernel"
 Issues = "https://github.com/medusabci/medusa-kernel/issues"
 
 # -----------------------------------------------------------------------------
 # Optional dependencies (extras) — see TODO K3
 # -----------------------------------------------------------------------------
+#
+# Note on PyTorch: there is *intentionally* no `[torch]` extra. PyTorch's
+# wheel selection depends on the user's CUDA / ROCm / MPS / CPU stack, the
+# vendor index URL, the GPU driver version, and (on Linux) the glibc /
+# manylinux flavor. Pulling `torch` from PyPI through an extra would silently
+# install the wrong build for many users (e.g. a CPU-only wheel on a CUDA
+# box, or a CUDA build that does not match the installed driver). Instead,
+# the user is expected to install and configure PyTorch themselves following
+# https://pytorch.org/get-started/. `medusa.ml.deep_learning` then imports
+# `torch` lazily and `medusa.ml.pytorch_utils` raises
+# ``TorchExtrasNotInstalled`` (pointing to the official install page) when
+# the user tries to use a torch-backed feature without having installed it.
 [project.optional-dependencies]
-# Qt-based reusable widgets (settings tree editor, interactive time-plot
-# viewer). The ONLY place in the package that imports PySide6.
-widgets = [
-    "PySide6>=6.5",
-]
-# PyTorch-based deep learning models in `medusa.ml.deep_learning`.
-# `medusa.ml.pytorch_utils` is core but does a lazy `try: import torch`,
-# so importing `medusa.ml` works without this extra.
-torch = [
-    "torch>=2.1",
-]
 # Developer tooling: tests, linting, typing.
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "pytest-benchmark>=4.0",
     "ruff>=0.5",
     "mypy>=1.8",
 ]
-# Convenience aggregator.
+# Documentation toolchain (MkDocs Material + mkdocstrings + mike). See K10.
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+    "mkdocs-jupyter>=0.25",
+    "mike>=2.1",
+]
+# Convenience aggregator (does NOT include torch — see note above). PySide6 is
+# now a core dependency, so there is no separate ``widgets`` extra.
 all = [
-    "medusa-kernel[widgets,torch,dev]",
+    "medusa-kernel[dev,docs]",
 ]
 
 # -----------------------------------------------------------------------------
@@ -101,9 +126,6 @@ packages = ["src/medusa"]
 exclude = [
     "**/__pycache__/**",
     "**/*.pyc",
-    # Pre-built Windows DLL — replaced by Cython sources in K4. Keep excluded
-    # so it cannot ship to non-Windows users by accident.
-    "src/medusa/signal_metrics/computeLZC.dll",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -111,12 +133,12 @@ include = [
     "src/medusa/**",
     "README.md",
     "LICENSE",
+    "NOTICE",
     "pyproject.toml",
 ]
 exclude = [
     "**/__pycache__/**",
     "**/*.pyc",
-    "src/medusa/signal_metrics/computeLZC.dll",
 ]
 
 # Package data (TSV channel maps, .ui files, icons) is included automatically
@@ -149,6 +171,14 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--import-mode=importlib",
+    # K7: do not run perf benchmarks by default — opt in with
+    # `pytest -m benchmark` or `--benchmark-only`.
+    "-m",
+    "not benchmark",
+]
+markers = [
+    "benchmark: performance/regression benchmarks (opt-in, slow)",
+    "torch: requires a user-installed PyTorch (see https://pytorch.org/get-started/); auto-skipped otherwise",
 ]
 
 [tool.ruff]
@@ -161,17 +191,32 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-# Conservative initial set — expand in K7.
 select = [
     "E",   # pycodestyle errors
     "F",   # pyflakes
     "I",   # isort
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
+    "A",   # flake8-builtins — no shadowing builtins (K9.C)
+    "ANN", # flake8-annotations — PEP 484 on public defs (K9.A)
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
 ]
+
+# K9 scoping: the `A` (builtin-shadowing) and `ANN` (annotation) rules are
+# enforced only on the layers K9 has brought to standard — `signal/` and
+# `graph/`. The remaining layers are annotated in later phases; until then
+# `A`/`ANN` there would be pure noise, so they are ignored per-directory.
+# Remove an entry once its layer reaches the K9 standard. The general
+# E/F/I/W/UP set still applies everywhere. See TODO.md K9 Phase 6.
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "A"]
+"src/medusa/core/**" = ["ANN", "A"]
+"src/medusa/plots/**" = ["ANN", "A"]
+"src/medusa/widgets/**" = ["ANN", "A"]
+"src/medusa/ml/**" = ["ANN", "A"]
+"src/medusa/pipelines/**" = ["ANN", "A"]
 
 [tool.mypy]
 python_version = "3.13"

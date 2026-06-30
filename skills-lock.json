@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "bids": {
+      "source": "k-dense-ai/scientific-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/bids/SKILL.md",
+      "computedHash": "8e7365c924eb49dfa7a37de6e3f7afa5d641907dcdf0fb38a624b7b4f7839c97"
+    }
+  }
+}

@@ -1,5 +1,7 @@
 import functools, time
 
+__all__ = ["perf_analysis"]
+
 
 def perf_analysis(func):
     """Returns the run time of the decorated function"""

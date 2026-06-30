@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder MEDUSA logo for the docs site (docs/assets/logo.svg).
+
+  Replace this file with the official MEDUSA logo. Recommended:
+    * format       : SVG (vector, scales crisply on any DPI)
+    * canvas       : 256×256 viewBox is fine; anything square works
+    * background   : transparent
+    * stroke / fill: use ``currentColor`` where possible so the logo
+                     adapts to light / dark mode automatically. If the
+                     real logo is multi-coloured and brand-locked, just
+                     export it as-is and the theme will respect it.
+
+  Same file is reused for the header logo (32px tall) and for the
+  favicon if no dedicated favicon.png is provided.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"
+     fill="none" stroke="currentColor" stroke-width="10"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- Stylised jellyfish "M" — bell + 4 tentacles -->
+  <path d="M40 110 C 40 60, 216 60, 216 110 L 216 130 L 40 130 Z"
+        fill="currentColor" fill-opacity="0.12"/>
+  <path d="M40 130 C 40 80, 216 80, 216 130"/>
+  <path d="M70 130 q 0 30 -10 50 q -5 10 5 20"/>
+  <path d="M110 130 q 0 30 10 50 q 5 10 -5 20"/>
+  <path d="M146 130 q 0 30 -10 50 q -5 10 5 20"/>
+  <path d="M186 130 q 0 30 10 50 q 5 10 -5 20"/>
+  <!-- Three tiny lights inside the bell -->
+  <circle cx="100" cy="105" r="6" fill="currentColor"/>
+  <circle cx="128" cy="100" r="6" fill="currentColor"/>
+  <circle cx="156" cy="105" r="6" fill="currentColor"/>
+</svg>
+

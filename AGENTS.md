@@ -1,213 +1,344 @@
-# medusa-kernel
+# medusa-kernel — architecture & contributor guide
 
-Signal-processing core of the MEDUSA© ecosystem. The only component published on **PyPI** (`pip install medusa-kernel`). Consumed by Platform, Analyzer, the apps, the tutorial notebooks, and any external user.
-
-> Workspace context and global rules: [`../AGENTS.md`](../AGENTS.md). Kernel-specific improvement plan / refactor toward v2.0: [`TODO.md`](TODO.md). Cross-cutting ecosystem improvements: [`../TODO.md`](../TODO.md).
+medusa-kernel is a pure-Python library for biomedical signal processing and
+machine learning (EEG, MEG, ECG, EMG, EOG, NIRS). It is the algorithmic core of
+the MEDUSA© ecosystem and is published on PyPI as `medusa-kernel`. This document
+is the single source of truth for how the codebase is organized and the
+principles that all contributions must follow.
 
 ---
 
-## 1. Purpose and scope
+## 1. Scope
 
-**Is:**
-- A pure Python library for biomedical signal processing (EEG/MEG/ECG/EMG/EOG/NIRS).
-- A stable API third parties import from `pip install medusa-kernel`.
-- The source of truth for the ecosystem's processing algorithms (filters, metrics, connectivity, BCI pipelines, models, data IO).
+medusa-kernel is a **library**, not an application. It provides reusable,
+paradigm-agnostic building blocks: array operations, signal metrics, graph
+metrics, a data model for recordings, machine-learning estimators, and
+visualizations. It contains no GUIs of its own beyond a small set of reusable
+widget tools, and assumes nothing about any particular experimental paradigm.
 
-**Is not:**
-- A desktop application (that is `medusa-platform`).
-- A GUI wrapper (although today it drags in `PySide6` as a dependency — see `TODO.md` K3).
-- Windows-specific. **It must work on Linux and macOS** (see `TODO.md` K4). Any OS assumption is a bug.
+The library is cross-platform by construction. It is pure Python with no
+compiled extensions, ships as a single universal wheel, and must run identically
+on Linux, macOS, and Windows. Any OS-specific assumption is a defect.
 
 ---
 
 ## 2. Architecture
 
+Top-level packages, in dependency order:
+
+| Package | Responsibility |
+| --- | --- |
+| `core/` | Foundation everything else depends on: the runtime data model (`core/data/`), serialization, the recording schema, configuration trees, and shared utilities. |
+| `signal/` | Operations on time-series arrays (signal → signal) at the root, and metrics (signal → scalar/vector) under `signal/metrics/`. |
+| `graph/` | Graph-theoretic metrics over weighted adjacency matrices. |
+| `ml/` | scikit-learn–style machine-learning and deep-learning estimators. |
+| `plots/` | Matplotlib visualizations. |
+| `widgets/` | PySide6 GUI tools — the only place Qt is used. |
+
+Two abstraction levels, and new code must clearly belong to one:
+
+1. **Array operations** — `signal/`, `signal/metrics/`, `graph/`. NumPy in,
+   NumPy out; stateless functions, or stateful estimators following the
+   scikit-learn `fit` / `transform` convention.
+2. **Domain types** — `core/data/`. The runtime objects that structure data for
+   persistence and metadata (`Signal`, `ChannelSet`, `Recording`, `Events`).
+
+Tests live in `tests/`, outside the package, mirroring `src/medusa/`.
+
+### 2.1 Functional design
+
+**Processing routines are free functions, not methods on data containers.** A
+filter is `frequency_filtering.IIRFilter(...).fit_transform(signal, fs)`, never
+`eeg.filter(...)`. Every input a routine uses appears in its signature — an
+array, a sampling rate, a channel set, a few parameters — and it returns arrays
+or scalars.
+
+This buys three properties that the whole library depends on:
+
+- **Transparency.** No hidden reads from a container's attributes, which makes
+  debugging, unit testing, and partial reuse straightforward.
+- **Flexibility.** A function sees only an array plus its parameters, so the same
+  filter or metric works on any modality or on synthetic data.
+- **Separation of concerns.** Data containers describe *what was recorded*;
+  functions decide *what is done with it*. The two evolve independently.
+
+When contributing: write new processing, metric, and transform code as free
+functions (or `fit`/`transform` estimators) over arrays. Data containers never
+host a processing API.
+
+---
+
+## 3. The data model (`core/data/`)
+
+The data model is BIDS-aligned and modality-by-channel. There are no per-modality
+data classes; modality is a property of each channel.
+
+- **`Signal`** — one acquisition stream: a 2-D `(n_samples, n_channels)` matrix
+  with `fs`, a `ChannelSet`, and a `times` vector (always materialized; supports
+  irregular or dropped-sample streams). A single `Signal` can mix channel types.
+  Several devices/clocks become sibling `Signal`s, never a widened container.
+- **`Channel` / `Sensor` / `ChannelSet`** — mirror the BIDS three-file split. A
+  `Channel` is a data column with a BIDS channel type; a `Sensor` is a physical
+  transducer with an optional 3-D position; a `ChannelSet` groups ordered
+  channels and sensors with independent cardinalities, linked by `uid`, plus a
+  reference scheme (`reference_method ∈ {common, average, bipolar}`) and a
+  coordinate system. It is built with a chainable, eagerly validated builder.
+- **`Recording`** — one BIDS run: a `BidsInfo` identity, a dict of named
+  `RecordingData` streams (`Signal` is the shipped type), parallel sidecars, an
+  `Events` timeline, and free-form experiment metadata. All times are seconds
+  against one shared origin.
+- **`Events`** — a BIDS `events.tsv`-aligned timeline backed by a pandas
+  `DataFrame`, with `onset` and `duration` always present.
+- **`Recorder`** — live acquisition with an in-RAM ring buffer (sized in seconds)
+  and optional crash-safe streaming to disk.
+
+`core/data/eeg/` holds EEG-specific montage and coordinate helpers (standard
+10-20 / 10-10 / 10-05 montages, label resolution, 3-D→2-D projection); the
+generic `ChannelSet` delegates montage knowledge to it.
+
+**Scope:** the model is BIDS-aligned so external tools can emit BIDS, but the
+kernel does not read or write BIDS dataset trees. Imaging/genetics containers and
+acquisition transports are out of scope.
+
+---
+
+## 4. Signal shape contract
+
+Signal arrays are channels-last, with these canonical representations:
+
+| Representation | Shape |
+| --- | --- |
+| Time-domain | `(n_segments, n_samples, n_channels)` |
+| Power spectral density | `(n_segments, n_frequencies, n_channels)` |
+| Time–frequency | `(n_segments, n_frequencies, n_times, n_channels)` |
+
+`n_segments ≥ 1`; `n_times` (hop-compressed TFR frames) ≠ `n_samples`. Always use
+the term **segment**, never "epoch".
+
+Every function that accepts a signal array validates and promotes it at entry
+with `check_data_dims`:
+
+```python
+def check_data_dims(data: NDArray, rep_type) -> tuple[NDArray, tuple[int, ...]]
 ```
-medusa-kernel/
-├── medusa/                           ← the Python package
-│   ├── __init__.py                   ← re-exports frequency_filtering, spatial_filtering, epoching
-│   │
-│   ├── components.py                 ← base classes (SerializableComponent, ProcessingMethod, …)
-│   ├── frequency_filtering.py        ← IIR/FIR, notch, bandpass…
-│   ├── spatial_filtering.py          ← CAR, Laplacian, ICA, CSP…
-│   ├── epoching.py                   ← epoch extraction
-│   ├── transforms.py                 ← FFT, wavelets, Hilbert…
-│   ├── artifact_removal.py
-│   ├── signal_orthogonalization.py
-│   ├── classification_utils.py       ← classification helpers
-│   ├── performance_analysis.py
-│   ├── optimization.py
-│   ├── signal_generators.py          ← synthetic signals (testing)
-│   ├── deep_learning_models.py       ← TF/Keras models
-│   ├── pytorch_integration.py        ← PyTorch models
-│   │
-│   ├── bci/                          ← high-level BCI paradigms
-│   │   ├── erp_spellers.py
-│   │   ├── cvep_spellers.py
-│   │   ├── ssvep_spellers.py
-│   │   ├── mi_paradigms.py
-│   │   ├── nft_paradigms.py
-│   │   └── metrics.py
-│   │
-│   ├── dataio/                       ← MEDUSA recording format (see §6)
-│   │   ├── schema.py                 ← file schema
-│   │   ├── compatibility.py          ← cross-version migration
-│   │   └── biosignals/               ← per-biosignal read/write
-│   │
-│   ├── meeg/                         ← M/EEG: montages, electrodes, etc.
-│   │   ├── meeg.py
-│   │   ├── meeg_montages.py
-│   │   ├── eeg_standard_2D.tsv       ← coords (package data)
-│   │   ├── eeg_standard_3D.tsv
-│   │   └── _eeg_standard/
-│   │
-│   ├── signal_metrics/               ← complexity / spectral metrics
-│   │   ├── band_power.py, central_tendency.py, median_frequency.py,
-│   │   ├── multiscale_entropy.py, sample_entropy.py, signed_r2.py,
-│   │   ├── shannon_spectral_entropy.py, spectral_edge_frequency.py,
-│   │   ├── lempelziv_complexity.py, multiscale_lempelziv_complexity.py
-│   │   └── computeLZC.dll            ← ⚠ Windows-only binary (see §10)
-│   │
-│   ├── connectivity_metrics/         ← PLV, AEC, wPLI…
-│   ├── graph_metrics/                ← clustering, path length, small-world…
-│   ├── analysis/                     ← high-level analysis (incl. time_plot UI)
-│   ├── plots/                        ← visualizations (matplotlib + PySide6)
-│   │
-│   ├── ecg.py, emg.py, eog.py, nirs.py   ← non-EEG biosignals
-│   ├── notify_me.py, settings_schema.py, utils.py
-│
-├── tests/                            ← outside the package; not distributed
-│   ├── test_components.py
-│   ├── test_ecg.py
-│   ├── test_signal_generators.py
-│   ├── test_transforms.py
-│   ├── data/, examples/, local_activation/, plots/
-│
-├── setup.py                          ← classic packaging (no pyproject.toml yet)
-├── README.md
-├── LICENSE                           ← CC BY-NC-ND 2.0 (problematic — see §9)
-└── .github/workflows/python-publish.yml   ← PyPI release
-```
 
-### 2.bis. Abstraction levels
-
-Think of Kernel in three layers:
-
-1. **Low level — array-level operations.** `frequency_filtering`, `spatial_filtering`, `epoching`, `transforms`, metrics in `signal_metrics/`, `connectivity_metrics/`, `graph_metrics/`. Typical input/output: NumPy arrays. Stateless or wrapped in a `ProcessingMethod` object.
-2. **Mid level — domain abstractions.** `meeg/`, `dataio/`, `components.py`. Define the domain types (`Recording`, `Experiment`, `EEG`, `Channel`, montages…) and how they are serialized.
-3. **High level — BCI pipelines.** `bci/erp_spellers.py`, `bci/cvep_spellers.py`, etc. Compose the lower layers into a complete paradigm flow. This is what Platform's apps usually import.
-
-When adding functionality, decide first which layer it belongs to. Mixing layers is future debt.
-
-### 2.ter. Functional architecture (vs MNE-style)
-
-A foundational design rule of medusa-kernel: **processing routines are free functions, not methods on container classes.**
-
-- Signal-processing code in `frequency_filtering`, `spatial_filtering`, `epoching`, `transforms`, `signal_metrics/`, `connectivity_metrics/`, `graph_metrics/`, `bci/`, etc. takes its inputs as explicit parameters (`signal: np.ndarray`, `fs: float`, `channel_set`, …) and returns arrays or scalars.
-- It does **not** dispatch on, or read attributes from, a biosignal container. There is no `eeg.filter(...)` — there is `frequency_filtering.filter_data(signal, fs, ...)`.
-
-This is a deliberate departure from the MNE-Python style (`raw.filter()`, `epochs.average()`, …). The trade-off is more verbose call sites in exchange for:
-
-1. **Transparency.** Every input a function uses appears in its signature; there are no hidden reads from container attributes. Easier to debug, unit-test, and reuse partial chains.
-2. **Flexibility.** Functions don't depend on any biosignal type — the same filter, metric, or transform works on EEG, ECG, NIRS, or a synthetic test array, because all it sees is an `ndarray` plus the parameters it needs.
-3. **Schema richness per modality.** Because containers don't host the processing API, splitting modalities (e.g. `EEG` vs a future `MEG`) into separate subpackages costs nothing at the function layer. Each modality keeps its own precise schema (channel set, montage, reference scheme, sensor coordinates, …) instead of collapsing into a generic union container or a lowest-common-denominator interface.
-
-The role of the biosignal classes (`EEG`, `ECG`, `EMG`, …) under `core/biosignals/<modality>/` is therefore **structuring data for persistence and capturing per-modality metadata**, not exposing a processing API. They describe *what was recorded*, not *what can be done with it*.
-
-**Practical consequences when contributing:**
-- New processing / metric / transform code: write it as a free function on arrays + explicit params. Do not add it as a method on `EEG`, `ECG`, etc.
-- New biosignal types: subpackage under `core/biosignals/<modality>/` (per K1) with a class describing the recording's structure and metadata for serialization. Do not bundle processing methods on it.
-- Simultaneous multi-modality recordings (e.g. EEG+EOG, EEG+MEG) are handled at the `Recording` level (sibling biosignals on the same subject/session), not by widening a single container.
+- `rep_type` is one of six literals: `'time'` (2-D), `'time_segments'` (3-D),
+  `'freq'` (2-D), `'freq_segments'` (3-D PSD), `'time_freq'` (3-D),
+  `'time_freq_segments'` (4-D TFR). Unknown values raise `ValueError`.
+- It returns `(out, inserted)`: the array promoted to canonical ndim, and the
+  tuple of axis positions that were inserted. Promotion emits a `UserWarning`
+  only when axes are added. Dtype is preserved (`np.asarray`).
+- **`rep_type` is internal.** Each function hardcodes the one it needs; it is
+  never a user-facing argument.
+- **2-D streaming convention.** Single-segment functions accept
+  `(n_samples, n_channels)`, promote internally, and squeeze the inserted axes
+  back out before returning, so the caller's ndim is preserved:
+  `np.squeeze(out, axis=inserted) if inserted else out`.
 
 ---
 
-## 4. Dependencies and consumers
+## 5. Coding conventions
 
-**Depends on:**
-- Core scientific stack: NumPy, SciPy, scikit-learn, statsmodels, h5py, pandas, matplotlib.
-- Optional and currently mandatory (to be moved to extras — `TODO.md` K3): PySide6, TensorFlow/Keras, PyTorch.
-- Persistence: `bson`, `dill` (under review — see `TODO.md` K3).
+### 5.1 Argument names
 
-**Consumed by:**
-- `medusa-platform/src/` (Platform's microkernel).
-- `medusa-platform/src/accounts/<user>/apps/*/` (every app installed in Platform).
-- `medusa-analyzer/`.
-- `medusa-tutorials/` (Jupyter notebooks).
-- External users via `pip install medusa-kernel`.
+Use these names and types exactly; never the listed alternatives:
 
-A breaking change in Kernel cascades through every consumer above. See `../AGENTS.md` §3 for the checklist of usage searches before modifying a public function.
+| Concept | Name | Type | Never |
+| --- | --- | --- | --- |
+| Input signal | `signal` | `NDArray` | `data`, `x`, `eeg`, `sig` |
+| Sampling rate | `fs` | `float` | `sample_rate`, `freq`, int |
+| Channels | `n_channels` | `int` | `n_cha`, `ncha`, `n_ch` |
+| Segments | `n_segments` | `int` | `n_epochs`, `n_trials` |
+| Samples / freqs / TFR frames | `n_samples` / `n_frequencies` / `n_times` | `int` | — |
+| Frequency band | `band` | `tuple[float, float]` | `fband`, `target_band`, `freq_band` |
+| Window / overlap fraction | `segment` / `overlap` | `float` | `*_pct` |
+| Filter order / type / method | `order` / `btype` / `filt_method` | `int` / `Literal[...]` / `Literal[...]` | — |
+| Normalization | `norm` | `Literal[...] \| Literal[False]` | separate `normalize` + `norm` |
+| Power type | `power_type` | `Literal['absolute', 'relative']` | `type` |
 
----
+`band` is always singular — no function takes a list of bands. `norm` is a single
+argument (`False` = off, a string selects the method). **Never shadow built-ins**
+(`type`, `filter`, `input`, `id`, `list`, `max`, `min`, `sum`).
 
-## 5. Code conventions
+### 5.2 Type annotations
 
-- **Python ≥3.13** (see `pyproject.toml`).
-- **NumPy + SciPy** are the lingua franca. Any new algorithm should follow the signature `np.ndarray → np.ndarray` (or return a serializable dataclass / component).
-- **Free functions, not methods on biosignal containers** (see §2.ter). Processing / metric / transform code takes arrays + explicit params and is independent of `EEG`, `ECG`, etc. Biosignal classes are for persistence + per-modality metadata, not for dispatching processing.
-- **Serializable components**: classes that persist to disk inherit from `SerializableComponent` in `components.py`. Define `to_serializable_obj` / `from_serializable_obj` and the file extensions (`.cvep.mdl`, `.mi.mdl`, `.rec.mat`, etc.).
-- **Processing methods**: inherit from `ProcessingMethod`. Implement `fit`, `transform`, `fit_transform` following the scikit-learn convention when reasonable.
-- **Paths via `pathlib`**, never `os.sep` or string concatenation with `\`. Kernel must work on Linux and macOS.
-- **Absolute imports** from `medusa.<module>`.
-- **Docstrings** in NumPy style (`Parameters`, `Returns`, `Notes`, `References`).
-- **No OS-conditional imports** without a strong reason. If they appear, encapsulate them and provide a clear fallback.
+- PEP 484 annotations on every public function and method, **in the signature
+  only** — never repeated in the docstring `Parameters` block.
+- Use `numpy.typing.NDArray` without a dtype; do not force `float64` (users often
+  have `float32`, and forcing a dtype costs a copy). Annotate return types.
+- Sanitize array inputs with `np.asarray(signal)` (zero-copy, dtype-preserving),
+  not `np.array`.
+- Do not use `from __future__ import annotations` (Python 3.13 evaluates
+  annotations lazily).
 
----
+### 5.3 Docstrings
 
-## 6. Public contracts
+NumPy style (`Parameters` / `Returns` / `Raises` / `Notes` / `References` /
+`Examples`). Document each array parameter's canonical shape as the first line of
+its description. `Raises` is mandatory when the function validates input;
+`Examples` is mandatory and must contain at least one runnable snippet using the
+current import path. `check_data_dims` in `core/utils.py` is the canonical
+exemplar.
 
-Kernel is consumed by third parties. Incompatible changes must be treated as such:
+### 5.4 General
 
-1. **Public API** — today there is no systematic `__all__` nor `public/` vs `internal/` distinction. *De facto*, anything importable from `medusa.<module>` is public until further notice. Before renaming / moving / deleting anything, search for usages in:
-   - `medusa-platform/src/`
-   - `medusa-platform/src/accounts/*/apps/*/`
-   - `medusa-analyzer/`
-   - `medusa-tutorials/`
-   - (When feasible) GitHub code search across `medusabci/*`.
-2. **MEDUSA recording format** — lives in `medusa/dataio/schema.py` and `compatibility.py`. Written by `medusa-platform/src/cont_rec/`, read by `medusa-analyzer/data_loader/`. Format changes → bump schema and add migration in `compatibility.py`. Mandatory cross-version read tests.
-3. **Serialized models** (`.cvep.mdl`, `.mi.mdl`, …) — trained by Platform via `bci/*`. If the internal model structure changes, old models must keep loading or the break must be documented in CHANGELOG.
-
----
-
-## 7. Tests and CI
-
-- Tests in `tests/` (NOT `medusa/tests/`). Outside the distributed package.
-- Partial coverage: `components`, `ecg`, `signal_generators`, `transforms`. Most of `bci/`, `signal_metrics/`, `dataio/` is uncovered.
-- CI: `.github/workflows/python-publish.yml` only handles PyPI publish. **No test CI yet** — adding one (`pytest` matrix `ubuntu-latest, windows-latest, macos-latest`) is in `TODO.md` K7.
-- When touching a module, run the existing tests at least locally: `pytest tests/`.
+- Paths via `pathlib`; never `os.sep` or string concatenation with separators.
+- Absolute imports from `medusa.<module>`. No OS-conditional imports.
 
 ---
 
-## 8. Distribution and release
+## 6. Public API rules
 
-- Versioning scheme: **semver** (`1.4.3` current in `setup.py`).
-- Released to PyPI via GitHub Actions (`python-publish.yml`) when a GitHub release is published.
-- Bump version in `setup.py` before tagging.
-- When publishing 1.5 or 2.0, coordinate with `medusa-platform/requirements.txt` and `medusa-installer` (Platform pins Kernel with an exact version).
-- Apps declare (when the versioned manifest exists, `../TODO.md` E2) their compatible Kernel range; a Kernel major bump should reflect as invalidation of apps with `requires_kernel: ">=1.4,<2"`.
-
----
-
-## 9. License
-
-Currently: **CC BY-NC-ND 2.0**. Problematic (forbids derivatives, prohibits commercial use, not designed for software). Migration to a standard OSS license (MIT / Apache 2.0 / MPL 2.0) is a pending decision — see `TODO.md` K8 (mirror of `../TODO.md` E7). **Do not accept relevant external contributions until this is resolved**, or require an explicit CLA.
-
----
-
-## 10. Known pitfalls
-
-- **`PySide6` in `install_requires`.** Pulls in ~200 MB of Qt for headless users. Only `plots/` and `analysis/time_plot/` actually need it. Treatment as an optional extra is pending (`TODO.md` K3). Meanwhile: late Qt imports inside `plots/` (not at module top level) so that `import medusa` does not fail when Qt is missing.
-- **`computeLZC.dll`** in `signal_metrics/`. Windows-only binary. Today it confines Lempel-Ziv complexity to Windows. Pending: identify a pure-Python equivalent or replace with a cross-platform implementation (`TODO.md` K4).
-- **Classic `setup.py`, no `pyproject.toml`.** Migration pending (`TODO.md` K2). When done, move `install_requires` → `[project.dependencies]` and `PySide6` → `[project.optional-dependencies.plots]`.
-- **`bson` and `dill` in deps**: heavy for users that only want to filter signals. Review whether they are really required or can be downgraded to optional.
-- **Re-exports in `__init__.py`**: only `frequency_filtering`, `spatial_filtering`, `epoching` are re-exported. Expand carefully — every top-level symbol is a public-API commitment.
-- **`tests/data/`**: test datasets can be heavy. Do not commit new ones unless necessary.
+- **Every public module declares `__all__`.** Names not in `__all__`, and any
+  underscore-prefixed name, are internal and free to change. Each package
+  `__init__` re-exports its public symbols so both package-level and
+  module-level imports work.
+- **The top-level `medusa/__init__.py` is intentionally minimal:** a docstring
+  and a runtime-resolved `__version__`, with `__all__ = ["__version__"]`. It does
+  not flat-dump submodules and stays free of Qt and PyTorch imports, so
+  `import medusa` is light and headless-safe. Functionality is reached through
+  subpackages.
+- **Deprecation policy:** a symbol is marked with a `DeprecationWarning` for one
+  minor release and removed in the next, via the helpers in
+  `core/_deprecation.py`.
 
 ---
 
-## 11. How to work here
+## 7. Package organization principles
 
-1. Before touching code, read the relevant section of [`../AGENTS.md`](../AGENTS.md) §3 ("Before modifying a public function in Kernel").
-2. If the change touches the recording format or a serializable component, open [`TODO.md`](TODO.md) K6 first and consider whether a schema bump is required.
-3. Local tests: `pytest tests/`. If adding functionality, add the matching test.
-4. Commits in this repo, not in the workspace. Typical branch: `main` (stable) or feature branch.
-5. Do not mix functional changes with packaging changes (`setup.py` / pyproject migration) in the same commit.
+- **Group by data type, not by action.** Top-level packages (`signal/`,
+  `graph/`, and any future `image/`, `video/`) are named after the data they
+  operate on; operations and metrics live one level down. A new data type slots
+  in as a sibling package.
+- **Within a data-type package:** operations are flat at the root (signal →
+  signal), metrics live under `metrics/<family>/` (signal → scalar/vector).
+  `transforms.power_spectral_density` is an operation; `metrics/spectral/band_power`
+  is a metric.
+- **Metric families are organized by the question they answer**, not by lineage:
+  - `spectral/` — which frequencies? (`band_power`, `median_frequency`, `spectral_edge_frequency`)
+  - `nonlinear/` — how regular/structured? (sample & multiscale entropy, Shannon spectral entropy, Lempel-Ziv complexity, central tendency measure)
+  - `discriminability/` — class separation? (`signed_r2`)
+  - `connectivity/` — channel relations? (`aec`, `iac`, `pli`, `plv`, `wpli`)
+
+  Placement follows the question: `shannon_spectral_entropy` lives in
+  `nonlinear/` (it is an entropy) even though it is computed from a PSD.
+- **Three names prevent kitchen-sink modules:** `core/schema.py` (on-disk format
+  contract) ≠ `core/settings_tree.py` (runtime configuration tree) ≠ `core/data/`
+  (runtime domain types).
+
+---
+
+## 8. Serialization & recording format
+
+- **Components persist through `core/serialization.py`.** A serializable type
+  inherits `SerializableComponent` and implements `to_serializable_obj` /
+  `from_serializable_obj`; it can be written to `bson`, `json`, or `mat`. Types
+  whose state is not cleanly serializable inherit `PickleableComponent` (a
+  portable `dill` bundle). `.mat` round-trips losslessly.
+- **`Recording` adds HDF5.** It overrides `save` / `load` to support `h5` / `hdf5`
+  (chunked, gzip-compressed, append-friendly) in addition to the universal
+  formats, and defers everything else to the base class. The format is taken from
+  the path extension unless overridden.
+- **Schema versioning.** `core/schema.py` defines `SCHEMA_VERSION`, stamped into
+  every serialized dict, and `validate_recording_dict`. Older or missing versions
+  are reported as unsupported; newer versions prompt an upgrade. Forward
+  migrations (`n → n+1`) are added by the release that introduces the change.
+
+---
+
+## 9. Machine learning (`ml/`)
+
+The kernel **applies** models; it is not a model-development or hyperparameter-
+search framework. It can train a provided architecture from scratch on new data;
+pre-trained weights come from outside.
+
+- **Top-level `medusa.ml` exposes no names and imports no PyTorch**, so DSP-only
+  and headless installs stay torch-free. All deep-learning code is under the
+  torch-gated `ml/torch_models/`, imported on demand.
+- **Three layers:** a plain `nn.Module` **backbone** (feature extractor, no head,
+  exposing `backbone_features`, `input_layout`, and `get_config()`) → a
+  PyTorch-Lightning **task** (loss + loop) → a scikit-learn **estimator**
+  (`fit` / `predict` / `score` / `encode`). Estimators subclass
+  `sklearn.base.BaseEstimator` plus the matching mixin, so `get_params`,
+  `set_params`, and `clone()` work; there are no bespoke base ABCs.
+- **One estimator per use case** — no head registries or hidden default heads.
+  Heads and `classes_` are inferred from data at `fit` time. Neural-network
+  modules live in `backbones/`; shipped backbones are `EEGInception`,
+  `EEGInceptionV2`, `EEGNet`, and `EEGSym`.
+- **Torch gating.** Importing `ml/torch_models/` runs `require_torch()`;
+  estimator modules also run `require_lightning()`. A missing install raises
+  `TorchNotInstalled` (an `ImportError` subclass) naming the recommended
+  versions. Devices flow through `device=` into the Lightning `Trainer`; there is
+  no global device state.
+- **Portable persistence.** Estimators are `PickleableComponent`s saved as a
+  `config + state_dict` bundle (estimator params, backbone `get_config()`, CPU
+  `state_dict`, fitted head state) — never a raw module pickle — so a model
+  fitted on GPU reloads on CPU and vice versa.
+- `ml/cross_validation.py` provides biomedical splitters following sklearn's
+  `split()` protocol (returning indices); `ml/metrics.py` wraps `sklearn.metrics`.
+
+---
+
+## 10. Visualization (`plots/`)
+
+- Matplotlib only. Functions take **plain arrays** validated with
+  `check_data_dims` (no `Signal` duck-typing); scalp plots take a `ChannelSet`
+  for positions. The target `ax` is a required argument.
+- One-shot `plot_*()` functions return `(ax, artists)`, where `artists` is a
+  named dict; each has a paired stateful `*Plot` engine class whose `set_data()`
+  mutates artists in place for interactive/animated use. Export with the free
+  `save_figure`; `optimal_grid` lays out subplots.
+- **Plots never run signal transforms.** A plot may reduce given data for display
+  (e.g. a mean ± error band) but never computes an FFT, filter, or segmentation —
+  callers pass precomputed arrays.
+
+---
+
+## 11. Styling & GUI
+
+- **The kernel owns no visual identity.** All colors, fonts, colormaps, and Qt
+  stylesheets come from the companion `medusa-style` package, the MEDUSA-wide
+  styling source of truth (a core dependency). Plotting code calls it directly;
+  importing `plots/` never mutates global matplotlib state, and per-call defaults
+  remain overridable.
+- **All Qt/PySide6 code lives only in `widgets/`.** The non-visual layers
+  (`core`, `signal`, `graph`, `ml`) are Qt-free; this is enforced by a headless
+  import test and a dedicated CI job. Widget tools include a figure browser
+  (`PlotVisualizer`), a time-series/TFR viewer (`TimeViewer`), and settings-tree
+  editors. Widgets theme their application through `medusa-style`.
+
+---
+
+## 12. Dependencies
+
+- **Core (always installed):** NumPy, SciPy, scikit-learn, statsmodels, h5py,
+  tqdm, PyWavelets, matplotlib, `bson`, `dill`, PySide6, and `medusa-style`.
+  matplotlib and PySide6 are core, so the plotting and widget layers work without
+  any extra.
+- **Extras:** `[dev]` (pytest, ruff, mypy, coverage/benchmark), `[docs]` (MkDocs
+  toolchain), `[all]` = dev + docs.
+- **PyTorch is never a dependency or an extra.** Its wheels are coupled to the
+  user's accelerator stack, so it is installed separately; the deep-learning
+  estimators additionally need PyTorch Lightning. All deep learning uses
+  PyTorch.
+
+---
+
+## 13. Build, tests, and release
+
+- **Build:** `hatchling` backend with PEP 621 metadata in `pyproject.toml`;
+  src-layout (`src/medusa/`); environment and lockfile managed by `uv`. A single
+  pure-Python universal wheel.
+- **Tests:** in `tests/` (mirroring `src/medusa/`), run with
+  `--import-mode=importlib`. The CI matrix covers Linux/macOS/Windows on Python
+  3.13. `ruff` enforces annotation and builtin-shadowing rules as a blocking gate
+  on the layers held to the full convention set, and runs advisory elsewhere.
+- **Release:** semantic versioning; published to PyPI from CI via OIDC trusted
+  publishing on a GitHub release.
+
+---
+
+## 14. License
+
+Apache License 2.0 (permissive, with an explicit patent grant). Contributions are
+accepted inbound = outbound under the same license. See `LICENSE` and `NOTICE`.

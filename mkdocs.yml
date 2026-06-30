@@ -1,0 +1,240 @@
+site_name: medusa-kernel
+site_url: https://medusabci.github.io/medusa-kernel/
+site_description: Signal-processing core of the MEDUSA© ecosystem.
+site_author: MEDUSA© contributors
+repo_url: https://github.com/medusabci/medusa-kernel
+repo_name: medusabci/medusa-kernel
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2017-2026 MEDUSA© contributors — Apache 2.0
+
+# Default MkDocs URL scheme: every page becomes ``page/index.html`` and is
+# served as ``…/page/``. Looks clean on GitHub Pages; previewing the built
+# tree locally requires running a tiny web server (``python -m http.server
+# -d site``) because ``file://`` won't resolve ``index.html`` defaults.
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  # Brand assets — taken straight from the official MEDUSA© website
+  # (mirror under docs/web/) so the docs site looks like a direct
+  # extension of medusabci.com:
+  #   * `logo-white.png` for the header (white-on-MEDUSA-blue chrome)
+  #   * `medusa_task_icon.png` for the favicon (square mark, scales)
+  # To swap, drop new files in docs/assets/ and update the two paths.
+  logo: assets/logo-white.png
+  favicon: assets/medusa_task_icon.png
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+  font:
+    # Mirrors the official site's Google-Fonts choice.
+    text: Rubik
+    code: JetBrains Mono
+  palette:
+    # Light mode — uses ``scheme: default`` + the *custom* primary/accent
+    # so docs/stylesheets/extra.css drives the actual brand colours via
+    # CSS variables (single source of truth for the palette).
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - announce.dismiss
+    - navigation.tabs           # top-level nav as horizontal tabs
+    - navigation.tabs.sticky    # tabs stay visible on scroll
+    # navigation.sections is intentionally OFF:
+    #   With it ON, top-level nav items become bold static headers that
+    #   cannot be toggled — the opposite of what we want. Without it,
+    #   every section is a collapsible ▶ item in the sidebar tree.
+    # navigation.prune is intentionally OFF:
+    #   Prune hides every section that is not in the current active path,
+    #   so only the open branch is visible. Without it, ALL sections are
+    #   always rendered and the user can expand / collapse freely.
+    - navigation.path           # breadcrumb trail on every page
+    - navigation.top            # back-to-top button
+    - navigation.indexes        # section index pages (click section header)
+    - navigation.footer         # prev / next links at the bottom
+    - navigation.instant        # XHR navigation — no full reload
+    - navigation.tracking       # update URL anchor while scrolling
+    - toc.follow                # right TOC stays in sync while scrolling
+    - search.highlight
+    - search.suggest
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.action.view
+    - content.tabs.link
+    - content.tooltips
+
+# Example legacy recordings live under docs/tutorials/data/legacy/ and
+# generated artefacts (figures, saved recordings/models) under
+# docs/tutorials/results/. Both are git-ignored, read/written by the
+# notebooks at execution time, and must NOT be copied into the published
+# site (the data alone is >100 MB).
+exclude_docs: |
+  tutorials/data/
+  tutorials/results/
+  tutorials/.gitignore
+  tutorials/*.bson
+  tutorials/*.mdl
+  tutorials/*.py
+  tutorials/README.md
+  assets/README.md
+  # Internal MkDocs machinery — these Python files are wired in via the
+  # ``hooks:`` and ``plugins.gen-files.scripts:`` keys above, but they are
+  # not user-facing documentation. ``mkdocs-jupyter`` has
+  # ``include_source: true`` (so .py companions of notebooks are exposed
+  # as pages); without these excludes it would also publish ``hooks.py``
+  # and ``gen_api_pages.py`` as 700 kB pages at the site root.
+  hooks.py
+  gen_api_pages.py
+  # Mirror of the official medusabci.com site — kept in-repo as a
+  # design reference (logos, brand palette, font choice). It is NOT
+  # part of the documentation surface; mkdocs ignores the entire tree.
+  web/
+
+# Custom MkDocs hooks (see docs/hooks.py). Adds the Open-in-Colab badge
+# at the top of every notebook page.
+hooks:
+  - docs/hooks.py
+
+# Custom CSS — see docs/stylesheets/extra.css. Single source of truth
+# for the brand palette, hero block, card-grid hover and tutorial banner.
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_api_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocs-jupyter:
+      include_source: true
+      execute: false
+      ignore_h1_titles: false
+      include_requirejs: true
+      remove_tag_config:
+        remove_input: ["hide-input"]
+        remove_all_outputs: ["hide-output"]
+        remove_cell: ["hide-cell"]
+      theme: material
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            # ── Headings ───────────────────────────────────────────
+            show_root_heading: true          # module name as H1
+            show_root_full_path: false       # just `frequency_filtering`, not `medusa.signal.…`
+            show_root_toc_entry: true        # include the module itself in the TOC
+            heading_level: 2                 # members start at H2 → cleaner TOC nesting
+            show_symbol_type_heading: true   # "Functions", "Classes" section headings
+            show_symbol_type_toc: true       # those headings also appear in the TOC
+
+            # ── Members ────────────────────────────────────────────
+            members_order: alphabetical      # consistent, predictable order
+            group_by_category: true          # separate classes / functions / attributes
+            show_submodules: false           # each sub-module has its own page
+            show_if_no_docstring: true       # show *all* public members, docstring or not
+            inherited_members: false
+            filters:
+              - "!^_"                        # hide private names
+              - "!^__"                       # hide dunder names
+
+            # ── Signatures ─────────────────────────────────────────
+            show_signature_annotations: true
+            separate_signature: true         # signature on its own line
+            line_length: 80
+            show_overloads: true
+
+            # ── Docstrings ─────────────────────────────────────────
+            docstring_style: numpy
+            docstring_options:
+              ignore_init_summary: true
+            merge_init_into_class: true
+
+            # ── Summary table at the top of every module page ──────
+            summary: true                    # clickable member-summary table
+
+            # ── Source ─────────────────────────────────────────────
+            show_source: true                # show source link (collapsed by default)
+
+            # ── Labels ─────────────────────────────────────────────
+            show_labels: true                # "class", "function", "property" badges
+            show_bases: true                 # list base classes for classes
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/medusabci
+    - icon: fontawesome/solid/globe
+      link: https://medusabci.com/
+  # Read by docs/hooks.py to build the per-notebook Open-in-Colab URL.
+  colab:
+    repo: medusabci/medusa-kernel
+    branch: main
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Tutorials:
+      - tutorials/index.md
+      - "Getting started":
+          - "Recordings & streaming": tutorials/recordings_tut.ipynb
+          - "Visualization": tutorials/visualization.ipynb
+          - "Loading legacy data": tutorials/loading_legacy_data.ipynb
+      - "Signal analysis":
+          - "Local activation": tutorials/local_activation_analysis.ipynb
+          - "Functional connectivity": tutorials/connectivity_analysis.ipynb
+          - "Artifact rejection": tutorials/artifact_rejection.ipynb
+      - "Machine learning":
+          - "Train a PyTorch classifier": tutorials/train_torch_classifier.ipynb
+  - API reference: api/
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+

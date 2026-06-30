@@ -1,0 +1,35 @@
+medusa-kernel
+Copyright 2017-2026 MEDUSA© contributors
+
+This product includes software developed by the MEDUSA© team
+(https://medusabci.com/) and external contributors.
+
+Originally developed at the Biomedical Engineering Group (GIB),
+University of Valladolid (UVa), and CIBER-BBN, Spain.
+
+Authors and maintainers (non-exhaustive, see Git history for the
+full list of contributors):
+  - Eduardo Santamaría-Vázquez
+  - Víctor Martínez-Cagigal
+  - Diego Marcos-Martínez
+  - Víctor Rodríguez-González
+  - Sergio Pérez-Velasco
+
+Prior to version 2.0, this software was distributed under the
+Creative Commons Attribution-NonCommercial-NoDerivs 2.0 license
+(CC BY-NC-ND 2.0). Starting with version 2.0.0, the project is
+relicensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------
+Bundled third-party assets
+--------------------------------------------------------------------
+
+This product bundles the "Rubik" typeface (the MEDUSA© brand
+typeface), used to render figures and widgets on-brand across
+platforms. Rubik is Copyright the Rubik Project Authors
+(https://github.com/googlefonts/rubik) and is licensed under the
+SIL Open Font License, Version 1.1. The static weights shipped in
+src/medusa/plots/styles/fonts/ were instanced from the upstream
+variable font; the full license text is included alongside them in
+src/medusa/plots/styles/fonts/OFL.txt.
+

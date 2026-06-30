@@ -1,523 +1,351 @@
-# Built-in imports
-import sys
-import warnings
-from abc import abstractmethod
+"""Top-level runtime container for one recording (one BIDS *run*).
 
-# External imports
+A :class:`Recording` groups everything captured in a single run around a shared
+time origin: BIDS identity (:class:`BidsInfo`), one or more data streams
+(:class:`~medusa.core.data.signal.Signal`) in a heterogeneous ``data`` dict, the
+per-stream ``_<datatype>.json`` sidecar drafts in a parallel ``sidecars`` dict,
+the BIDS ``events`` timeline, and a free-form ``experiment`` slot for
+paradigm/setup metadata that BIDS does not model.
+
+Multimodal / multi-device runs are first-class: each device is its own entry in
+``data`` (keyed by a caller label that doubles as the ``acq-<key>`` entity when
+two streams share a datatype), with its own sidecar in ``sidecars[key]``.
+"""
+
 import numpy as np
 
-# Medusa imports
-from medusa.core.serialization import SerializableComponent
-from medusa.core.data.experiment import ExperimentData, CustomExperimentData
+from medusa.core.serialization import (
+    SerializableComponent, tag_component, load_component)
+from medusa.core.schema import SCHEMA_VERSION, validate_recording_dict
+from medusa.core.data._bids import (
+    ENTITY_PREFIXES, validate_label, validate_index, sidecar_template,
+    CHANNEL_COUNT_TYPE)
+from medusa.core.data.recording_data import RecordingData
+from medusa.core.data.signal import Signal
+from medusa.core.data.events import Events
+
+__all__ = ["Recording", "BidsInfo"]
 
 
-class BiosignalData(SerializableComponent):
-    """Skeleton class for biosignals.
+def _autofill_derivable(sidecar: dict, signal: "Signal") -> None:
+    """Fill the *derivable* sidecar fields from ``signal`` (in place).
 
-    Note: this class is a temporary home during the K1 refactor.
-    It will be superseded by Signal (core/data/signal.py) in commit 2c.
+    ``SamplingFrequency``, ``RecordingDuration`` and the mappable
+    ``<X>ChannelCount`` fields. These are a convenience for the GUI/inspection;
+    a BIDS export recomputes them and wins, so a stale draft cannot corrupt the
+    output.
+    """
+    types = list(signal.channel_set.types)
+    for name in sidecar:
+        if name == "SamplingFrequency":
+            sidecar[name] = signal.fs
+        elif name == "RecordingDuration":
+            sidecar[name] = signal.n_samples / signal.fs
+        elif name.endswith("ChannelCount"):
+            ch_type = CHANNEL_COUNT_TYPE.get(name[:-len("ChannelCount")])
+            if ch_type is not None:
+                sidecar[name] = int(sum(t == ch_type for t in types))
+
+
+class BidsInfo(SerializableComponent):
+    """Recording-WIDE BIDS metadata, grouped by the artifact it feeds.
+
+    Entities build the filename/directory; ``participant`` feeds
+    ``participants.tsv``; ``scan`` feeds ``scans.tsv``. Per-stream
+    ``_<datatype>.json`` sidecars are **not** here -- they live in
+    ``Recording.sidecars`` (one per ``Recording.data`` entry).
+
+    Parameters
+    ----------
+    subject
+        Required ``sub-<label>`` identifier.
+    session, task, acquisition
+        Optional ``ses``/``task``/``acq`` labels (``[0-9a-zA-Z+]+``).
+    run
+        Optional ``run`` index: a non-negative ``int`` or a digit string
+        (a string preserves zero-padding, e.g. ``"01"``).
+    participant
+        Subject-level phenotype (``age``/``sex``/``handedness``/``group`` ...);
+        an open set (``-> participants.tsv``).
+    scan
+        Per-scan metadata (``acq_time`` ...); an open set (``-> scans.tsv``).
+
+    Raises
+    ------
+    ValueError
+        On an invalid label/index or a missing ``subject``.
     """
 
-    @abstractmethod
-    def to_serializable_obj(self):
-        """This function must return a serializable dict (primitive types)
-        containing the relevant attributes of the class
+    def __init__(self, subject, session=None, task=None, acquisition=None,
+                 run=None, participant: "dict | None" = None,
+                 scan: "dict | None" = None) -> None:
+        self.subject = validate_label(subject, "subject", required=True)
+        self.session = validate_label(session, "session")
+        self.task = validate_label(task, "task")
+        self.acquisition = validate_label(acquisition, "acquisition")
+        self.run = validate_index(run, "run")
+        self.participant = dict(participant) if participant else {}
+        self.scan = dict(scan) if scan else {}
+
+    @property
+    def entities(self) -> "dict":
+        """Present entities as ``{name: value}`` in BIDS filename order."""
+        values = {"subject": self.subject, "session": self.session,
+                  "task": self.task, "acquisition": self.acquisition,
+                  "run": self.run}
+        return {name: values[name] for name in ENTITY_PREFIXES
+                if values[name] is not None}
+
+    def basename(self, suffix: "str | None" = None,
+                 acquisition: "str | None" = None) -> str:
+        """BIDS basename from the present entities, in spec order.
+
+        ``acquisition`` overrides the stored ``acq`` entity (used per-stream to
+        disambiguate same-datatype data via the data key). ``suffix`` (e.g.
+        ``"eeg"``, ``"events"``), if given, is appended last.
+
+        Examples
+        --------
+        >>> BidsInfo("01", session="1", task="rest", run=1).basename("eeg")
+        'sub-01_ses-1_task-rest_run-1_eeg'
+        >>> BidsInfo("01", task="rest").basename("eeg", acquisition="amp2")
+        'sub-01_task-rest_acq-amp2_eeg'
         """
-        pass
+        values = dict(self.entities)
+        if acquisition is not None:
+            values["acquisition"] = validate_label(acquisition, "acquisition")
+        # Emit in canonical BIDS order (an injected `acquisition` must land before
+        # `run`, regardless of where it was added to the dict).
+        parts = [f"{ENTITY_PREFIXES[name]}-{values[name]}"
+                 for name in ENTITY_PREFIXES if name in values]
+        base = "_".join(parts)
+        return f"{base}_{suffix}" if suffix else base
+
+    def __repr__(self) -> str:
+        return f"BidsInfo({self.basename() or 'sub-?'})"
+
+    def to_serializable_obj(self) -> dict:
+        return {"subject": self.subject, "session": self.session,
+                "task": self.task, "acquisition": self.acquisition,
+                "run": self.run, "participant": self.participant,
+                "scan": self.scan}
 
     @classmethod
-    @abstractmethod
-    def from_serializable_obj(cls, dict_data):
-        """This function must return an instance of the class from a
-        serializable dict (primitive types)"""
-        pass
-
-
-class CustomBiosignalData(BiosignalData):
-    """Custom biosignal data class. This class does not check the arguments and
-    provides less functionality that more specific classes. It should
-    only be used for custom signals that do not fit in other data classes
-    """
-
-    def __init__(self, **kwargs):
-        """CustomBiosginal constructor
-
-        Parameters
-        ----------
-        kwargs: kwargs
-            Key-value arguments to be saved in the class. This general class
-            does not check anything
-        """
-        # Set the specified arguments
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def to_serializable_obj(self):
-        rec_dict = self.__dict__
-        for key in rec_dict.keys():
-            if type(rec_dict[key]) == np.ndarray:
-                rec_dict[key] = rec_dict[key].tolist()
-        return rec_dict
-
-    @classmethod
-    def from_serializable_obj(cls, dict_data):
-        return cls(**dict_data)
+    def from_serializable_obj(cls, data: dict) -> "BidsInfo":
+        data = dict(data)
+        return cls(data.get("subject"), session=data.get("session"),
+                   task=data.get("task"), acquisition=data.get("acquisition"),
+                   run=data.get("run"), participant=data.get("participant"),
+                   scan=data.get("scan"))
 
 
 class Recording(SerializableComponent):
+    """One run: BIDS identity + data streams + sidecars + events + experiment.
+
+    Parameters
+    ----------
+    bids
+        The :class:`BidsInfo` identifying this run.
+
+    Notes
+    -----
+    All ``data``/``sidecars`` mutation funnels through :meth:`add_data` /
+    :meth:`add_signal` / :meth:`remove_data` so the two dicts keep identical
+    keys; editing the dicts directly bypasses that guarantee.
+
+    Examples
+    --------
+    >>> from medusa.core.data import ChannelSet, Signal
+    >>> cs = ChannelSet().add_unipolar_eeg_channels(["Fz", "Cz", "Pz"])
+    >>> sig = Signal(np.zeros((500, 3)), fs=250.0, channel_set=cs)
+    >>> rec = Recording(BidsInfo("01", task="rest")).add_signal("eeg", sig)
+    >>> rec.sidecars["eeg"]["SamplingFrequency"], rec.sidecars["eeg"]["EEGChannelCount"]
+    (250.0, 3)
+    >>> rec.bids_basename("eeg")
+    'sub-01_task-rest_eeg'
     """
-    Class intended to save the data from one recording. It implements all
-    necessary methods to save and load from several formats. It accepts
-    different kinds of data: experiment data, which saves all the information
-    about the experiment (e.g., events); biosignal data (e.g., EEG, MEG, NIRS),
-    bioimaging data (e.g., fMRI, MRI); and custom data (e.g., photos, videos,
-    audio). Temporal data must be must be synchronized with the reference.
-    To assure multiplatform interoperability, this class must be serializable
-    using python primitive types.
-    """
-    def __init__(self, subject_id, recording_id=None, description=None,
-                 source=None, date=None, **kwargs):
-        """Recording dataset constructor. Custom useful parameters can be
-        provided to save in the class.
 
-        Parameters
-        ----------
-        subject_id : int or str
-            Subject identifier
-        recording_id : str or None
-            Identifier of the recording for automated processing or easy
-            identification
-        description : str or None
-            Description of this recording. Useful to write comments (e.g., the
-            subject moved a lot, the experiment was interrupted, etc)
-        source : str or None
-            Source of the data, such as software, equipment, experiment, etc
-        kwargs : custom key-value parameters
-            Other useful parameters (e.g., software version, research team,
-            laboratory, etc)
+    def __init__(self, bids: BidsInfo) -> None:
+        if not isinstance(bids, BidsInfo):
+            raise TypeError("`bids` must be a BidsInfo instance.")
+        self.schema_version = SCHEMA_VERSION          # serialized recording schema version
+        self.bids = bids
+        self.data: "dict[str, RecordingData]" = {}    # heterogeneous; KEY = stream/acq label
+        self.sidecars: "dict[str, dict]" = {}         # PARALLEL to data; one _<datatype>.json draft per stream
+        self.events: "Events | None" = None
+        self.experiment: "dict | SerializableComponent | None" = None
+
+    # ------------------------------------------------------------------
+    # Builders (keep data/sidecars keys in sync)
+    # ------------------------------------------------------------------
+    def add_data(self, key: str, data: RecordingData, *,
+                 overwrite: bool = False) -> "Recording":
+        """Register a modality entry under ``key`` and seed its sidecar draft.
+
+        The sidecar is a ``None``-filled template for ``data.bids_datatype()``
+        with the derivable fields auto-filled (for ``Signal``). Raises
+        ``KeyError`` if ``key`` already exists and ``overwrite`` is ``False``.
         """
+        if not isinstance(data, RecordingData):
+            raise TypeError("`data` must be a RecordingData instance.")
+        if key in self.data and not overwrite:
+            raise KeyError(
+                f"key {key!r} already exists; pass overwrite=True to replace it.")
+        self.data[key] = data
+        sidecar = sidecar_template(data.bids_datatype())
+        if isinstance(data, Signal):
+            _autofill_derivable(sidecar, data)
+        self.sidecars[key] = sidecar
+        return self
 
-        # Standard attributes
-        self.subject_id = subject_id
-        self.recording_id = recording_id
-        self.description = description
-        self.source = source
-        self.date = date
+    def add_signal(self, key: str, signal: Signal, *,
+                   overwrite: bool = False) -> "Recording":
+        """Convenience :meth:`add_data` that requires a :class:`Signal`."""
+        if not isinstance(signal, Signal):
+            raise TypeError("`signal` must be a Signal instance.")
+        return self.add_data(key, signal, overwrite=overwrite)
 
-        # Data variables
-        self.experiments = dict()
-        self.biosignals = dict()
-        self.bioimaging = dict()
-        self.custom_data = dict()
+    def remove_data(self, key: str) -> "Recording":
+        """Drop ``data[key]`` and its ``sidecars[key]`` together."""
+        del self.data[key]
+        self.sidecars.pop(key, None)
+        return self
 
-        # Set the specified arguments
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    def set_sidecar(self, key: "str | None" = None, **fields) -> "Recording":
+        """Set sidecar ``field=value`` pairs on one stream, or broadcast to all.
 
-    def add_experiment_data(self, experiment_data, key=None):
-        """Adds the experiment data of this recording. Each experiment should
-        have a predefined class that must be instantiated before. Several
-        classes are defined within medusa core, but it also can be a custom
-        experiment.
-
-        Parameters
-        ----------
-        experiment_data : experiment class
-            Instance of an experiment class. This class can be custom if it is
-            serializable, but it is recommended to use the classes provided
-            by medusa core in different modules (e.g., bci.erp_paradigms.rcp)
-        key: str
-            Custom name for this experiment. If not provided, the experiment
-            will be saved in an attribute according to its type (e.g., rcp,
-            cake paradigm, etc). This parameter is useful if several experiments
-            of the same type are added to this recording
+        ``key=None`` writes the fields to *every* stream's sidecar -- the way to
+        set recording-wide fields (``TaskName``, ``Instructions`` ...) once
+        (BIDS duplicates them per file anyway). Raises ``KeyError`` on an
+        unknown ``key``.
         """
-        # Check errors
-        if not issubclass(type(experiment_data), ExperimentData):
-            raise TypeError('Parameter experiment_data must subclass '
-                            'medusa.io.ExperimentData')
-        # Check type
-        experiment_module_name = type(experiment_data).__module__
-        experiment_class_name = type(experiment_data).__name__
-        att = experiment_class_name.lower() if key is None else key
-        if isinstance(experiment_data, CustomExperimentData):
-            warnings.warn('Unspecific experiment data %s. Some high-level '
-                          'functions may not work' % type(experiment_data))
-        # Check key
-        if hasattr(self, att):
-            raise ValueError('This recording already has an attribute with key '
-                             '%s' % att)
-        # Add experiment
-        setattr(self, att, experiment_data)
-        self.experiments[att] = {
-            'module_name': experiment_module_name,
-            'class_name': experiment_class_name
+        keys = list(self.sidecars) if key is None else [key]
+        for k in keys:
+            if k not in self.sidecars:
+                raise KeyError(f"no sidecar for key {k!r}.")
+            self.sidecars[k].update(fields)
+        return self
+
+    def set_events(self, events: Events) -> "Recording":
+        """Attach the BIDS events timeline."""
+        if not isinstance(events, Events):
+            raise TypeError("`events` must be an Events instance.")
+        self.events = events
+        return self
+
+    def set_experiment(self,
+                       experiment: "dict | SerializableComponent") -> "Recording":
+        """Attach the free-form paradigm/setup metadata (dict or component)."""
+        if not isinstance(experiment, (dict, SerializableComponent)):
+            raise TypeError(
+                "`experiment` must be a dict or a SerializableComponent.")
+        self.experiment = experiment
+        return self
+
+    # ------------------------------------------------------------------
+    # Queries / BIDS
+    # ------------------------------------------------------------------
+    @property
+    def signals(self) -> "dict[str, Signal]":
+        """The ``Signal``-typed subset of ``data`` (by key)."""
+        return {k: v for k, v in self.data.items() if isinstance(v, Signal)}
+
+    def get_signals_by_type(self, channel_type: str) -> "dict[str, Signal]":
+        """Signals that contain at least one channel of ``channel_type``."""
+        return {k: v for k, v in self.signals.items()
+                if channel_type in v.channel_set.types}
+
+    def bids_basename(self, suffix: "str | None" = None,
+                      key: "str | None" = None) -> str:
+        """BIDS basename for this run; ``key`` (a data label) sets ``acq-<key>``."""
+        return self.bids.basename(suffix=suffix, acquisition=key)
+
+    def __repr__(self) -> str:
+        return (f"Recording({self.bids.basename() or 'sub-?'}, "
+                f"data={list(self.data)}, "
+                f"events={self.events is not None}, "
+                f"experiment={self.experiment is not None})")
+
+    # ------------------------------------------------------------------
+    # SerializableComponent contract
+    # ------------------------------------------------------------------
+    def to_serializable_obj(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "bids": self.bids.to_serializable_obj(),
+            "data": {k: tag_component(v) for k, v in self.data.items()},
+            "sidecars": {k: dict(v) for k, v in self.sidecars.items()},
+            "events": (self.events.to_serializable_obj()
+                       if self.events is not None else None),
+            "experiment": self._experiment_to_obj(),
         }
-
-    def add_biosignal(self, biosignal, key=None):
-        """Adds a biosignal recording. Each biosignal has predefined classes
-        that must be instantiated before (e.g., EEG, MEG)
-
-        Parameters
-        ----------
-        biosignal : biosignal class
-            Instance of the biosignal class. This class must be serializable.
-            Current available: EEG, MEG.
-        key: str
-            Custom name for this biosignal. If not provided, the biosignal will
-            be saved in an attribute according to its type in lowercase
-            (e.g., eeg, meg, etc). This parameter is  useful if several
-            biosignals of the same type are added to this recording
-        """
-        # Check errors
-        if not issubclass(type(biosignal), BiosignalData):
-            raise TypeError('Parameter biosignal must subclass '
-                            'medusa.io.BiosignalData')
-        # Check type
-        biosignal_module_name = type(biosignal).__module__
-        biosignal_class_name = type(biosignal).__name__
-        att = biosignal_class_name.lower() if key is None else key
-        if isinstance(biosignal, CustomBiosignalData):
-            warnings.warn('Unspecific biosignal %s. Some high-level functions '
-                          'may not work' % type(biosignal))
-        # Check key
-        if hasattr(self, att):
-            raise ValueError('This recording already contains an attribute '
-                             'with key %s' % att)
-        # Add biosignal
-        setattr(self, att, biosignal)
-        self.biosignals[att] = {
-            'module_name': biosignal_module_name,
-            'class_name': biosignal_class_name
-        }
-
-    def add_bioimaging(self, bioimaging, key=None):
-        # TODO: Create BioimagingData class
-        raise NotImplemented
-
-    def add_custom_data(self, data, key=None):
-        # TODO: Create CustomData class
-        raise NotImplemented
-
-    def cast_biosignal(self, key, biosignal_class):
-        """This function casts a biosignal to the class passed in
-        biosignal_class
-        """
-        biosignal_module_name = biosignal_class.__module__
-        biosignal_class_name = biosignal_class.__name__
-        # Check errors
-        if not issubclass(biosignal_class, BiosignalData):
-            raise TypeError('Class %s must subclass medusa.io.Biosignal' %
-                            biosignal_class_name)
-        biosignal = getattr(self, key)
-        biosignal_dict = biosignal.to_serializable_obj()
-        setattr(self, key, biosignal_class.from_serializable_obj(biosignal_dict))
-        self.biosignals[key] = {
-            'module_name': biosignal_module_name,
-            'class_name': biosignal_class_name
-        }
-
-    def cast_experiment(self, key, experiment_class):
-        """This function casts an experiment of recording run to the class
-        passed in experiment_class
-        """
-        exp_module_name = experiment_class.__module__
-        exp_class_name = experiment_class.__name__
-        # Check errors
-        if not issubclass(experiment_class, ExperimentData):
-            raise TypeError('Class %s must subclass medusa.io.ExperimentData' %
-                            exp_class_name)
-        experiment_data = getattr(self, key)
-        experiment_data_dict = experiment_data.to_serializable_obj()
-        setattr(self, key, experiment_class.from_serializable_obj(experiment_data_dict))
-        self.experiments[key] = {
-            'module_name': exp_module_name,
-            'class_name': exp_class_name
-        }
-
-    def rename_attribute(self, old_key, new_key):
-        """Rename an attribute. Useful to unify attribute names on fly while
-        creating a dataset.
-
-        Parameters
-        ----------
-        old_key : str
-            Old attribute key
-        new_key : str
-            New attribute key
-        """
-        self.__dict__[new_key] = self.__dict__.pop(old_key)
-
-    def get_biosignals_with_class_name(self, biosignal_class_name):
-        """This function returns the biosignals with a specific class name
-
-        Parameters
-        ----------
-        biosignal_class_name: str
-            Class name of the biosignal (e.g., "EEG")
-        """
-        biosignals = dict()
-        for key, value in self.biosignals.items():
-            if value['class_name'] == biosignal_class_name:
-                biosignals[key] = getattr(self, key)
-        return biosignals
-
-    def get_experiments_with_class_name(self, exp_class_name):
-        """This function returns the experiments with a specific class name
-
-        Parameters
-        ----------
-        exp_class_name: str
-            Class name of the experiment (e.g., "ERPSpellerData")
-        """
-        experiments = dict()
-        for key, value in self.experiments.items():
-            if value['class_name'] == exp_class_name:
-                experiments[key] = getattr(self, key)
-        return experiments
-
-    def to_serializable_obj(self):
-        """This function returns a serializable dict (primitive types)
-        containing the attributes of the class
-        """
-        rec_dict = self.__dict__
-        # Process biosginals
-        for key in self.biosignals:
-            biosignal = getattr(self, key)
-            rec_dict[key] = biosignal.to_serializable_obj()
-        # Process experiments
-        for key in self.experiments:
-            experiments = getattr(self, key)
-            rec_dict[key] = experiments.to_serializable_obj()
-        return rec_dict
 
     @classmethod
-    def from_serializable_obj(cls, rec_dict):
-        """Function that loads the class from a python dictionary
-        """
-        # Handle biosignals
-        if 'biosignals' in rec_dict:
-            for biosignal_key, biosignal_dict in rec_dict['biosignals'].\
-                    items():
-                try:
-                    module = sys.modules[biosignal_dict['module_name']]
-                    obj = getattr(module, biosignal_dict['class_name'])
-                except KeyError:
-                    raise ImportError('Biosignal class %s not found in module '
-                                      '%s. This class must be reachable in '
-                                      ' this module or defined in the main '
-                                      'program. Did you import the module %s'
-                                      ' before using this function?'
-                                      % (biosignal_dict['class_name'],
-                                         biosignal_dict['module_name'],
-                                         biosignal_dict['module_name']))
-                rec_dict[biosignal_key] = \
-                    obj.from_serializable_obj(rec_dict[biosignal_key])
-        # Handle experiments
-        if 'experiments' in rec_dict:
-            for exp_key, exp_dict in rec_dict['experiments'].items():
-                try:
-                    module = sys.modules[exp_dict['module_name']]
-                    obj = getattr(module, exp_dict['class_name'])
-                except KeyError:
-                    raise ImportError('Experiment class %s not found in module '
-                                      '%s. This class must be reachable in '
-                                      'this module or defined in the main '
-                                      'program. Did you import the module %s '
-                                      'before using this function?'
-                                      % (exp_dict['class_name'],
-                                         exp_dict['module_name'],
-                                         exp_dict['module_name']))
-                rec_dict[exp_key] = obj.from_serializable_obj(rec_dict[exp_key])
-        # Instantiate class
-        return cls(**rec_dict)
+    def from_serializable_obj(cls, data: dict) -> "Recording":
+        data = dict(data)
+        validate_recording_dict(data)             # version + required-keys check
+        rec = cls(BidsInfo.from_serializable_obj(data["bids"]))
+        rec.schema_version = data.get("schema_version", rec.schema_version)
+        # Set data/sidecars directly (bypass builders) to preserve saved drafts.
+        rec.data = {k: load_component(tagged)
+                    for k, tagged in (data.get("data") or {}).items()}
+        rec.sidecars = {k: dict(v)
+                        for k, v in (data.get("sidecars") or {}).items()}
+        events = data.get("events")
+        rec.events = Events.from_serializable_obj(events) \
+            if events is not None else None
+        rec.experiment = cls._experiment_from_obj(data.get("experiment"))
+        return rec
 
-
-class ConsistencyChecker(SerializableComponent):
-    """Class that provides functionality to check consistency across recordings
-    to build a dataset
-    """
-
-    def __init__(self):
-        self.__rules = list()
-
-    def add_consistency_rule(self, rule, rule_params, parent=None):
-        """Adds a consistency check for the specified attribute It provides 2
-        levels of consistency using parameter key, enough to check attributes
-        inside biosignal or experiments classes
-
-        Parameters
-        ----------
-        rule : str {'check-attribute-type'|'check-attribute-value'|
-            'check-values-in-attribute'|'check-if-attribute-exists'|
-            'check-if-type-exists'}
-                Check mode of this attribute. Modes:
-                    - check-attribute-type: checks if the attribute has the type
-                        specified in parameter check_value.
-                    - check-attribute-value: checks if the attribute has the
-                        value specified in parameter check_value
-                    - check-values-in-attribute: checks if the attribute
-                        contains the values (the attribute must support in
-                        operation). It can check keys in dicts or values in
-                        lists or sets.
-                    - check-attribute: checks if the attribute exists
-                    - check-type: checks if the class contains attributes with
-                        the specified type. Use operator to define establish
-                        rules about the number of attributes allowed with the
-                        specified type
-        rule_params : dict
-            Specifies the rule params. Depending on the rule, it must contain
-            the following key-value pairs:
-                - check-attribute-type: {attribute: str, type: class or list}.
-                    If type is list, it will be checked that the attribute is of
-                    one of the types defined in the list
-                - check-attribute-value: {attribute: str, value: obj}
-                - check-values-in-attribute: {attribute: str, values: list}
-                - check-attribute: {attribute: str}
-                - check-type: {type: class, limit: int, operator: str {'<'|'>'|'
-                    <='|'>='|'=='|'!='}
-        parent : str or None
-            Checks the rule inside specified parent. If None, the parent is the
-            recording itself. Therefore, the parent must be a class. This
-            parameter designed to allow check rules inside biosignals or
-            experiments class. If the parent is in deeper levels, use points to
-            define the parent. For example, you can check the labels of the
-            channels in an EEG recording setting this parameter as
-            eeg.channel_set
-        """
-        # Check to avoid errors
-        if rule == 'check-attribute-type':
-            if not all(k in rule_params for k in ['attribute', 'type']):
-                raise ValueError('Rule params must contain keys (attribute, '
-                                 'type) for rule %s' % rule)
-        elif rule == 'check-attribute-value':
-            if not all(k in rule_params for k in ['attribute', 'value']):
-                raise ValueError('Rule params must contain keys (attribute, '
-                                 'value) for rule %s' % rule)
-        elif rule == 'check-values-in-attribute':
-            if not all(k in rule_params for k in ['attribute', 'values']):
-                raise ValueError('Rule params must contain keys (attribute, '
-                                 'values) for rule %s' % rule)
-        elif rule == 'check-attribute':
-            if not all(k in rule_params for k in ['attribute']):
-                raise ValueError('Rule params must contain keys (attribute) '
-                                 'for rule %s' % rule)
-        elif rule == 'check-type':
-            if not all(k in rule_params for k in ['type', 'limit', 'operator']):
-                raise ValueError('Rule params must contain keys (type) for '
-                                 'rule %s' % rule)
-            if rule_params['operator'] not in {'<', '>', '<=', '>=', '==', '!='}:
-                raise ValueError("Unknown operator %s. Possible operators: "
-                                 "{'<'|'>'|'<='|'>='|'=='|'!='}" %
-                                 rule_params['operator'])
-        else:
-            raise ValueError("Unknown rule. Possible rules: "
-                             "{'check-attribute-type'|'check-attribute-value'|"
-                             "'check-values-in-attribute'|"
-                             "'check-if-attribute-exists'|"
-                             "'check-if-type-exists'}")
-        # Save rule
-        self.__rules.append({'rule': rule, 'rule_params': rule_params,
-                             'parent': parent})
-
-    def check_consistency(self, recording):
-        """Checks the consistency of a recording according to the current rules
-
-        Parameters
-        ----------
-        recording : Recording
-            Recording to be checked
-        """
-        # Check general attributes
-        for r in self.__rules:
-            rule = r['rule']
-            rule_params = r['rule_params']
-            if r['parent'] is None:
-                parent = recording
-            else:
-                parent = recording
-                for p in r['parent'].split('.'):
-                    parent = getattr(parent, p)
-            if rule == 'check-attribute-type':
-                attribute = getattr(parent, rule_params['attribute'])
-                if type(rule_params['type']) == list:
-                    check = False
-                    for t in rule_params['type']:
-                        if isinstance(attribute, t):
-                            check = True
-                    if not check:
-                        raise TypeError('Type of attribute %s must be one '
-                                        'of %s' % (rule_params['attribute'],
-                                         str(rule_params['type'])))
-                else:
-                    if not isinstance(attribute, rule_params['type']):
-                        raise TypeError('Type of attribute %s must be %s' %
-                                        (rule_params['attribute'],
-                                         str(rule_params['type'])))
-            elif rule == 'check-attribute-value':
-                attribute = getattr(parent, rule_params['attribute'])
-                if attribute != rule_params['value']:
-                    raise ValueError('Value of attribute %s must be %s' %
-                                     (rule_params['attribute'],
-                                      str(rule_params['value'])))
-            elif rule == 'check-values-in-attribute':
-                attribute = getattr(parent, rule_params['attribute'])
-                for val in rule_params['values']:
-                    if val not in attribute:
-                        raise ValueError('Parameter %s must contain value %s' %
-                                         (rule_params['attribute'],
-                                          str(rule_params['values'])))
-            elif rule == 'check-attribute':
-                if not hasattr(parent, rule_params['attribute']):
-                    raise ValueError('Attribute %s does not exist' %
-                                     rule_params['attribute'])
-            elif rule == 'check-type':
-                # Get number of attributes with type
-                n = 0
-                for key, val in parent.__dict__.items():
-                    if isinstance(val, rule_params['type']):
-                        n += 1
-                # Check
-                if not self.__numeric_check(n, rule_params['limit'],
-                                            rule_params['operator']):
-                    raise ValueError('Number of attributes with type %s does '
-                                     'not meet the rule (%i %s %i)' %
-                                     (rule_params['type'], n,
-                                      rule_params['operator'],
-                                      rule_params['limit']))
+    def _experiment_to_obj(self):
+        """Serialise ``experiment``: tag a component, wrap a plain dict."""
+        if self.experiment is None:
+            return None
+        if isinstance(self.experiment, SerializableComponent):
+            return tag_component(self.experiment)        # {module_name, class_name, component_data}
+        return {"component_data": self.experiment}       # plain dict (no class tag)
 
     @staticmethod
-    def __numeric_check(number, limit, operator):
-        result = True
-        if operator == '<':
-            if number >= limit:
-                result = False
-        elif operator == '>':
-            if number <= limit:
-                result = False
-        elif operator == '<=':
-            if number > limit:
-                result = False
-        elif operator == '>=':
-            if number < limit:
-                result = False
-        elif operator == '==':
-            if number != limit:
-                result = False
-        elif operator == '!=':
-            if number == limit:
-                result = False
-        else:
-            raise ValueError("Unknown operator %s. Possible operators: "
-                             "{'<'|'>'|'<='|'>='|'=='|'!='}" % operator)
+    def _experiment_from_obj(obj):
+        """Inverse of :meth:`_experiment_to_obj` (tag presence discriminates)."""
+        if obj is None:
+            return None
+        if "module_name" in obj and "class_name" in obj:
+            return load_component(obj)
+        return obj["component_data"]
 
-        return result
+    # ------------------------------------------------------------------
+    # Persistence: HDF5 is a Recording-specific format, not a universal one.
+    # The base SerializableComponent handles the to_serializable_obj formats
+    # (bson/json/mat/pickle); we extend save/load with `.h5`/`.hdf5` because only
+    # an array-bearing component can store binary arrays natively (see streaming.py).
+    # ------------------------------------------------------------------
+    def save(self, path, data_format=None) -> None:
+        """Save the recording; adds ``.h5``/``.hdf5`` to the base formats.
 
-    def to_serializable_obj(self):
-        return self.__dict__
+        HDF5 writes sample arrays as native (chunked, gzip) datasets and the rest
+        as a ``/meta`` JSON blob -- the one-shot equivalent of the streaming
+        :class:`~medusa.core.data.streaming.Recorder`, and a full peer of the
+        ``.bson``/``.json``/``.mat`` exports. Other formats defer to
+        :meth:`SerializableComponent.save`.
+        """
+        df = data_format if data_format is not None else path.split('.')[-1]
+        if df in ('hdf5', 'h5'):
+            from medusa.core.data.streaming import Recorder
+            with Recorder(self, file=path, buffer=None, overwrite=True):
+                pass  # __init__ writes the present samples; __exit__ closes
+            return
+        super().save(path, data_format)
 
     @classmethod
-    def from_serializable_obj(cls, dict_data):
-        inst = cls()
-        inst.__dict__.update(dict_data)
-        return inst
+    def load(cls, path, data_format=None) -> "Recording":
+        """Load a recording; adds ``.h5``/``.hdf5`` to the base formats.
+
+        HDF5 is read by :func:`medusa.core.data.streaming.read_recording` (there is
+        no reader class); other formats defer to :meth:`SerializableComponent.load`.
+        """
+        df = data_format if data_format is not None else path.split('.')[-1]
+        if df in ('hdf5', 'h5'):
+            from medusa.core.data.streaming import read_recording
+            return read_recording(path)
+        return super().load(path, data_format)

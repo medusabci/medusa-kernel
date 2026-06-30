@@ -1,0 +1,294 @@
+"""Tests for :mod:`medusa.core.settings_tree` (Qt-free)."""
+
+from __future__ import annotations
+
+import warnings
+
+import pytest
+
+from medusa.core.settings_tree import (
+    INPUT_FORMATS,
+    SettingsTree,
+    infer_input_format,
+)
+
+
+@pytest.fixture
+def sample_tree():
+    """A small representative schema used across tests."""
+    s = SettingsTree()
+    s.add_item("update_rate", value=0.2, info="Update rate (s)",
+               value_range=[0, None])
+    freq = s.add_group("frequency_filter", info="IIR filter")
+    freq.add_item("apply", value=True)
+    freq.add_item("type", value="highpass",
+                  value_options=["highpass", "lowpass", "bandpass"])
+    freq.add_item("order", value=5, value_range=[1, None])
+    freq.add_item("cutoff_freq", value=[1.0],
+                  element_schema={"value_range": [0, None]})
+    return s
+
+
+# ---------------------------------------------------------------------------
+# infer_input_format
+# ---------------------------------------------------------------------------
+class TestInferInputFormat:
+    @pytest.mark.parametrize("value, fmt", [
+        (True, "checkbox"),          # bool before int
+        (5, "spinbox"),
+        (0.2, "doublespinbox"),
+        ("hi", "lineedit"),
+        ([1, 2], "list"),
+        (None, None),
+    ])
+    def test_by_type(self, value, fmt):
+        assert infer_input_format(value) == fmt
+
+    def test_options_force_combobox(self):
+        assert infer_input_format(5, [3, 5, 7]) == "combobox"
+
+    def test_all_formats_are_known(self):
+        for fmt in ("checkbox", "spinbox", "doublespinbox", "lineedit",
+                    "combobox", "list"):
+            assert fmt in INPUT_FORMATS
+
+
+# ---------------------------------------------------------------------------
+# Building + plain-dict bridge
+# ---------------------------------------------------------------------------
+class TestBuildAndToDict:
+    def test_to_dict_nested(self, sample_tree):
+        assert sample_tree.to_dict() == {
+            "update_rate": 0.2,
+            "frequency_filter": {
+                "apply": True, "type": "highpass", "order": 5,
+                "cutoff_freq": [1.0],
+            },
+        }
+
+    def test_values_is_alias_of_to_dict(self, sample_tree):
+        assert sample_tree.values() == sample_tree.to_dict()
+
+    def test_from_dict_round_trip(self, sample_tree):
+        cfg = sample_tree.to_dict()
+        assert SettingsTree.from_dict(cfg).to_dict() == cfg
+
+    def test_from_dict_infos(self):
+        tree = SettingsTree.from_dict(
+            {"a": 1, "g": {"b": 2}},
+            infos={"a": "help a", "g": {"b": "help b"}})
+        assert tree.get_item("a").info == "help a"
+        assert tree.get_item("g", "b").info == "help b"
+
+    def test_default_equals_value_on_build(self, sample_tree):
+        order = sample_tree.get_item("frequency_filter", "order")
+        assert order.value == order.default == 5
+
+    def test_add_group_is_branch(self, sample_tree):
+        assert sample_tree.get_item("frequency_filter").is_group
+        assert not sample_tree.get_item("update_rate").is_group
+
+
+# ---------------------------------------------------------------------------
+# input_format: the C1 regression — explicit format must be honored
+# ---------------------------------------------------------------------------
+class TestInputFormat:
+    def test_explicit_consistent_format_accepted(self):
+        s = SettingsTree()
+        # consistent with type -> not stored (widget infers), but no error
+        s.add_item("order", value=5, input_format="spinbox")
+        s.add_item("flag", value=True, input_format="checkbox")
+        s.add_item("type", value="a", input_format="combobox",
+                   value_options=["a", "b"])
+
+    def test_override_format_is_stored(self):
+        s = SettingsTree()
+        # lineedit over a value-less item overrides the (None) inference
+        s.add_item("name", input_format="lineedit")
+        assert s.get_item("name").tree.get("input_format") == "lineedit"
+
+    @pytest.mark.parametrize("value, fmt", [
+        (5, "checkbox"),         # int is not bool
+        ("a", "spinbox"),        # str is not int
+        (1, "doublespinbox"),    # int is not float
+    ])
+    def test_inconsistent_format_raises(self, value, fmt):
+        with pytest.raises(ValueError):
+            SettingsTree().add_item("x", value=value, input_format=fmt)
+
+    def test_combobox_without_options_raises(self):
+        with pytest.raises(ValueError):
+            SettingsTree().add_item("x", value="a", input_format="combobox")
+
+    def test_unknown_format_raises(self):
+        with pytest.raises(ValueError):
+            SettingsTree().add_item("x", value="a", input_format="nope")
+
+
+# ---------------------------------------------------------------------------
+# Error policy: raise on programmer errors
+# ---------------------------------------------------------------------------
+class TestErrorPolicy:
+    def test_bad_value_type_raises(self):
+        with pytest.raises(TypeError):
+            SettingsTree().add_item("x", value=object())
+
+    def test_none_key_raises(self):
+        with pytest.raises(TypeError):
+            SettingsTree().add_item(None, value=1)
+
+    def test_bad_info_raises(self):
+        with pytest.raises(TypeError):
+            SettingsTree().add_item("x", value=1, info=123)
+
+    def test_bad_value_range_raises(self):
+        with pytest.raises(ValueError):
+            SettingsTree().add_item("x", value=1, value_range=[1])
+
+    def test_duplicate_sibling_key_raises(self):
+        s = SettingsTree()
+        s.add_item("x", value=1)
+        with pytest.raises(ValueError):
+            s.add_item("x", value=2)
+
+    def test_add_item_never_returns_none(self):
+        # fluent chaining must not blow up
+        s = SettingsTree()
+        child = s.add_item("x", value=1)
+        assert isinstance(child, SettingsTree)
+
+    def test_out_of_range_value_warns_not_raises(self):
+        with pytest.warns(UserWarning, match="outside value_range"):
+            SettingsTree().add_item("x", value=-5, value_range=[0, None])
+
+
+# ---------------------------------------------------------------------------
+# Navigation / read accessors
+# ---------------------------------------------------------------------------
+class TestNavigation:
+    def test_get_item_value_leaf(self, sample_tree):
+        assert sample_tree.get_item_value("frequency_filter", "order") == 5
+
+    def test_get_item_value_branch_returns_nested(self, sample_tree):
+        assert sample_tree.get_item_value("frequency_filter") == \
+            sample_tree.get_item("frequency_filter").to_dict()
+
+    def test_get_item_value_missing_value_returns_default(self):
+        s = SettingsTree()
+        s.add_group("g")        # value-less branch is fine
+        leaf = SettingsTree()
+        leaf.add_item("empty")  # leaf with no value
+        assert leaf.get_item_value("empty", default="x") == "x"
+
+    def test_get_item_missing_key_raises(self, sample_tree):
+        with pytest.raises(KeyError):
+            sample_tree.get_item("frequency_filter", "missing")
+
+    def test_dunders(self, sample_tree):
+        assert len(sample_tree) == 2
+        assert "frequency_filter" in sample_tree
+        assert sample_tree["frequency_filter"]["order"].value == 5
+        assert [c.key for c in sample_tree] == \
+            ["update_rate", "frequency_filter"]
+        assert "frequency_filter" in repr(sample_tree)
+
+    def test_remove_item(self, sample_tree):
+        sample_tree.remove_item("frequency_filter", "order")
+        with pytest.raises(KeyError):
+            sample_tree.get_item("frequency_filter", "order")
+
+
+# ---------------------------------------------------------------------------
+# Editing / reset / overrides
+# ---------------------------------------------------------------------------
+class TestEditing:
+    def test_set_value_and_get(self, sample_tree):
+        sample_tree.set_value("frequency_filter", "order", value=9)
+        assert sample_tree.get_item_value("frequency_filter", "order") == 9
+
+    def test_edit_changes_value_not_default(self, sample_tree):
+        order = sample_tree.get_item("frequency_filter", "order")
+        order.edit_item(value=9)
+        assert order.value == 9 and order.default == 5
+
+    def test_reset_restores_default(self, sample_tree):
+        sample_tree.set_value("frequency_filter", "order", value=9)
+        sample_tree.reset()
+        assert sample_tree.get_item_value("frequency_filter", "order") == 5
+
+    def test_user_overrides(self, sample_tree):
+        sample_tree.set_value("frequency_filter", "order", value=9)
+        assert sample_tree.user_overrides() == \
+            {"frequency_filter": {"order": 9}}
+        sample_tree.reset()
+        assert sample_tree.user_overrides() == {}
+
+    def test_value_property_setter(self, sample_tree):
+        sample_tree["update_rate"].value = 0.5
+        assert sample_tree.get_item_value("update_rate") == 0.5
+
+    def test_update_from_dict(self, sample_tree):
+        sample_tree.update_from_dict({"frequency_filter": {"order": 8}})
+        assert sample_tree.get_item_value("frequency_filter", "order") == 8
+
+    def test_update_from_dict_unknown_key_warns(self, sample_tree):
+        with pytest.warns(UserWarning, match="unknown key"):
+            sample_tree.update_from_dict({"nope": 1})
+
+
+# ---------------------------------------------------------------------------
+# validate / coerce
+# ---------------------------------------------------------------------------
+class TestValidateCoerce:
+    def test_validate_clean(self, sample_tree):
+        assert sample_tree.validate() == []
+
+    def test_validate_range_violation(self, sample_tree):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sample_tree.set_value("frequency_filter", "order", value=-3)
+        violations = sample_tree.validate()
+        assert violations == [("frequency_filter.order", "-3 < min 1")]
+
+    def test_validate_option_violation(self, sample_tree):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sample_tree.set_value("frequency_filter", "type", value="zzz")
+        assert sample_tree.validate()[0][0] == "frequency_filter.type"
+
+    def test_coerce_clamps_range(self, sample_tree):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sample_tree.set_value("frequency_filter", "order", value=-3)
+        sample_tree.coerce()
+        assert sample_tree.get_item_value("frequency_filter", "order") == 1
+        assert sample_tree.validate() == []
+
+    def test_coerce_snaps_options_to_default(self, sample_tree):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sample_tree.set_value("frequency_filter", "type", value="zzz")
+        sample_tree.coerce()
+        assert sample_tree.get_item_value("frequency_filter", "type") == \
+            "highpass"
+
+
+# ---------------------------------------------------------------------------
+# Serialization (JSON only)
+# ---------------------------------------------------------------------------
+class TestSerialization:
+    def test_serializable_round_trip(self, sample_tree):
+        obj = sample_tree.to_serializable_obj()
+        assert SettingsTree.from_serializable_obj(obj).to_dict() == \
+            sample_tree.to_dict()
+
+    def test_json_round_trip(self, sample_tree, tmp_path):
+        path = tmp_path / "settings.json"
+        sample_tree.to_json(str(path))
+        loaded = SettingsTree.from_json(str(path))
+        assert loaded.to_dict() == sample_tree.to_dict()
+
+    def test_no_serializable_component_base(self):
+        # clean-break: SettingsTree is standalone JSON, not the multi-format base
+        assert not hasattr(SettingsTree, "save_to_mat")
+        assert not hasattr(SettingsTree, "update_tree_from_widget")

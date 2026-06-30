@@ -1,0 +1,398 @@
+/* =============================================================
+   medusa-kernel — custom Material theme overrides.
+
+   Visual identity is aligned 1:1 with the official MEDUSA© website
+   (mirror under docs/web/). Source of truth for the palette below:
+   `docs/web/MEDUSA©_files/medusa.css`.
+
+       --color-primary             #00a3ff   ← cyan, primary CTA / links
+       --color-primary-medusablue  #141eb0   ← deep MEDUSA blue (header)
+       --color-primary-medusaorange#f6412d   ← signature warm accent
+       --color-primary-alta        #212e48   ← deep navy (footer / chrome)
+       --color-subtitle            #f9004d   ← pink/red highlight
+       --background-color-3        #151521   ← dark surface
+       --background-color-4        #242435   ← dark elevated surface
+       --gradient-one
+           linear-gradient(to right bottom, #2899d8, #00a3ff)
+       Typography                  Rubik (Google Fonts)
+
+   Design philosophy: solid Material surfaces, **no decorative
+   gradients on the chrome** (header / tabs / footer). The diagonal
+   gradient from the MEDUSA brand is reserved for the home-page hero
+   — used once, as a focal point — so the rest of the site reads
+   clean and modern.
+
+   To tweak: edit the four hex values in `:root` and the four mirrors
+   under `[data-md-color-scheme="slate"]`.
+   ============================================================= */
+
+:root {
+    /* MEDUSA blue / cyan primary; warm orange accent. */
+    --md-primary-fg-color:        #141eb0;   /* MEDUSA blue */
+    --md-primary-fg-color--light: #00a3ff;   /* MEDUSA cyan */
+    --md-primary-fg-color--dark:  #0a1170;   /* deeper blue for footer */
+    --md-primary-bg-color:        #ffffff;
+    --md-primary-bg-color--light: #ffffffd0;
+
+    --md-accent-fg-color:         #f6412d;   /* MEDUSA orange */
+    --md-accent-fg-color--transparent: #f6412d1a;
+    --md-accent-bg-color:         #ffffff;
+    --md-accent-bg-color--light:  #ffffffd0;
+
+    --md-text-font: "Rubik", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --md-code-font: "JetBrains Mono", "SFMono-Regular", Consolas,
+                    "Liberation Mono", Menlo, monospace;
+}
+
+[data-md-color-scheme="slate"] {
+    /* On dark backgrounds the deep MEDUSA blue disappears; promote the
+       cyan to primary so links and tab underlines pop. The MEDUSA
+       orange stays as accent, no need to brighten it. */
+    --md-primary-fg-color:        #00a3ff;
+    --md-primary-fg-color--light: #46c0ff;
+    --md-primary-fg-color--dark:  #141eb0;
+    --md-accent-fg-color:         #ff6b3a;
+    --md-accent-fg-color--transparent: #ff6b3a1a;
+
+    /* Dark surfaces lifted from the website's --background-color-3/4. */
+    --md-default-bg-color:        #151521;
+    --md-default-bg-color--light: #1a1a2a;
+    --md-default-bg-color--lighter: #242435;
+    --md-code-bg-color:           #1d1d2c;
+}
+
+/* --- Typography ------------------------------------------------- */
+/* The website uses Rubik with a 600 weight for titles. Mirror that. */
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+.md-typeset h1 { font-size: 2rem; line-height: 1.2; }
+.md-typeset h2 { margin-top: 2.4rem; }
+
+/* --- Header / nav: flat, on-brand ------------------------------
+   Solid MEDUSA blue. The official site's main nav is dark navy with
+   the white logo; we use the official `logo-white.png` for parity. */
+
+.md-header {
+    background-color: var(--md-primary-fg-color);
+    box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.05);
+}
+.md-tabs {
+    background-color: var(--md-primary-fg-color);
+}
+.md-header__title { font-weight: 500; letter-spacing: 0.005em; }
+
+/* The white-on-transparent logo from the official kit. Sized to the
+   header text. */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+    height: 1.7rem;
+    width: auto;
+}
+
+/* Subtle 2-px accent underline on the active section tab (echoes the
+   MEDUSA orange accent rather than a plain white bar). */
+.md-tabs__link--active {
+    border-bottom: 2px solid var(--md-accent-fg-color);
+    padding-bottom: 0.55rem;
+}
+
+/* --- Landing page hero -----------------------------------------
+   Reproduces the website's `--gradient-one`:
+     linear-gradient(to right bottom, #2899d8, #00a3ff)
+   on top of the deep MEDUSA blue, so the hero feels like a direct
+   extension of the marketing site. */
+
+.md-hero {
+    margin: -1.5rem -0.6rem 2rem;
+    padding: 3rem 1.8rem 2.6rem;
+    background:
+        linear-gradient(to right bottom,
+                        var(--md-primary-fg-color) 0%,
+                        #2899d8 55%,
+                        #00a3ff 100%);
+    color: #ffffff;
+    border-radius: 0.5rem;
+}
+.md-hero h1,
+.md-hero p,
+.md-hero a { color: #ffffff !important; }
+.md-hero h1 {
+    font-size: 2.6rem;
+    margin: 0 0 0.7rem 0;
+    letter-spacing: -0.015em;
+    font-weight: 700;
+}
+.md-hero p {
+    font-size: 1.05rem;
+    max-width: 38rem;
+    opacity: 0.92;
+    margin-bottom: 1.4rem;
+}
+.md-hero .md-button {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    color: #ffffff;
+    transition: background .15s ease, border-color .15s ease;
+}
+.md-hero .md-button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #ffffff;
+}
+.md-hero .md-button--primary {
+    background: var(--md-accent-fg-color);     /* MEDUSA orange CTA */
+    border-color: var(--md-accent-fg-color);
+    color: #ffffff !important;
+    font-weight: 600;
+}
+.md-hero .md-button--primary:hover {
+    background: #ff6b3a;
+    border-color: #ff6b3a;
+}
+
+/* --- Card grids ------------------------------------------------- */
+
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid.cards > .card {
+    border-radius: 0.4rem;
+    border: 1px solid var(--md-default-fg-color--lightest);
+    box-shadow: none;
+    transition: transform .15s ease, box-shadow .15s ease,
+                border-color .15s ease;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li:hover,
+.md-typeset .grid.cards > .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 18px rgba(20, 30, 176, 0.10);
+    border-color: var(--md-primary-fg-color--light);
+}
+
+/* --- Tutorial banner (set by docs/hooks.py) -------------------- */
+
+.md-tutorial-banner {
+    box-shadow: none;
+}
+.md-tutorial-banner .md-button {
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+.md-tutorial-banner .md-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(0, 163, 255, 0.20);
+}
+.md-tutorial-banner img { display: block; }
+
+/* --- Footer ----------------------------------------------------- */
+/* Deep navy band — matches the website's --color-primary-alta. */
+
+.md-footer {
+    background-color: #1d293f;
+}
+.md-footer-meta {
+    background-color: #141a2c;
+}
+
+/* --- Code blocks ------------------------------------------------ */
+
+.md-typeset code,
+.md-typeset pre {
+    border-radius: 0.4rem;
+}
+.md-typeset .highlight pre > code {
+    font-size: 0.78rem;
+    line-height: 1.55;
+}
+
+/* === API reference tweaks ======================================== */
+
+/* ---- Left/right sidebar: proper scroll --------------------------
+   Material renders:
+     .md-sidebar                → sticky wrapper (height:0 on desktop)
+     .md-sidebar__scrollwrap    → the actual scroll container
+     .md-sidebar__inner         → the tree / TOC content
+
+   Material's JS sizes the scrollwrap dynamically: it writes an inline
+   pixel `height` tied to the *main article* height, so the panel grows
+   with the page and only "locks" to the viewport once you scroll past
+   the header. That default falls apart for our deep, fully-expanded
+   auto-generated API tree: on a short module page the article is
+   shorter than the viewport, the page never scrolls, the lock never
+   engages, and the whole tree (or the right-hand TOC) is crammed into a
+   tiny article-tall window whose bottom is unreachable.
+
+   Fix: on desktop, decouple the scroll container from the article and
+   bound it to the viewport. `height:auto` makes the wrap as tall as its
+   own content (full tree / TOC); `max-height` caps that at the viewport
+   slot so it always scrolls internally and every entry stays reachable.
+   Both must beat the inline height Material's JS writes — hence the
+   `!important`. (Still do NOT use `min-height`: forcing the wrap taller
+   than its sticky slot pushes the bottom below the viewport, the exact
+   failure this replaces.)
+
+   Footer: Material keeps `.md-sidebar` itself at `height:0` (only the
+   scrollwrap is sized), so the sticky box has nothing to bound it — it
+   stays glued to the viewport and rides down *over* the footer. Give the
+   wrapper a real `height:auto` so its sticky positioning is instead
+   bounded by the content column (`.md-main__inner`, which ends above the
+   footer — the footer lives outside `<main>`). The panel then scrolls
+   away cleanly at the end of the page instead of overlapping the footer. */
+
+.md-sidebar__scrollwrap {
+    overscroll-behavior: contain;
+}
+
+/* Desktop (both nav + TOC are real sidebars): viewport-bounded scroll
+   that stops at the content column so it never overlaps the footer.
+   `100vh - 6rem` ≈ header (2.4rem) + sticky tabs (2.4rem) + padding. */
+@media screen and (min-width: 76.25em) {
+    .md-sidebar {
+        height: auto;                  /* override Material's height:0 → sticky is footer-aware */
+    }
+    .md-sidebar__scrollwrap {
+        height: auto !important;
+        max-height: calc(100vh - 6rem) !important;
+        overflow-y: auto;
+    }
+}
+
+/* Tablet band: the primary nav is a slide-in drawer here (leave it
+   untouched), but the right-hand TOC is already a sticky sidebar, so it
+   needs the same viewport bound + footer-aware sticky height. */
+@media screen and (min-width: 60em) and (max-width: 76.234375em) {
+    .md-sidebar--secondary {
+        height: auto;
+    }
+    .md-sidebar--secondary .md-sidebar__scrollwrap {
+        height: auto !important;
+        max-height: calc(100vh - 6rem) !important;
+        overflow-y: auto;
+    }
+}
+
+/* Trim very long module names so they don't push the sidebar width.
+   Apply ONLY to the link text — never to the list-item itself (which
+   must be allowed to wrap / grow in height). */
+.md-nav__link {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(var(--md-sidebar-width, 12.1rem) - 3rem);
+}
+
+/* ---- Collapsible nav tree polish --------------------------------
+   Without `navigation.sections`, Material renders every nav section
+   as a ▶ toggle item. These tweaks make it feel more polished:
+   - smooth arrow rotation animation
+   - subtle indent lines for nested levels
+   - hover highlight on the toggle arrow */
+
+/* Smooth fold/unfold animation for the ▶ arrow. */
+.md-nav__toggle ~ label > .md-nav__icon {
+    transition: transform .2s ease;
+}
+
+/* Indent guide: faint dotted left-border so deep nesting is clear. */
+.md-nav__list .md-nav__list {
+    border-left: 1px dotted var(--md-default-fg-color--lightest);
+    margin-left: .55rem;
+    padding-left: .4rem;
+}
+
+/* Slightly brighter arrow on hover so the toggle affordance is
+   obvious — especially important for the deep API tree. */
+.md-nav__item--nested > .md-nav__link:hover .md-nav__icon,
+.md-nav__item--nested > label:hover .md-nav__icon {
+    color: var(--md-accent-fg-color);
+}
+
+/* ---- Member labels / badges ---- */
+
+/* "function", "class", "property" pill badges from mkdocstrings. */
+.doc-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 6px;
+    vertical-align: middle;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.doc-label-class    { background: #e3ecfc; color: #1a56db; }
+.doc-label-function { background: #e3f8ee; color: #057a55; }
+.doc-label-method   { background: #e0f4f4; color: #0e7490; }
+.doc-label-property { background: #fdf6e3; color: #92400e; }
+.doc-label-attribute{ background: #f3f0fc; color: #6d28d9; }
+
+[data-md-color-scheme="slate"] .doc-label-class    { background: #1e3a6e; color: #93c5fd; }
+[data-md-color-scheme="slate"] .doc-label-function { background: #064e3b; color: #6ee7b7; }
+[data-md-color-scheme="slate"] .doc-label-method   { background: #0c4a6e; color: #7dd3fc; }
+[data-md-color-scheme="slate"] .doc-label-property { background: #451a03; color: #fcd34d; }
+[data-md-color-scheme="slate"] .doc-label-attribute{ background: #2e1065; color: #c4b5fd; }
+
+/* ---- Signature block ---- */
+
+/* Give signatures a faint background so they stand out from the
+   prose without looking like an ordinary code block. */
+.doc-signature,
+.doc .highlight {
+    background: var(--md-code-bg-color);
+    border-left: 3px solid var(--md-primary-fg-color--light);
+    border-radius: 0 0.35rem 0.35rem 0;
+    padding: 0.6rem 0.9rem;
+    margin: 0 0 0.9rem 0;
+    font-size: 0.8rem;
+    overflow-x: auto;
+}
+
+/* ---- Summary table (generated by mkdocstrings summary: true) ---- */
+
+.doc-summary table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-bottom: 1.2rem;
+}
+.doc-summary table th {
+    background: var(--md-default-bg-color--light);
+    font-weight: 600;
+    padding: 0.35rem 0.6rem;
+    border-bottom: 2px solid var(--md-default-fg-color--lightest);
+    text-align: left;
+}
+.doc-summary table td {
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--md-default-fg-color--lightest);
+    vertical-align: top;
+}
+.doc-summary table tr:hover td {
+    background: var(--md-accent-fg-color--transparent);
+}
+
+/* ---- Section headings inside API pages ---- */
+
+/* Tighten the vertical rhythm around symbol headings so long module
+   pages don't look like a wall of whitespace. */
+.doc-heading,
+.doc h2, .doc h3, .doc h4 {
+    margin-top: 1.4rem;
+    margin-bottom: 0.3rem;
+    padding-bottom: 0.2rem;
+    border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* ---- Source toggle ---- */
+
+details.doc-source > summary {
+    font-size: 0.75rem;
+    color: var(--md-default-fg-color--light);
+    cursor: pointer;
+    user-select: none;
+}
+details.doc-source > summary:hover {
+    color: var(--md-primary-fg-color--light);
+}
+
+

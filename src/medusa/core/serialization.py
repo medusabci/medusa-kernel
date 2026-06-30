@@ -1,6 +1,7 @@
 # Built-in imports
 import json, bson
 import warnings
+import importlib
 from abc import ABC, abstractmethod
 import copy
 
@@ -9,25 +10,34 @@ import numpy as np
 import scipy.io
 import dill
 
+__all__ = [
+    "SerializableComponent",
+    "PickleableComponent",
+    "ensure_list",
+    "tag_component",
+    "load_component",
+]
+
 
 class SerializableComponent(ABC):
-    """Skeleton class for serializable components. These components must
-    implement functions to transform the class to multiplatform formats,
-    such as json, bson and mat. It must be used in classes that need persistence
-    across multple platforms (i.e., recordings)
+    """Base class for components persisted to multiplatform formats.
+
+    Subclasses implement :meth:`to_serializable_obj` / :meth:`from_serializable_obj`
+    (a dict/list of primitive types) and inherit :meth:`save` / :meth:`load` for the
+    ``bson``/``json``/``mat``/``pickle`` formats. Used by types that must round-trip
+    across platforms, e.g. recordings.
     """
     @abstractmethod
     def to_serializable_obj(self):
-        """This function must return a serializable object (list or dict of
-        primitive types) containing the relevant attributes of the class
-        """
+        """Return a serializable object (dict/list of primitive types) holding the
+        class's relevant attributes."""
         raise NotImplemented
 
     @classmethod
     @abstractmethod
     def from_serializable_obj(cls, data):
-        """This function must return an instance of the class from a
-        serializable (list or dict of primitive types)"""
+        """Rebuild an instance from the object produced by
+        :meth:`to_serializable_obj`."""
         raise NotImplemented
 
     @staticmethod
@@ -51,6 +61,28 @@ class SerializableComponent(ABC):
                     v = SerializableComponent.__none_to_null(v)
                 if v is None:
                     obj[i] = 'null'
+        return obj
+
+    @staticmethod
+    def _str_lists_to_cells(obj):
+        """Convert all-string lists to object arrays for ``scipy.io.savemat``.
+
+        ``savemat`` writes a Python ``list[str]`` as a 2-D char *matrix*, which
+        right-pads every shorter string with spaces to the longest one (so
+        ``["go", "nogo"]`` round-trips as ``["go  ", "nogo"]``). Storing the list as
+        an object array makes ``savemat`` emit a MATLAB *cell* array instead, which
+        preserves each string's exact length. Recurses through dicts/lists; all
+        other values (incl. numeric lists) are untouched, and the result
+        round-trips through ``_sanitize_and_reconstruct`` on load.
+        """
+        if isinstance(obj, dict):
+            return {k: SerializableComponent._str_lists_to_cells(v)
+                    for k, v in obj.items()}
+        if isinstance(obj, list):
+            items = [SerializableComponent._str_lists_to_cells(v) for v in obj]
+            if items and all(isinstance(v, str) for v in items):
+                return np.array(items, dtype=object)
+            return items
         return obj
 
     @staticmethod
@@ -85,31 +117,20 @@ class SerializableComponent(ABC):
         return obj
 
     def save(self, path, data_format=None):
-        """Saves the component to the specified format.
+        """Save the component; the format is ``data_format`` or the path extension.
 
-        Compatible formats:
-
-        - bson: This format is safe, efficient, easy to use and multiplatform.
-            Thus, it comes with  advantages in comparison to other formats.
-            BSON format requires serializable classes to python primary types.
-        - json: This format is safe, human readable and multiplatform, widely
-            used for web applications. Nevertheless, files are encoded in utf-8
-            and thus occupy more space. JSON format requires serializable
-            classes to python primary types.
-        - mat: This is a binary format widely used in research for its
-            compatibility with Matlab. Very powerful and safe, but lacks of
-            wide multiplatform compatibility. MAT format requires serializable
-            classes, but allows numpy types.
-        - pickle: This format is easy to use but lacks of multiplatform
-            interoperability and it's not very efficient.
+        Formats: ``bson`` (efficient binary, multiplatform), ``json``
+        (human-readable, multiplatform, larger files), ``mat`` (MATLAB binary,
+        allows numpy types, limited multiplatform support), ``pickle`` (easy but
+        Python-only).
 
         Parameters
         ----------
-        path: str
-            File path. If data_format is None, The data format will be
-            automatically decoded from the path extension.
-        data_format: str
-            Format to save the recording. Current supported formats:
+        path
+            File path; the format is taken from its extension when ``data_format``
+            is ``None``.
+        data_format
+            One of ``bson``/``json``/``mat``/``pickle`` (overrides the extension).
         """
         # Decode format
         if data_format is None:
@@ -118,15 +139,13 @@ class SerializableComponent(ABC):
             df = data_format
 
         if df == 'pickle' or df == 'pkl':
-            return self.save_to_pickle(path)
+            self.save_to_pickle(path)
         elif df == 'bson':
-            return self.save_to_bson(path)
+            self.save_to_bson(path)
         elif df == 'json':
-            return self.save_to_json(path)
+            self.save_to_json(path)
         elif df == 'mat':
-            return self.save_to_mat(path)
-        elif df == 'hdf5' or df == 'h5':
-            raise NotImplemented
+            self.save_to_mat(path)
         else:
             raise ValueError('Format %s is not available yet' % df)
 
@@ -141,17 +160,16 @@ class SerializableComponent(ABC):
             json.dump(self.to_serializable_obj(), f, indent=indent)
 
     def save_to_mat(self, path, avoid_none_objects=True):
-        """Save the class in a MATLAB .mat file using scipy
+        """Save to a MATLAB ``.mat`` file via scipy.
 
         Parameters
         ----------
-        path: str
-            Path to file
-        avoid_none_objects: bool
-            If True, it ensures that all None objects are removed from the
-            object to save to avoid scipy.io.savemat error with this type.
-            Nonetheless, it is computationally expensive, so it is better to
-            leave to False and ensure manually.
+        path
+            File path.
+        avoid_none_objects
+            Replace ``None`` with ``'null'`` before saving (``scipy.io.savemat``
+            cannot store ``None``); restored on load. Slower -- set ``False`` if
+            ``None`` values are already removed.
         """
         ser_obj = self.to_serializable_obj()
         if avoid_none_objects:
@@ -159,6 +177,9 @@ class SerializableComponent(ABC):
                           'Consider removing None objects manually before '
                           'calling this function to save time')
             ser_obj = self.__none_to_null(ser_obj)
+        # Store variable-length string lists as cell arrays, not padded char
+        # matrices (otherwise scipy right-pads shorter strings with spaces).
+        ser_obj = self._str_lists_to_cells(ser_obj)
         scipy.io.savemat(path, mdict=ser_obj)
 
     def save_to_pickle(self, path, protocol=0):
@@ -166,21 +187,26 @@ class SerializableComponent(ABC):
         with open(path, 'wb') as f:
             dill.dump(self.to_serializable_obj(), f, protocol=protocol)
 
+    # No generic save_to_hdf5/load_from_hdf5 here: unlike the formats above (built
+    # on to_serializable_obj, which list-ifies arrays), a useful HDF5 store needs
+    # per-component knowledge of which fields are large arrays. Components with big
+    # array payloads add it themselves (e.g. Recording, via core.data.streaming).
+
     @classmethod
     def load(cls, path, data_format=None):
-        """Loads the file with the correct data structures
+        """Load a component; the format is ``data_format`` or the path extension.
 
         Parameters
         ----------
-        path : str
-            File path
-        data_format : None or str
-            File format. If None, the format will be given by the file extension
+        path
+            File path.
+        data_format
+            One of ``bson``/``json``/``mat``/``pickle`` (overrides the extension).
 
         Returns
         -------
-        Recording
-            Recording class with the correct data structures
+        SerializableComponent
+            The reconstructed instance.
         """
         # Check extension
         if data_format is None:
@@ -196,8 +222,6 @@ class SerializableComponent(ABC):
             return cls.load_from_json(path)
         elif df == 'mat':
             return cls.load_from_mat(path)
-        elif df == 'hdf5' or df == 'h5':
-            raise NotImplemented
         else:
             raise TypeError('Unknown file format %s' % df)
 
@@ -216,17 +240,18 @@ class SerializableComponent(ABC):
     @classmethod
     def load_from_mat(cls, path, squeeze_me=True, simplify_cells=True,
                       restore_none_objects=True):
-        """Load a mat file using scipy and restore its original class
+        """Load a ``.mat`` file via scipy and rebuild the component.
 
         Parameters
         ----------
-        path: str
-            Path to file
-        restore_none_objects: bool
-            If True, it ensures that all 'null' strings are restored as None
-            objects in case that these objects were removed upon saving.
-            Nonetheless, it is computationally expensive, so it is better to
-            leave to False and ensure manually.
+        path
+            File path.
+        squeeze_me, simplify_cells
+            Passed to :func:`scipy.io.loadmat` (collapse size-1 axes; simplify
+            cell/struct arrays).
+        restore_none_objects
+            Restore ``'null'`` strings back to ``None`` (inverse of
+            ``save_to_mat``). Slower -- set ``False`` if not needed.
         """
         ser_obj_dict = scipy.io.loadmat(path, squeeze_me=squeeze_me,
                                         simplify_cells=simplify_cells)
@@ -270,48 +295,43 @@ class SerializableComponent(ABC):
 
 
 class PickleableComponent(ABC):
-    """Skeleton class for pickleable components. These components must
-    implement functions to transform the class to a pickleable object using
-    dill package. It must be used in classes that need persistence but only make
-    sense in Python and thus, they do not require multiplatform compatibility
-    (i.e., signal processing methods)
+    """Base class for components persisted with ``dill`` (Python-only).
+
+    For types that need persistence but not multiplatform interoperability (e.g.
+    signal-processing methods). Subclasses implement :meth:`to_pickleable_obj` /
+    :meth:`from_pickleable_obj`.
     """
     @abstractmethod
     def to_pickleable_obj(self):
-        """Returns a pickleable representation of the class. In most cases,
-        the instance of the class is directly pickleable (e.g., all medusa
-        methods, sklearn classifiers), but this may not be the case for some
-        methods (i.e., keras models). Therefore, this function must be
-        overridden in such cases.
+        """Return a pickleable representation of the instance.
+
+        Usually the instance itself is pickleable (medusa methods, sklearn
+        classifiers); override when it is not (e.g. keras models).
 
         Returns
         -------
-        representation: object
-            Pickleable representation of the instance.name
+        object
+            Pickleable representation of the instance.
         """
         raise NotImplemented
 
     @classmethod
     @abstractmethod
     def from_pickleable_obj(cls, pickleable_obj):
-        """Returns the instance of the unpickled version of the pickleable
-        representation given by function to_pickleable_representation.
-        Therefore, this parameter is, by default, an instance of the class
-        and no additional treatment is required. In some cases (i.e.,
-        keras models), the pickleable_representation may not be the instance,
-        but some other pickleable format with the required information of the
-        method to reinstantiate the instance itself (i.e., weights for
-        keras models). In such cases, this function must be overriden
+        """Rebuild an instance from the object returned by :meth:`to_pickleable_obj`.
+
+        By default that object *is* the instance; override when
+        :meth:`to_pickleable_obj` returns something else (e.g. keras weights).
 
         Parameters
         ----------
-        pickleable_obj: object
-            Pickleable representation of the processing method instance.
+        pickleable_obj
+            The representation produced by :meth:`to_pickleable_obj`.
 
         Returns
         -------
-        instance: PickleableComponent
-            Instance of the component
+        PickleableComponent
+            The reconstructed instance.
         """
         raise NotImplemented
 
@@ -325,3 +345,55 @@ class PickleableComponent(ABC):
         with open(path, 'rb') as f:
             pickleable_obj = dill.load(f)
         return cls.from_pickleable_obj(pickleable_obj)
+
+
+def ensure_list(value):
+    """Coerce ``value`` to a ``list`` (wrapping a non-list in a one-element list).
+
+    Defensive helper for ``from_serializable_obj``. ``scipy.io.loadmat`` with
+    ``squeeze_me=True`` collapses a size-1 array to a scalar, so a one-element
+    serialized list (e.g. a recording with a single event, channel or sensor) comes
+    back from ``.mat`` as a bare value instead of a list. Components whose schema
+    expects a list call this so the ``.mat`` round-trip matches bson/json/hdf5.
+    Idempotent: an existing list is returned unchanged.
+    """
+    return value if isinstance(value, list) else [value]
+
+
+def tag_component(obj):
+    """Serialise a :class:`SerializableComponent` with a class-dispatch tag.
+
+    Returns ``{module_name, class_name, component_data}`` where ``component_data``
+    is the component's own ``to_serializable_obj()``. The tag lets a heterogeneous
+    container (e.g. ``Recording.data``, ``Recording.experiment``) reconstruct the
+    *concrete* class on load without knowing it in advance -- see
+    :func:`load_component`.
+    """
+    return {
+        "module_name": type(obj).__module__,
+        "class_name": type(obj).__name__,
+        "component_data": obj.to_serializable_obj(),
+    }
+
+
+def load_component(tagged):
+    """Rebuild a component from a :func:`tag_component` dict.
+
+    Imports ``module_name``, resolves ``class_name``, and delegates to its
+    ``from_serializable_obj``.
+
+    Raises
+    ------
+    ImportError
+        If the recorded module/class is not importable. The class must be on the
+        import path (installed or already imported) for the load to succeed.
+    """
+    try:
+        module = importlib.import_module(tagged["module_name"])
+        cls = getattr(module, tagged["class_name"])
+    except (ImportError, AttributeError) as exc:
+        raise ImportError(
+            f"cannot resolve serialized class {tagged.get('class_name')!r} from "
+            f"module {tagged.get('module_name')!r}; is it importable here?"
+        ) from exc
+    return cls.from_serializable_obj(tagged["component_data"])

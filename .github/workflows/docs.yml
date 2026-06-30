@@ -1,0 +1,86 @@
+name: docs
+
+on:
+  push:
+    branches: [main, "2.0", "2.0-*"]
+  pull_request:
+    branches: [main, "2.0"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # mike needs to push to gh-pages
+
+concurrency:
+  # Serialise deploys to gh-pages; allow concurrent build-only runs per ref.
+  group: docs-${{ github.event_name == 'push' || github.event_name == 'release' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - name: Install project + docs extras
+        run: uv sync --extra docs
+      - name: Install CPU-only PyTorch (so medusa.ml.deep_learning is importable)
+        run: uv run pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+      - name: Build
+        # NOTE: --strict is intentionally OFF until K9 lands. The K10 plan
+        # (Phase 3) flips it to ON once docstring conventions and type
+        # annotations across the package are clean. Until then, griffe
+        # warnings about malformed docstrings are not treated as failures.
+        run: uv run mkdocs build
+
+  docs-deploy-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --extra docs
+      - run: uv run pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Deploy "dev" alias
+        run: uv run mike deploy --push --update-aliases dev
+
+  docs-deploy-release:
+    if: github.event_name == 'release'
+    needs: docs-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --extra docs
+      - run: uv run pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Deploy versioned docs ("$VERSION" + "latest")
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          uv run mike deploy --push --update-aliases "$VERSION" latest
+          uv run mike set-default --push latest
+

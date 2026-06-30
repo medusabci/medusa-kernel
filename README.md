@@ -1,42 +1,175 @@
 # MEDUSA© Kernel
 
-MEDUSA© is a software ecosystem for the development of BCIs and neuroscience experiments. It has two independent components with dfferent goals: MEDUSA© Kernel and MEDUSA© Platform. 
+**medusa-kernel** is a Python library for biomedical signal processing and
+machine learning, with a focus on electrophysiology (EEG, MEG, ECG, EMG, EOG,
+NIRS). It provides a complete, transparent toolbox of filters, transforms,
+metrics, connectivity measures, graph-theoretic analyses, deep-learning models,
+visualizations, and a BIDS-aligned data model for recordings.
 
-MEDUSA© Kernel is a Python package that contains readyto- use methods to analyze brain signals, including advanced signal processing, machine learning, deep learning, and miscellaneous high-level analyses. It also includes logical functions and classes to handle different biosignals, such as electroencephalography (EEG) and magnetoencephalography (MEG), save experimental data or implement standalone processing pipelines.
+- **Website:** https://www.medusabci.com/
+- **Documentation:** https://docs.medusabci.com/kernel/
 
-## Information
+---
 
-Check the following links to know more about the MEDUSA environment for neurotechnology and brain-computer interface (BCI) experiments:
+## Installation
 
-- Website: [https://www.medusabci.com/](https://www.medusabci.com/)
-- Documentation: [https://docs.medusabci.com/kernel/](https://docs.medusabci.com/kernel/)
+```bash
+pip install medusa-kernel
+```
 
-Important: MEDUSA Kernel is under heavy development! It may change significantly in following versions
+medusa-kernel requires **Python 3.13+** and runs on Linux, macOS, and Windows.
+Everything is pure Python (no compilers or native binaries), so a single wheel
+works everywhere. The signal-processing, data, plotting, and GUI layers all work
+out of the box.
 
-## Design philosophy
+Optional extras:
 
-MEDUSA Kernel adopts a **functional architecture**: signal-processing routines (filters, transforms, metrics, connectivity) are free functions that take their inputs as explicit parameters — a NumPy array, a sampling rate, a few configuration values — and return arrays or scalars. They are not methods bound to a container class.
+```bash
+pip install "medusa-kernel[dev]"    # test + lint toolchain
+pip install "medusa-kernel[docs]"   # documentation toolchain
+pip install "medusa-kernel[all]"    # dev + docs
+```
 
-This is a deliberate departure from libraries such as MNE-Python, whose pipelines are expressed as method chains on a central container (`raw.filter()`, `epochs.average()`, …). The medusa style is lower-level and more verbose at the call site, in exchange for two properties:
+**Deep learning is opt-in.** PyTorch is *not* installed automatically, because
+its wheels are tied to your CUDA / ROCm / MPS / CPU stack. Install the build that
+matches your machine from https://pytorch.org/get-started/. For the deep-learning
+estimators you also need PyTorch Lightning:
 
-- **Transparency.** Every input a function uses appears in its signature. There are no implicit reads from a container's hidden attributes, which makes debugging, unit testing, and partial reuse of the processing chain straightforward.
-- **Flexibility.** Functions are independent of any biosignal type. The same filter or metric works on EEG, MEG, ECG, NIRS, or a synthetic test array, because all it sees is an `ndarray` plus the parameters it needs.
+```bash
+pip install torch lightning   # pick the torch build for your platform
+```
 
-Biosignal classes (`EEG`, `ECG`, `EMG`, …) still exist, but their role is **structuring data for persistence and capturing per-modality metadata** (channel sets, montages, reference schemes, sensor coordinates, …) — not dispatching processing methods. They describe *what was recorded*, not *what can be done with it*. This is what lets each modality keep its own rich, faithful schema instead of collapsing into a generic union container.
+---
 
-## Overview
-MEDUSA Kernel is a Python library, available in the Python Package Index (PyPI) repository, with a complete suite of functions for signal processing. The included functions can be categorized according to their different levels of abstraction. The first level is composed of low-level functions to process signals and calculate basic parameters, including the following:
+## Quick start
 
-- Temporal filters: online and offline infinite impulse response filters (IIR) and offline finite impulse response filters (FIR).
-- Spatial filters: common average reference (CAR), laplacian filter, multi-class common spatial patterns (CSP) and canonical correlation analysis (CCA).
-- Local activation: including spectral metrics, such as band power, median frequency, Shannon entropy , and complexity metrics, such as central tendency measure, sample entropy, multiscale entropy, Lempel-Ziv's complexity and Multiscale Lempel-Ziv's complexity.
-- Connectivity: amplitude metrics, such as amplitude correlation envelope (AEC) and instantaneous amplitude correlation (IAC), and phase metrics, such as phase locking value (PLV), phase lag index (PLI) and weighted PLI (wPLI).
+A complete chain — synthesize a multichannel EEG signal, filter it, estimate its
+spectrum, compute alpha-band power per channel, and draw a scalp topography:
 
-In a higher level of abstraction there are functions that apply a processing pipeline to the input data to analyze certain features. MEDUSA does not assume the nature of the input data in low-level functions, but most of the high-level analysis that are currently implemented are designed to work with electroencephalography (EEG) and magnetoencephalography (MEG) recordings. These functions include:
+```python
+import matplotlib.pyplot as plt
 
-- Signal processing for BCIs based on event related potentials (ERP): complete classification pipelines including regularized linear discriminant analysis (rLDA), EEGNet and EEG-Inception that can be applied in offline and online modes; ERP analysis with advanced charts.  
-- Signal processing for BCIs based on motor imagery (MI): complete classification pipelines including CSP combined with rLDA, EEGNet, EEG-Inception and EEGSym that can be applied in offline and online modes; MI analysis with advanced charts.  
-- Signal processing for BCIs based on code-modulated visual evoked potentials (cVEP): complete classification pipeline based on CCA; cVEP analysis with advanced charts. 
-- Signal processing for neurofeedback (NF): battery of high-level models based on spectral and connectivity metrics ready to be applied in online and offline applications.
+from medusa.signal.generators import EEGSignalGenerator
+from medusa.signal import IIRFilter, power_spectral_density
+from medusa.signal.metrics.spectral import band_power
+from medusa.core.data import ChannelSet
+from medusa.plots import plot_topography
 
-Additionally, the package includes classes and functions to import data from other toolboxes (e.g., MATLAB, MNE), define the data format of signals and experiments, save recordings to several file types (e.g., bson, json, mat) and implement custom real-time signal processing pipelines. Furthermore, some of the functions, including the BCI models, can be applied in both online and offine experiments. Therefore, MEDUSA©  Kernel can be used for offine analysis of previously recorded data, such as public databases, or in real-time tasks. In fact, MEDUSA© Platform relies on this package for signal processing. This is an interesting feature that allows to reproduce the exact same results achieved in an online experiment during subsequent offine analyses, facilitating experimental reproducibility.
+labels = ["Fp1", "Fp2", "C3", "C4", "P3", "P4", "O1", "O2"]
+fs = 250.0
+
+# 1. Synthesize 4 s of 8-channel EEG
+signal = EEGSignalGenerator(fs=fs, seed=0).get_chunk(duration=4.0,
+                                                     n_channels=len(labels))
+
+# 2. Band-pass filter, 1–40 Hz (4th-order Butterworth, zero-phase)
+signal = IIRFilter(order=4, cutoff=(1.0, 40.0), btype="bandpass").fit_transform(
+    signal, fs=fs)
+
+# 3. Power spectral density (Welch)
+f, psd = power_spectral_density(signal, fs=fs)
+
+# 4. Absolute alpha-band (8–13 Hz) power per channel
+alpha = band_power(psd, fs=fs, band=(8.0, 13.0))
+
+# 5. Scalp topography
+channel_set = ChannelSet().add_unipolar_eeg_channels(labels)
+fig, ax = plt.subplots()
+plot_topography(alpha[0], channel_set, ax, colorbar=True)
+plt.show()
+```
+
+Every routine takes its inputs explicitly — an array, a sampling rate, a few
+parameters — and returns arrays or scalars. There is nothing hidden in a
+container object, so any step can be reused, tested, or swapped in isolation.
+
+### The signal model
+
+Signal processing functions operate on plain NumPy arrays with channels last:
+
+| Representation | Shape |
+| --- | --- |
+| Time-domain | `(n_segments, n_samples, n_channels)` |
+| Power spectral density | `(n_segments, n_frequencies, n_channels)` |
+| Time–frequency | `(n_segments, n_frequencies, n_times, n_channels)` |
+
+`n_segments` is the number of independent windows/epochs (use `1` for a single
+continuous recording). As a convenience, single-segment functions also accept a
+2-D `(n_samples, n_channels)` array and return a result with the segment axis
+removed, so interactive and streaming use stays terse.
+
+---
+
+## Working with recordings
+
+The data model is BIDS-aligned. A `Signal` is one acquisition stream — a
+`(n_samples, n_channels)` matrix with a sampling rate, a `ChannelSet`, and a time
+vector. Per-channel modality (EEG, EOG, …) lives in the `ChannelSet`, so a single
+`Signal` can hold mixed channel types. A `Recording` groups one or more named
+streams for a single run, together with an event timeline and metadata.
+
+```python
+import numpy as np
+from medusa.core.data import ChannelSet, Signal, Recording, BidsInfo
+
+channel_set = ChannelSet().add_unipolar_eeg_channels(["Fz", "Cz", "Pz"])
+signal = Signal(np.zeros((1000, 3)), fs=250.0, channel_set=channel_set)
+
+recording = Recording(BidsInfo("01", task="rest")).add_signal("eeg", signal)
+recording.save("rest.h5")
+loaded = Recording.load("rest.h5")
+```
+
+Recordings can be saved to several formats, chosen from the file extension:
+`bson` (compact binary), `json` (human-readable), `mat` (MATLAB), and `h5` /
+`hdf5` (chunked, compressed, append-friendly). Channel positions resolve from
+bundled standard EEG montages (10-20, 10-10, 10-05) by label.
+
+---
+
+## Deep learning
+
+Deep-learning models are built as scikit-learn–style estimators over a PyTorch
+core, and are imported on demand so the rest of the library stays
+PyTorch-free:
+
+```python
+from medusa.ml.torch_models.backbones import EEGNet
+from medusa.ml.torch_models.classification import TorchClassifier
+
+clf = TorchClassifier(EEGNet(n_cha=8, samples=128), max_epochs=50, val_split=0.2)
+clf.fit(X_train, y_train)
+accuracy = clf.score(X_test, y_test)
+```
+
+Backbones (`EEGInception`, `EEGInceptionV2`, `EEGNet`, `EEGSym`) are plain feature
+extractors; `TorchClassifier` adds a classification head and exposes the familiar
+`fit` / `predict` / `predict_proba` / `score` interface. Trained estimators save to
+a single portable file that reloads across devices (CPU ↔ GPU). If PyTorch is not
+installed, importing these modules raises a clear error telling you what to
+install.
+
+---
+
+## What's inside
+
+| Package | Contents |
+| --- | --- |
+| `medusa.core` | Foundation: the BIDS-aligned data model (`Signal`, `ChannelSet`, `Recording`, `Events`), serialization, and shared utilities. |
+| `medusa.signal` | Array operations: frequency and spatial filters, segmentation, transforms (PSD, spectrograms, Hilbert), artifact removal, orthogonalization, and signal generators. |
+| `medusa.signal.metrics` | Signal metrics by family: `spectral`, `nonlinear`, `discriminability`, `connectivity`. |
+| `medusa.graph` | Graph-theoretic metrics over weighted adjacency matrices. |
+| `medusa.ml` | scikit-learn–style machine-learning and deep-learning estimators (PyTorch, opt-in). |
+| `medusa.plots` | Matplotlib visualizations: scalp topographies, connectivity maps, time series, time–frequency heatmaps, and summary plots. |
+| `medusa.widgets` | Interactive GUI tools (figure browser, time-series viewer, settings editors). |
+
+Visual identity (colors, fonts, themes) comes from the companion
+[`medusa-style`](https://www.medusabci.com/) package, so every plot and widget
+shares a consistent look.
+
+---
+
+## License
+
+medusa-kernel is released under the **Apache License 2.0**. See `LICENSE` and
+`NOTICE` for details.

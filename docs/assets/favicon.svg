@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder favicon for the docs site (docs/assets/favicon.svg).
+
+  Replace with the official MEDUSA mark. Material reads SVG favicons
+  natively. If you prefer a PNG/ICO, export at 32×32 and 192×192 PNG and
+  point ``theme.favicon`` at the new path in mkdocs.yml.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"
+     fill="#7c43bd">
+  <path d="M8 30 C 8 14, 56 14, 56 30 L 56 36 L 8 36 Z" opacity="0.85"/>
+  <path d="M16 36 q 0 8 -2 14" stroke="#7c43bd" stroke-width="3"
+        stroke-linecap="round" fill="none"/>
+  <path d="M28 36 q 0 8 2 14" stroke="#7c43bd" stroke-width="3"
+        stroke-linecap="round" fill="none"/>
+  <path d="M36 36 q 0 8 -2 14" stroke="#7c43bd" stroke-width="3"
+        stroke-linecap="round" fill="none"/>
+  <path d="M48 36 q 0 8 2 14" stroke="#7c43bd" stroke-width="3"
+        stroke-linecap="round" fill="none"/>
+  <circle cx="24" cy="26" r="2.5" fill="#00e5ff"/>
+  <circle cx="32" cy="24" r="2.5" fill="#00e5ff"/>
+  <circle cx="40" cy="26" r="2.5" fill="#00e5ff"/>
+</svg>
+
