@@ -78,7 +78,7 @@ eeg_cs.add_channels(Channel("HEOG", "EOG", "uV", sensor="HEOG_l",
 n_eeg = int(DURATION * FS_EEG)
 eeg_sig = Signal(20.0 * rng.standard_normal((n_eeg, eeg_cs.n_channels)),
                  fs=FS_EEG, channel_set=eeg_cs)
-print("channels    :", eeg_cs.uids)
+print("channels    :", eeg_cs.labels)
 print("modalities  :", eeg_cs.types)
 print("datatype    :", eeg_sig.bids_datatype(), "| shape:", eeg_sig.signal.shape)
 
@@ -104,7 +104,7 @@ emg_cs.add_channels(Channel("EMG_left", "EMG", "uV", sensor="EMG_L_act",
 n_fast = int(DURATION * FS_FAST)
 emg_sig = Signal(50.0 * rng.standard_normal((n_fast, emg_cs.n_channels)),
                  fs=FS_FAST, channel_set=emg_cs)
-print("channels    :", emg_cs.uids, "| located by anatomy, not coordinates")
+print("channels    :", emg_cs.labels, "| located by anatomy, not coordinates")
 print("datatype    :", emg_sig.bids_datatype(), "| shape:", emg_sig.signal.shape)
 
 

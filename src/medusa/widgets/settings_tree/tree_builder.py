@@ -22,7 +22,6 @@ Example
 
 
 import medusa_style
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QComboBox,
@@ -36,7 +35,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
-    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -44,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from medusa.core.settings_tree import SettingsTree
+from medusa.widgets._toolbar import add_main_toolbar, pin_toolbar_width
 from medusa.widgets.settings_tree.tree_viewer import (
     TreeViewer,
     _build_editor,
@@ -56,7 +55,7 @@ _WINDOW_SIZE = (1040, 620)   # default builder window size (px)
 _EDITOR_BOX_H = 80           # fixed height (px) of the options / list-values boxes
 
 # Developer-facing "type" of an item, and the editor each one maps to.
-_TYPES = ["Group", "Boolean", "Integer", "Float", "Text", "Choice", "List"]
+_TYPES = ["Group", "Group list", "Boolean", "Integer", "Float", "Text", "Choice", "List"]
 _TYPE_TO_FORMAT = {"Boolean": "checkbox", "Integer": "spinbox",
                    "Float": "doublespinbox", "Text": "lineedit",
                    "Choice": "combobox"}
@@ -129,10 +128,7 @@ class SettingsTreeBuilder(QMainWindow):
 
     # -- construction -------------------------------------------------------
     def _build_toolbar(self):
-        bar = QToolBar()
-        bar.setMovable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.addToolBar(bar)
+        bar = add_main_toolbar(self)
         # text, slot, medusa-style themed-icon name
         for text, slot, icon in (("New", self._new, "add"),
                                   ("Open…", self._open, "folder"),
@@ -141,6 +137,9 @@ class SettingsTreeBuilder(QMainWindow):
             action = QAction(medusa_style.qt.icon(icon), text, self)
             action.triggered.connect(slot)
             bar.addAction(action)
+        # Keep every action visible: pin the toolbar so its buttons never spill
+        # into a "»" overflow menu when the window is narrowed.
+        pin_toolbar_width(bar)
 
     def _build_ui(self):
         splitter = QSplitter()
@@ -249,8 +248,12 @@ class SettingsTreeBuilder(QMainWindow):
 
     def _add_tree_item(self, node, parent_widget, parent_node):
         item = QTreeWidgetItem(parent_widget)
-        item.setText(0, str(node.get("key", "")))
-        item.setText(1, self._node_type(node))
+        if "element_group" in parent_node:              # a keyless group-list element
+            item.setText(0, f"[{self._index_of(parent_node['items'], node)}]")
+            item.setText(1, "Element")
+        else:
+            item.setText(0, str(node.get("key", "")))
+            item.setText(1, self._node_type(node))
         self._node_of[item] = node
         self._item_of[id(node)] = item
         self._parent_of[id(node)] = parent_node
@@ -267,6 +270,8 @@ class SettingsTreeBuilder(QMainWindow):
 
     @staticmethod
     def _node_type(node):
+        if "element_group" in node:
+            return "Group list"
         if "items" in node:
             return "Group"
         if node.get("value_options") is not None:
@@ -286,9 +291,35 @@ class SettingsTreeBuilder(QMainWindow):
     def _siblings(self, node):
         return self._parent_of[id(node)].get("items", [])
 
+    @staticmethod
+    def _index_of(siblings, node):
+        """Position of ``node`` in ``siblings`` **by identity** (``is``), or ``-1``.
+
+        Group-list elements are keyless and may be value-equal, so ``list.index`` /
+        ``list.remove`` (value equality) would find the wrong one -- always match by identity.
+        """
+        for i, child in enumerate(siblings):
+            if child is node:
+                return i
+        return -1
+
+    def _enclosing_group_list(self, node):
+        """The group-list ``node`` is (or lies inside), else ``None`` (walks up parents)."""
+        while node is not None:
+            if "element_group" in node:
+                return node
+            node = self._parent_of.get(id(node))
+        return None
+
     def _add(self, kind):
         node = self._current_node
-        if node is not None and "items" in node:        # add inside a group
+        group_list = self._enclosing_group_list(node)
+        if group_list is not None:                       # inside a group-list: add an element
+            element = SettingsTree(group_list).add_element().tree
+            self._rebuild_tree()
+            self.select_node(element)
+            return
+        if node is not None and "items" in node:         # add inside a group
             siblings, index = node["items"], len(node["items"])
         elif node is not None:                           # add after an item
             siblings = self._siblings(node)
@@ -310,7 +341,9 @@ class SettingsTreeBuilder(QMainWindow):
         if node is None:
             return
         siblings = self._siblings(node)
-        siblings.remove(node)
+        index = self._index_of(siblings, node)
+        if index >= 0:
+            del siblings[index]
         self._current_node = None
         self._rebuild_tree()
 
@@ -319,7 +352,7 @@ class SettingsTreeBuilder(QMainWindow):
         if node is None:
             return
         siblings = self._siblings(node)
-        i = siblings.index(node)
+        i = self._index_of(siblings, node)
         j = i + delta
         if 0 <= j < len(siblings):
             siblings[i], siblings[j] = siblings[j], siblings[i]
@@ -420,6 +453,7 @@ class SettingsTreeBuilder(QMainWindow):
     def _update_visibility(self, type_name):
         shown = {
             "Group": {"key", "type", "info"},
+            "Group list": {"key", "type", "info"},
             "Boolean": {"key", "type", "info", "default"},
             "Integer": {"key", "type", "info", "default", "min", "max"},
             "Float": {"key", "type", "info", "default", "min", "max"},
@@ -477,6 +511,13 @@ class SettingsTreeBuilder(QMainWindow):
         self._status(f"Applied {key!r}.")
 
     def _build_node(self, key, type_name, info, node):
+        if type_name == "Group list":               # keep (or start) a group-list intact
+            new = {"key": key, "input_format": "group_list",
+                   "element_group": node.get("element_group", {"items": []}),
+                   "items": node.get("items", []) if "element_group" in node else []}
+            if info is not None:
+                new["info"] = info
+            return new
         if type_name == "Group":
             new = {"key": key, "items": node.get("items", [])}
             if info is not None:

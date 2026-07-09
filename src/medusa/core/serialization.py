@@ -16,6 +16,8 @@ __all__ = [
     "ensure_list",
     "tag_component",
     "load_component",
+    "pack_pickleable",
+    "unpack_pickleable",
 ]
 
 
@@ -335,8 +337,15 @@ class PickleableComponent(ABC):
         """
         raise NotImplemented
 
-    def save(self, path, protocol=0):
-        """Saves the class using dill into pickle format"""
+    def save(self, path, protocol=None):
+        """Save the component with dill.
+
+        Defaults to ``dill.HIGHEST_PROTOCOL``: protocol 0 (the old default) is ASCII
+        and bloats numpy/torch arrays by ~4x, so components carrying large array
+        payloads (estimators, trained pipelines) must never use it.
+        """
+        if protocol is None:
+            protocol = dill.HIGHEST_PROTOCOL
         with open(path, 'wb') as f:
             dill.dump(self.to_pickleable_obj(), f, protocol=protocol)
 
@@ -397,3 +406,34 @@ def load_component(tagged):
             f"module {tagged.get('module_name')!r}; is it importable here?"
         ) from exc
     return cls.from_serializable_obj(tagged["component_data"])
+
+
+def pack_pickleable(value):
+    """Prepare ``value`` for dill so a nested :class:`PickleableComponent` stays portable.
+
+    The ``PickleableComponent`` analogue of :func:`tag_component` (the latter is only for
+    :class:`SerializableComponent`). A ``PickleableComponent`` (e.g. a torch estimator) is
+    replaced by its own :meth:`~PickleableComponent.to_pickleable_obj` bundle -- a portable
+    ``config + CPU state_dict`` -- tagged with its class so :func:`unpack_pickleable` can
+    rebuild it. Everything else (ndarrays, sklearn estimators, primitives) is already
+    dill-safe and passes through untouched.
+
+    Use it when a container (e.g. a trained pipeline) holds a component that must reload
+    across devices/versions: store ``pack_pickleable(self.clf_)`` instead of the live
+    object, and ``unpack_pickleable(...)`` on load.
+    """
+    if isinstance(value, PickleableComponent):
+        return {"__pickleable__": True,
+                "module_name": type(value).__module__,
+                "class_name": type(value).__name__,
+                "obj": value.to_pickleable_obj()}
+    return value
+
+
+def unpack_pickleable(value):
+    """Inverse of :func:`pack_pickleable` (a plain, non-tagged value passes through)."""
+    if isinstance(value, dict) and value.get("__pickleable__"):
+        module = importlib.import_module(value["module_name"])
+        cls = getattr(module, value["class_name"])
+        return cls.from_pickleable_obj(value["obj"])
+    return value

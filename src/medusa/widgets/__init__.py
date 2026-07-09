@@ -13,13 +13,21 @@ import medusa_style as _medusa_style
 
 _medusa_style.use_theme("light")
 
+from medusa.widgets.erp_viewer import ERPViewer
 from medusa.widgets.plot_visualizer import PlotVisualizer
+from medusa.widgets.recording_inspector import (
+    RecordingInspector, RecordingInspectorWidget, RecordingInspectorWindow)
 from medusa.widgets.settings_tree import SettingsTreeBuilder, TreeViewer
-from medusa.widgets.time_viewer import TimeViewer
+from medusa.widgets.time_viewer import TimeHeatmapViewer, TimeLineViewer
 
 __all__ = [
+    "ERPViewer",
     "PlotVisualizer",
+    "RecordingInspector",
+    "RecordingInspectorWidget",
+    "RecordingInspectorWindow",
     "SettingsTreeBuilder",
     "TreeViewer",
-    "TimeViewer",
+    "TimeLineViewer",
+    "TimeHeatmapViewer",
 ]

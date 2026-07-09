@@ -15,6 +15,7 @@ from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+from matplotlib.ticker import FixedFormatter, FixedLocator
 from numpy.typing import ArrayLike, NDArray
 
 from medusa.core.utils import check_data_dims
@@ -37,7 +38,7 @@ __all__ = ["plot_timeheatmap", "TimeHeatmapPlot"]
 _METHODS = ("imshow", "pcolormesh")
 #: Per-band y_values tick size, as a fraction of the active ``font.size`` (the
 #: stacked frequency ticks must stay small enough to fit many bands).
-_BAND_TICK_FONT_FRAC = 0.65
+_BAND_TICK_FONT_FRAC = 0.72
 
 
 class TimeHeatmapPlot:
@@ -68,7 +69,9 @@ class TimeHeatmapPlot:
     gap
         Vertical gap between stacked bands, as a fraction of the slot (image mode).
     y_ticks_per_channel
-        Number of ``y_values`` ticks per band (image mode).
+        Number of ``y_values`` ticks drawn per band (image mode); the default 3
+        marks the band's lower edge, midpoint and upper edge. Change it live with
+        :meth:`set_y_ticks_per_channel`.
     events, event_hue
         Event overlay (see :func:`~medusa.plots._timeaxis._overlay_events`); drawn
         above the image. ``event_hue`` colors by an events column.
@@ -140,6 +143,9 @@ class TimeHeatmapPlot:
         self._animated = animated
         self._n_channels = None
         self._boundaries: list[float] | None = None
+        # Band-mode geometry stashed on the last image-stack build, so the
+        # per-channel y_values ticks can be re-laid live (set_y_ticks_per_channel).
+        self._band_info: dict | None = None
 
     # -- public -----------------------------------------------------------
     def set_data(self, data, *, fs: float | None = None,
@@ -208,6 +214,17 @@ class TimeHeatmapPlot:
             self.mappable.set_cmap(self._cmap)
         if self.cbar is not None:
             self.cbar.update_normal(self.mappable)
+
+    def set_y_ticks_per_channel(self, n_ticks: int) -> None:
+        """Set how many ``y_values`` ticks each band shows, and re-lay them live.
+
+        ``n_ticks`` spans the band evenly (endpoints at its lower/upper edge); it
+        is capped at the number of ``y_values`` rows. A no-op outside image-stack
+        mode (channel-rows heatmaps have no per-band y_values axis).
+        """
+        self._y_ticks = max(1, int(n_ticks))
+        if self._band_info is not None and "images" in self.artists:
+            self._draw_band_yaxis()
 
     def show_legend(self, on: bool) -> None:
         """Toggle the combined legend."""
@@ -278,11 +295,12 @@ class TimeHeatmapPlot:
         """
         yax = self.artists.pop("y_axis", None)
         if yax is not None:
-            yax.remove()  # the per-band y_values twin lives on the figure, not ax
+            yax.remove()  # the per-band y_values axis lives on the figure, not ax
         self.ax.clear()
         self.artists = {}
         self._boundaries = None
         self._n_channels = None
+        self._band_info = None
 
     def _clim_for(self, values: NDArray) -> tuple[float, float]:
         if self.clim is not None:
@@ -400,9 +418,20 @@ class TimeHeatmapPlot:
                 im.set_animated(self._animated)
             images.append(im)
         self.artists["images"] = images
+        # Stash the band geometry so the per-band y_values ticks can be re-laid
+        # live (set_y_ticks_per_channel) without rebuilding the images.
+        prev = self._band_info
+        self._band_info = {"n_ch": n_ch,
+                           "y_values": np.asarray(y_values, dtype=float),
+                           "band_h": band_h}
         if first:
             self._setup_band_axes(n_ch, y_values, band_h)
             self.ax.set_xlabel("Time (s)" if unit == "s" else "Samples")
+        elif prev is None or not np.array_equal(prev["y_values"],
+                                                self._band_info["y_values"]):
+            # In-place update with changed y_values -> re-lay the frequency axis
+            # so its ticks/labels track the new values, not the previous ones.
+            self._draw_band_yaxis()
         self.ax.set_xlim(x0, x1)
         self._n_channels = n_ch
         sm = ScalarMappable(norm=Normalize(*clim), cmap=self._cmap)
@@ -412,43 +441,71 @@ class TimeHeatmapPlot:
         return list(images) + self._update_boundaries(boundary_x)
 
     def _setup_band_axes(self, n_ch, y_values, band_h) -> None:
-        # Channel names at band centers (main y-axis, pushed out), and the
-        # y_values ticks in place per band on a twin y-axis sitting at the edge.
-        labels = _channel_labels(self._cha_labels, n_ch)
-        gap = self._gap
-        centers = [(n_ch - 1 - i) + band_h / 2 for i in range(n_ch)]
-        self.ax.set_ylim(-gap / 2, n_ch - gap / 2)
-        self.ax.set_yticks(centers)
-        self.ax.set_yticklabels(labels, fontweight="semibold")
-        self.ax.tick_params(axis="y", length=0, pad=26)
+        # The stacked bands need two things on the left: the per-band ``y_values``
+        # ticks (the quantitative axis, e.g. frequency) and the channel names. The
+        # y-limits span every band; a later ``set_data`` reuses this furniture and
+        # only :meth:`set_y_ticks_per_channel` re-lays the ticks.
+        self.ax.set_ylim(-self._gap / 2, n_ch - self._gap / 2)
         self.ax.grid(False)  # a grid over a heatmap is just noise
+        self._draw_band_yaxis()
 
+    def _band_freq_positions(self) -> tuple[list[float], list[float]]:
+        """Y-positions (data coords) and ``y_values`` for the per-band ticks.
+
+        Each band gets ``y_ticks_per_channel`` evenly-spaced ticks with exact
+        endpoints (lower/upper band edge). ``imshow`` places rows uniformly (linear
+        in the row index); ``pcolormesh`` places them at the true ``y_values``.
+        """
+        info = self._band_info
+        n_ch, y_values, band_h = info["n_ch"], info["y_values"], info["band_h"]
         n_y = len(y_values)
         idx = np.unique(np.linspace(0, n_y - 1, self._y_ticks).round()
                         .astype(int))
         y0, y1 = float(y_values[0]), float(y_values[-1])
         span = (y1 - y0) or 1.0
-        positions, ticklabels = [], []
+        positions, values = [], []
         for i in range(n_ch):
             bottom = (n_ch - 1 - i)
             for j in idx:
-                # imshow places rows uniformly (linear in index); pcolormesh
-                # places them at the true value (linear in y_values).
                 frac = (j / (n_y - 1) if n_y > 1 else 0.0) if (
                     self._method == "imshow") else (y_values[j] - y0) / span
                 positions.append(bottom + frac * band_h)
-                ticklabels.append(f"{y_values[j]:g}")
-        yax = self.ax.twinx()
-        yax.set_frame_on(False)
-        yax.yaxis.set_ticks_position("left")
-        yax.yaxis.set_label_position("left")
-        yax.set_ylim(self.ax.get_ylim())
-        yax.set_yticks(positions)
-        yax.set_yticklabels(
-            ticklabels, fontsize=_BAND_TICK_FONT_FRAC * mpl.rcParams["font.size"])
-        yax.tick_params(axis="y", length=2, pad=1)
-        yax.grid(False)  # the twin (y_values) axis must not draw gridlines
-        self.artists["y_axis"] = yax
+                values.append(float(y_values[j]))
+        return positions, values
+
+    def _draw_band_yaxis(self) -> None:
+        """(Re)draw the left furniture: per-band y_values ticks + channel names.
+
+        The ``y_values`` ticks live on a ``secondary_yaxis`` that auto-tracks the
+        parent's limits, so they stay aligned when the host pages the visible
+        channels (which changes only the main y-axis window). The channel names are
+        the main y-axis' own ticks, pushed out past the value labels.
+        """
+        info = self._band_info
+        n_ch, band_h = info["n_ch"], info["band_h"]
+        base_font = mpl.rcParams["font.size"]
+        tick_font = _BAND_TICK_FONT_FRAC * base_font
+
+        positions, values = self._band_freq_positions()
+        labels = [f"{v:.3g}" for v in values]   # short, readable tick labels
+        yax = self.artists.get("y_axis")
+        if yax is None:
+            yax = self.ax.secondary_yaxis("left")
+            yax.tick_params(axis="y", length=2, pad=2, labelsize=tick_font)
+            self.artists["y_axis"] = yax
+        # A fixed locator/formatter so the parent's autoscale never overrides the
+        # deliberately-placed band ticks when its limits change.
+        yax.yaxis.set_major_locator(FixedLocator(positions))
+        yax.yaxis.set_major_formatter(FixedFormatter(labels))
+
+        # Channel names on the main y-axis, pushed out past the widest value label
+        # so the two never collide (the pad adapts to the label width).
+        name_pad = 10.0 + max((len(s) for s in labels), default=1) * 0.6 * tick_font
+        cha_labels = _channel_labels(self._cha_labels, n_ch)
+        centers = [(n_ch - 1 - i) + band_h / 2 for i in range(n_ch)]
+        self.ax.set_yticks(centers)
+        self.ax.set_yticklabels(cha_labels, fontweight="semibold")
+        self.ax.tick_params(axis="y", length=0, pad=name_pad)
 
     def _update_boundaries(self, boundaries: list[float]) -> list[Artist]:
         if boundaries == self._boundaries:

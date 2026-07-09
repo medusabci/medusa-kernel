@@ -20,10 +20,8 @@ the module — and when to reach for each:
 Every plot accepts ``ax=None`` (a fresh square axes) or an explicit ``ax`` so it
 composes into ``plt.subplots()``. All figures are written as PNGs to
 ``examples/plots_scalp_figures/`` and also opened in the Qt ``PlotVisualizer``
-(Previous/Next to browse, Export to re-save). Set ``MEDUSA_EXAMPLE_HEADLESS=1``
-to just write the PNGs without opening the (blocking) viewer.
+(Previous/Next to browse, Export to re-save).
 """
-import os
 from pathlib import Path
 
 import matplotlib
@@ -44,10 +42,8 @@ medusa_style.apply()  # theme matplotlib with the MEDUSA look for the whole scri
 OUT = Path(__file__).resolve().parent / "plots_scalp_figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
-# Collected for the Qt PlotVisualizer at the end. Set MEDUSA_EXAMPLE_HEADLESS=1
-# to write the PNGs without opening the (blocking) viewer.
+# Collected for the Qt PlotVisualizer at the end.
 figures: list = []
-HEADLESS = bool(os.environ.get("MEDUSA_EXAMPLE_HEADLESS"))
 
 
 def section(title):
@@ -258,21 +254,17 @@ for p in pngs:
 # PlotVisualizer (medusa.widgets, PySide6 -- a core dependency) is a small Qt
 # window that pages through several figures (Previous/Next) and can re-export
 # them. It owns the QApplication and show_figs() BLOCKS until the window closes,
-# so we built the figures on the Agg backend above and only open the viewer when
-# not running headless.
+# so we built the figures on the Agg backend above and open the viewer here.
 section("5. Browse the figures in the Qt PlotVisualizer")
 
-if HEADLESS:
-    print("MEDUSA_EXAMPLE_HEADLESS set -> not opening the viewer.")
+try:
+    from medusa.widgets.plot_visualizer import PlotVisualizer
+except ImportError as exc:
+    print(f"Qt viewer could not open ({exc}); skipping.")
 else:
-    try:
-        from medusa.widgets.plot_visualizer import PlotVisualizer
-    except ImportError as exc:
-        print(f"Qt viewer could not open ({exc}); skipping.")
-    else:
-        viz = PlotVisualizer()
-        for f in figures:
-            viz.add_figure(f)
-        print(f"opening PlotVisualizer with {len(figures)} figures "
-              "(Previous/Next to browse, Export to save; close to exit)...")
-        viz.show_figs()      # blocks until you close the window
+    viz = PlotVisualizer()
+    for f in figures:
+        viz.add_figure(f)
+    print(f"opening PlotVisualizer with {len(figures)} figures "
+          "(Previous/Next to browse, Export to save; close to exit)...")
+    viz.show_figs()      # blocks until you close the window

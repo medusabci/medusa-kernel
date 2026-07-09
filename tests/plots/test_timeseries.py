@@ -50,7 +50,7 @@ def test_default_trace_uses_a_data_color(signal):
     _, ax = plt.subplots()
     _, artists = plot_timeline(signal, ax, fs=250.0)
     data_color = medusa_style.categorical_color(0)
-    fg = medusa_style.current_theme().palette.plot_fg
+    fg = medusa_style.current_theme().plot_fg
     assert to_hex(artists["lines"][0].get_color()).lower() == data_color.lower()
     assert data_color.lower() != fg.lower()    # data != foreground/text color
 

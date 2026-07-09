@@ -12,7 +12,7 @@ def test_build_sensors_first_and_query():
           .add_channels([Channel("Fz", "EEG", "uV", sensor="Fz"),
                          Channel("Cz", "EEG", "uV", sensor="Cz")]))
     assert cs.n_channels == 2
-    assert list(cs.uids) == ["Fz", "Cz"]
+    assert list(cs.labels) == ["Fz", "Cz"]
     assert list(cs.types) == ["EEG", "EEG"]
     np.testing.assert_array_equal(cs.index(["Cz", "Fz"]), [1, 0])
 
@@ -39,14 +39,14 @@ def test_pick_and_subset_preserve_sensors():
                                     Channel("B", "EMG", "uV"),
                                     Channel("C", "EEG", "uV")])
     subset, idx = cs.pick(types="EEG")
-    assert list(subset.uids) == ["A", "C"]
+    assert list(subset.labels) == ["A", "C"]
     np.testing.assert_array_equal(idx, [0, 2])
 
 
 @pytest.mark.parametrize("fmt", ["bson", "json", "mat"])
 def test_roundtrip_multichannel(eeg_cs, tmp_path, roundtrip, fmt):
     back = roundtrip(eeg_cs, tmp_path, fmt)
-    assert list(back.uids) == list(eeg_cs.uids)
+    assert list(back.labels) == list(eeg_cs.labels)
     assert list(back.types) == list(eeg_cs.types)
 
 
@@ -55,5 +55,5 @@ def test_roundtrip_single_channel(tmp_path, roundtrip, fmt):
     # A 1-channel/1-sensor set used to break .mat (squeeze collapse) -- now fixed.
     cs = ChannelSet().add_unipolar_eeg_channels(["Fz"])
     back = roundtrip(cs, tmp_path, fmt)
-    assert list(back.uids) == ["Fz"]
+    assert list(back.labels) == ["Fz"]
     assert back.n_channels == 1

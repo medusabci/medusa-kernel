@@ -19,7 +19,7 @@ from medusa.core.serialization import (
 from medusa.core.schema import SCHEMA_VERSION, validate_recording_dict
 from medusa.core.data._bids import (
     ENTITY_PREFIXES, validate_label, validate_index, sidecar_template,
-    CHANNEL_COUNT_TYPE)
+    CHANNEL_COUNT_TYPE, is_derived_sidecar_field)
 from medusa.core.data.recording_data import RecordingData
 from medusa.core.data.signal import Signal
 from medusa.core.data.events import Events
@@ -37,14 +37,15 @@ def _autofill_derivable(sidecar: dict, signal: "Signal") -> None:
     """
     types = list(signal.channel_set.types)
     for name in sidecar:
+        if not is_derived_sidecar_field(name):   # SSOT: medusa.core.data._bids
+            continue
         if name == "SamplingFrequency":
             sidecar[name] = signal.fs
         elif name == "RecordingDuration":
             sidecar[name] = signal.n_samples / signal.fs
-        elif name.endswith("ChannelCount"):
-            ch_type = CHANNEL_COUNT_TYPE.get(name[:-len("ChannelCount")])
-            if ch_type is not None:
-                sidecar[name] = int(sum(t == ch_type for t in types))
+        else:   # a mappable <X>ChannelCount (prefix guaranteed valid above)
+            ch_type = CHANNEL_COUNT_TYPE[name[:-len("ChannelCount")]]
+            sidecar[name] = int(sum(t == ch_type for t in types))
 
 
 class BidsInfo(SerializableComponent):
@@ -209,6 +210,29 @@ class Recording(SerializableComponent):
         """Drop ``data[key]`` and its ``sidecars[key]`` together."""
         del self.data[key]
         self.sidecars.pop(key, None)
+        return self
+
+    def rename_data(self, old: str, new: str) -> "Recording":
+        """Rename a data key from ``old`` to ``new``, keeping the two dicts in sync.
+
+        The key doubles as the ``acq-<key>`` entity when two streams share a
+        datatype, so ``new`` must be a valid BIDS label. Both ``data`` and
+        ``sidecars`` are rebuilt in lock-step (insertion order preserved) and the
+        **existing sidecar draft is kept** -- unlike ``remove_data`` + ``add_data``,
+        which would reseed the sidecar from a fresh template. Raises ``KeyError``
+        for an unknown ``old`` or an already-used ``new``.
+        """
+        if old not in self.data:
+            raise KeyError(f"no data entry for key {old!r}.")
+        new = validate_label(new, "data key", required=True)
+        if new == old:
+            return self
+        if new in self.data:
+            raise KeyError(
+                f"key {new!r} already exists; choose an unused key.")
+        self.data = {(new if k == old else k): v for k, v in self.data.items()}
+        self.sidecars = {(new if k == old else k): v
+                         for k, v in self.sidecars.items()}
         return self
 
     def set_sidecar(self, key: "str | None" = None, **fields) -> "Recording":

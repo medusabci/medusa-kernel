@@ -22,6 +22,8 @@ Importing this package is headless-safe: it pulls in no Qt (PySide6) or torch.
 from medusa.core.serialization import (
     SerializableComponent,
     PickleableComponent,
+    pack_pickleable,
+    unpack_pickleable,
 )
 from medusa.core.settings_tree import SettingsTree
 from medusa.core.schema import SCHEMA_VERSION, validate_recording_dict
@@ -43,6 +45,8 @@ __all__ = [
     # Serialization base classes
     "SerializableComponent",
     "PickleableComponent",
+    "pack_pickleable",
+    "unpack_pickleable",
     # Configuration schema
     "SettingsTree",
     # On-disk recording schema

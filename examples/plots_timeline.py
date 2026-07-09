@@ -18,9 +18,8 @@ Channel separation is a single ``offset`` knob, in signal units (auto-scaled to
 
 Every plot takes a caller-created ``ax`` (no hidden figsize). Figures are written
 to ``examples/plots_timeline_figures/`` and also opened in the Qt
-``PlotVisualizer``; set ``MEDUSA_EXAMPLE_HEADLESS=1`` to only write the PNGs.
+``PlotVisualizer``.
 """
-import os
 from pathlib import Path
 
 import matplotlib
@@ -39,7 +38,6 @@ OUT = Path(__file__).resolve().parent / "plots_timeline_figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
 figures: list = []
-HEADLESS = bool(os.environ.get("MEDUSA_EXAMPLE_HEADLESS"))
 
 
 def section(title):
@@ -197,17 +195,14 @@ for p in pngs:
 # --------------------------------------------------------------------------- #
 section("4. Browse the figures in the Qt PlotVisualizer")
 
-if HEADLESS:
-    print("MEDUSA_EXAMPLE_HEADLESS set -> not opening the viewer.")
+try:
+    from medusa.widgets.plot_visualizer import PlotVisualizer
+except ImportError as exc:
+    print(f"Qt viewer could not open ({exc}); skipping.")
 else:
-    try:
-        from medusa.widgets.plot_visualizer import PlotVisualizer
-    except ImportError as exc:
-        print(f"Qt viewer could not open ({exc}); skipping.")
-    else:
-        viz = PlotVisualizer()
-        for fig in figures:
-            viz.add_figure(fig)
-        print(f"opening PlotVisualizer with {len(figures)} figures "
-              "(Previous/Next to browse, Export to save; close to exit)...")
-        viz.show_figs()      # blocks until you close the window
+    viz = PlotVisualizer()
+    for fig in figures:
+        viz.add_figure(fig)
+    print(f"opening PlotVisualizer with {len(figures)} figures "
+          "(Previous/Next to browse, Export to save; close to exit)...")
+    viz.show_figs()      # blocks until you close the window

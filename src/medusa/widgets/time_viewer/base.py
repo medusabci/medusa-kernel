@@ -1,36 +1,19 @@
-"""Interactive Qt viewer for multichannel time-series and time-frequency data.
+"""Shared foundation for the time-series viewers (timeline + time-heatmap).
 
-:class:`TimeViewer` opens a window that browses a long multichannel recording:
-stacked **traces** (optionally overlaying transformations of the *same* data,
-e.g. raw vs filtered) or a per-channel **heatmap** (e.g. spectrograms), with a
-control panel (visible channels, time window, amplitude gain / colour contrast,
-events, colormap), an overview **scrubber** with a draggable window, keyboard
-navigation, and one-click export.
+The viewer is split into a small class hierarchy: this module holds everything the
+two views share — the window chrome (toolbar, control panel skeleton, overview
+scrubber), viewport navigation, the BIDS event model, export and keyboard
+shortcuts — as :class:`_BaseTimeViewerWindow`, and the two concrete windows
+(:mod:`~medusa.widgets.time_viewer.timeline` and
+:mod:`~medusa.widgets.time_viewer.heatmap`) subclass it and fill in the handful of
+mode-specific hooks (the view-specific control group, the y-axis scaling, the
+scrubber overview, the reset/gain behaviour and the visibility rows).
 
-The trace view is built around *one* signal: repeated :meth:`~TimeViewerWindow.add_timeline`
-calls overlay different transformations of it (raw vs filtered, before vs after
-artifact removal, ...), **not** unrelated signals — so every call must pass the
-same number of channels.
-
-All rendering is delegated to the Qt-free engines in :mod:`medusa.plots`
-(:class:`~medusa.plots.TimeLinePlot` / :class:`~medusa.plots.TimeHeatmapPlot`); the
-widget only drives them and moves the viewport. Drawing happens inside a scoped
-matplotlib style context built from ``medusa_style`` (the MEDUSA single source of
-truth), so the global matplotlib state is never mutated.
-
-Example
--------
->>> import numpy as np
->>> from medusa.widgets.time_viewer import TimeViewer        # doctest: +SKIP
->>> v = TimeViewer(cha_labels=["Fz", "Cz", "Pz", "Oz"], channels_visible=4)  # doctest: +SKIP
->>> raw = np.random.randn(5000, 4)                                           # doctest: +SKIP
->>> v.add_timeline(raw, fs=250.0, label="raw")                              # doctest: +SKIP
->>> v.add_timeline(filtered, fs=250.0, label="filtered")  # same 4 channels  # doctest: +SKIP
->>> v.show()   # blocks until the window is closed                           # doctest: +SKIP
+All rendering is delegated to the Qt-free engines in :mod:`medusa.plots`; drawing
+happens inside a scoped ``medusa_style`` context (:func:`_styled`) so the host
+application's global matplotlib state is never mutated. PySide6 is a core
+dependency of medusa-kernel.
 """
-
-import sys
-from pathlib import Path
 
 import matplotlib.style as mstyle
 import medusa_style
@@ -42,9 +25,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QGroupBox,
@@ -56,24 +37,31 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
 from medusa.core.data.events import Events
-from medusa.plots import TimeHeatmapPlot, TimeLinePlot, save_figure
+from medusa.plots import save_figure
+from medusa.widgets._toolbar import (
+    add_main_toolbar,
+    add_toolbar_spacer,
+    add_toolbar_status_label,
+    pin_toolbar_width,
+)
 from medusa.widgets.plot_visualizer import _ExportDialog
 
-__all__ = ["TimeViewer", "TimeViewerWindow"]
-
-#: Heatmap colormap menu — the medusa-style sequential default first, then
-#: perceptually-sound alternatives.
-_COLORMAPS = (medusa_style.mpl.SEQUENTIAL_CMAP_NAME,
-              "inferno", "magma", "plasma", "cividis", "Greys")
+__all__ = ["_BaseTimeViewerWindow"]
 
 #: Toolbar / control icon size (px).
 _ICON_PX = 18
+
+#: Window / layout geometry (widget-local).
+_WINDOW_SIZE = (1180, 760)
+_SPLITTER_SIZES = [260, 920]
+_PANEL_MAX_W = 300
+_MAIN_FIGSIZE = (8.0, 4.5)
+_SCRUBBER_FIGSIZE = (8.0, 0.7)
 
 #: Cached medusa-style rcParams for the scoped drawing context (see _styled()).
 _STYLE_RC = None
@@ -93,62 +81,26 @@ def _styled():
     return mstyle.context(_STYLE_RC)
 
 
-# Window / layout geometry (widget-local).
-_WINDOW_SIZE = (1180, 760)
-_SPLITTER_SIZES = [260, 920]
-_PANEL_MAX_W = 300
-_MAIN_FIGSIZE = (8.0, 4.5)
-_SCRUBBER_FIGSIZE = (8.0, 0.7)
-
-#: Bundled control icons (the viewer-specific glyphs medusa-style does not ship).
-_ICON_DIR = Path(__file__).parent / "icons"
-
-#: Local control-icon stems mapped onto a medusa-style *themed* icon (recolors to
-#: the active theme, dims when disabled, repaints live on a theme switch). Every
-#: control now has a themed SVG; the local-PNG fallback in :func:`_icon` only
-#: covers a name absent from both the map and medusa-style.
-_MEDUSA_ICONS = {
-    "download": "download",
-    "ff": "fast_forward",
-    "rr": "fast_rewind",
-    "zoom_in": "zoom_in",
-    "zoom_out": "zoom_out",
-    "decrease_channels": "keyboard_double_arrow_up",
-    "increase_channels": "keyboard_double_arrow_down",
-    "gear": "settings",
-}
-
-
 def _icon(name: str) -> QIcon:
-    """A toolbar / control icon.
+    """A themed medusa-style icon (recolors to the theme), or an empty icon.
 
-    Prefers the medusa-style themed icon (theme-recoloring, disabled-dimming);
-    falls back to the bundled PNG for the viewer-specific glyphs medusa-style
-    does not provide. ``name`` may carry a ``.png`` suffix (legacy call sites).
+    ``name`` is a medusa-style icon name; medusa-style is the single source of
+    truth for the control glyphs, so there is no local icon set to fall back on.
     """
-    stem = name.rsplit(".", 1)[0]
-    ms_name = _MEDUSA_ICONS.get(stem)
-    if ms_name is not None:
-        try:
-            return medusa_style.qt.icon(ms_name)
-        except FileNotFoundError:  # pragma: no cover - bundled asset present
-            pass
-    path = _ICON_DIR / name
-    return QIcon(str(path)) if path.exists() else QIcon()
+    try:
+        return medusa_style.qt.icon(name)
+    except Exception:  # pragma: no cover - bundled asset lookup
+        return QIcon()
 
 
-# --------------------------------------------------------------------------- #
-# Event helper (control layer): coerce a BIDS-style input to an onset/duration
-# DataFrame. Events are the unified model (see medusa.core.data.events and
-# plots/time_line.py): an `Events`, or a DataFrame with `onset`, `duration`
-# (optional, defaults 0) and an optional categorical `event_hue` column.
-# --------------------------------------------------------------------------- #
 def _to_event_df(events, t_offset: float):
     """Coerce an ``Events`` or DataFrame into a shifted onset/duration DataFrame.
 
-    A ``duration`` column is optional (filled with 0 = instantaneous marker);
-    ``onset`` is shifted by ``t_offset``. Any extra columns (e.g. the hue column)
-    are preserved.
+    Events are the unified model (see :mod:`medusa.core.data.events` and
+    :mod:`medusa.plots`): an :class:`~medusa.core.data.events.Events`, or a
+    DataFrame with ``onset``, ``duration`` (optional, defaults 0) and an optional
+    categorical ``event_hue`` column. ``onset`` is shifted by ``t_offset``; any
+    extra columns (e.g. the hue column) are preserved.
     """
     df = events.df if isinstance(events, Events) else events
     df = pd.DataFrame(df).copy()
@@ -198,7 +150,10 @@ class _ScrubberCanvas(FigureCanvas):
     def __init__(self):
         with _styled():
             self.fig = Figure(figsize=_SCRUBBER_FIGSIZE)
-            self.ax = self.fig.add_axes((0.06, 0.06, 0.88, 0.88))
+            # The strip is axis-off, so let the overview fill almost the whole
+            # figure (a hair of vertical padding keeps the window rectangle's
+            # edge handles from touching the frame).
+            self.ax = self.fig.add_axes((0.01, 0.04, 0.98, 0.92))
         super().__init__(self.fig)
         self.setMinimumHeight(60)
         self.setMaximumHeight(96)
@@ -248,7 +203,7 @@ class _ScrubberCanvas(FigureCanvas):
         # medusa-style annotation color when there is no hue.
         if events is None:
             return
-        event_default = medusa_style.current_theme().palette.highlight
+        event_default = medusa_style.current_theme().highlight
         df = getattr(events, "df", events)
         has_hue = bool(hue) and hue in df.columns
         for _, r in df.iterrows():
@@ -267,6 +222,20 @@ class _ScrubberCanvas(FigureCanvas):
         self._draw_window()
         self.draw_idle()
 
+    def reset(self):
+        """Blank the overview + window so a stale strip is never draggable.
+
+        Called from the viewer's ``clear()``: without it the previous window
+        rectangle stays on screen and still wired, and dragging it would fire
+        ``windowChanged`` against a viewer that no longer has a signal.
+        """
+        self.ax.clear()
+        self.ax.set_axis_off()
+        self._win_patch = self._edge_lo = self._edge_hi = None
+        self._focus = None
+        self.unsetCursor()
+        self.draw_idle()
+
     def _draw_window(self):
         for art in (self._win_patch, self._edge_lo, self._edge_hi):
             if art is not None:
@@ -276,7 +245,7 @@ class _ScrubberCanvas(FigureCanvas):
                     pass
         lo, hi = self._window
         # selection window rectangle/handles — the medusa-style primary accent
-        accent = medusa_style.current_theme().palette.accent_primary
+        accent = medusa_style.current_theme().accent_primary
         self._win_patch = self.ax.axvspan(lo, hi, color=accent, alpha=0.18,
                                           zorder=3)
         self._edge_lo = self.ax.axvline(lo, color=accent, lw=2.2, zorder=4)
@@ -300,24 +269,31 @@ class _ScrubberCanvas(FigureCanvas):
             return
         self._focus = self._focus_at(event)
         self._grab_x = event.xdata if event.xdata is not None else 0.0
+        if self._focus == "center":
+            self.setCursor(QCursor(Qt.ClosedHandCursor))
 
     def _on_release(self, event):
         if self._focus is not None:
             self._focus = None
-            QApplication.restoreOverrideCursor()
+            self.unsetCursor()
             self.windowChanged.emit(*self._window)
 
     def _on_motion(self, event):
+        # The cursor is set on this canvas widget (not pushed on Qt's global
+        # override-cursor stack): a drag emits dozens of motion events, so a
+        # per-event push/pop stack would leak and leave the app cursor stuck.
         if event.inaxes is not self.ax:
-            QApplication.restoreOverrideCursor()
+            if self._focus is None:
+                self.unsetCursor()
             return
         if self._focus is None:  # hover: hint the available action
-            QApplication.restoreOverrideCursor()
             hit = self._focus_at(event)
             if hit in ("lo", "hi"):
-                QApplication.setOverrideCursor(QCursor(Qt.SizeHorCursor))
+                self.setCursor(QCursor(Qt.SizeHorCursor))
             elif hit == "center":
-                QApplication.setOverrideCursor(QCursor(Qt.OpenHandCursor))
+                self.setCursor(QCursor(Qt.OpenHandCursor))
+            else:
+                self.unsetCursor()
             return
         if event.xdata is None:
             return
@@ -337,7 +313,6 @@ class _ScrubberCanvas(FigureCanvas):
             elif hi > t1:
                 lo, hi = t1 - length, t1
             self._grab_x = x
-            QApplication.setOverrideCursor(QCursor(Qt.ClosedHandCursor))
         self._window = (lo, hi)
         self._draw_window()
         self.draw_idle()
@@ -345,69 +320,77 @@ class _ScrubberCanvas(FigureCanvas):
 
 
 # --------------------------------------------------------------------------- #
-# Window
+# Base window
 # --------------------------------------------------------------------------- #
-class TimeViewerWindow(QMainWindow):
-    """The viewer window: toolbar + main canvas + control panel + scrubber."""
+class _BaseTimeViewerWindow(QMainWindow):
+    """Shared window: toolbar + main canvas + control panel + scrubber.
+
+    Subclasses set the class attributes below and override the mode-specific
+    hooks (``_build_view_controls``, ``_apply_channel_ylim``, ``_on_gain_step``,
+    ``_reset_scale``, ``_layout_margins``, ``_refresh_scrubber``,
+    ``_rebuild_series_visibility`` and, optionally, ``_clear_mode_state``). To
+    support the live *Reverse order* toggle they also store their raw inputs and
+    implement ``_render_stored_signals`` (replay them under the current channel
+    ordering) plus ``_clear_stored_inputs`` / ``_snapshot_scale`` /
+    ``_restore_scale``.
+    """
+
+    #: ``"timeline"`` / ``"heatmap"`` — drives the scrubber overview and status.
+    _MODE = "timeline"
+    #: Window title and the default export file stem.
+    _TITLE = "Time Viewer"
+    _EXPORT_NAME = "time_viewer"
 
     def __init__(self, *, cha_labels=None, channels_visible=None,
                  reverse_channels=True, window=10.0, step=2.0,
-                 zoom_factor=1.2, amplitude_unit="a.u."):
+                 zoom_factor=1.2):
         super().__init__()
-        self.setWindowTitle("Time Viewer")
+        self.setWindowTitle(self._TITLE)
         medusa_style.qt.set_window_icon(self)  # the MEDUSA brand icon
         self.resize(*_WINDOW_SIZE)
 
-        # Configuration / state.
+        # Configuration / state shared by both views.
         self._cha_labels = None if cha_labels is None else list(cha_labels)
         self._channels_visible = channels_visible
         self._reverse = reverse_channels
         self._window = float(window)
         self._step = float(step)
         self._zoom_factor = float(zoom_factor)
-        self._amplitude_unit = amplitude_unit
 
-        self._mode = None            # "timeline" | "heatmap"
         self._engine = None
         self._n_cha = None
         self._n_signals = 0
         self._vis_window = None      # [lo, hi]
         self._vis_ch = None          # [start, end] display rows
         self._t_extent = None        # (t0, t1)
-        self._gain = 1.0
-        self._contrast = 1.0
-        self._clim_data = None       # (min, max) for heatmap contrast anchoring
         self._events = None          # accumulated BIDS events DataFrame
         self._event_hue = None       # categorical column driving colour/legend
         self._signal_labels: list = []   # one per added signal (None allowed)
-        self._overview_layers: list[dict] = []
-        self._hm_overview = None     # (times, median_image, cmap_name)
 
         self._build_ui()
 
     # -- UI ---------------------------------------------------------------
     def _build_ui(self):
-        bar = QToolBar(self)
-        bar.setMovable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        bar.setIconSize(QSize(_ICON_PX, _ICON_PX))
-        self.addToolBar(bar)
+        bar = add_main_toolbar(self)
         self._add_action(bar, "Export…", self.export, "Ctrl+S",
-                         icon=_icon("download.png"))
+                         icon=_icon("download"))
         self._add_action(bar, "Reset view", self.reset_view, "Ctrl+0",
                          icon=medusa_style.qt.icon("refresh"))
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        bar.addWidget(spacer)
+        add_toolbar_spacer(bar)
         self._status_label = QLabel("", self)
         self._status_label.setStyleSheet(
-            f"color: {medusa_style.current_theme().palette.text_secondary}; "
+            f"color: {medusa_style.current_theme().text_secondary}; "
             f"padding-right: 10px;")
-        bar.addWidget(self._status_label)
+        add_toolbar_status_label(bar, self._status_label)
+        pin_toolbar_width(bar)
 
         self._canvas = _MainCanvas()
         self._canvas.gainStep.connect(self._on_gain_step)
         self._ax = self._canvas.ax
+        # The colorbar (heatmap) subdivides the axes' subplotspec via
+        # make_axes_gridspec; stash the pristine spec so a rebuild can restore it
+        # and never accumulate nested gridspecs (which would drift the colorbar).
+        self._orig_subplotspec = self._ax.get_subplotspec()
         self._nav = NavigationToolbar2QT(self._canvas, self)
 
         plot_box = QWidget()
@@ -447,8 +430,15 @@ class TimeViewerWindow(QMainWindow):
         panel.setMaximumWidth(_PANEL_MAX_W)
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(6, 6, 6, 6)
+        lay.addWidget(self._build_channels_group())
+        for group in self._build_view_controls():   # mode-specific controls
+            lay.addWidget(group)
+        lay.addWidget(self._build_time_group())
+        lay.addWidget(self._build_legend_group())
+        lay.addStretch(1)
+        return panel
 
-        # Channels.
+    def _build_channels_group(self):
         chans = QGroupBox("Channels")
         cl = QVBoxLayout(chans)
         row = QHBoxLayout()
@@ -461,55 +451,19 @@ class TimeViewerWindow(QMainWindow):
         cl.addLayout(row)
         pager = QHBoxLayout()
         pager.addWidget(self._icon_button(
-            "decrease_channels.png", "Previous channels",
+            "keyboard_double_arrow_up", "Previous channels",
             lambda: self._page_channels(-1)))
         pager.addWidget(self._icon_button(
-            "increase_channels.png", "Next channels",
+            "keyboard_double_arrow_down", "Next channels",
             lambda: self._page_channels(1)))
         cl.addLayout(pager)
         self._reverse_check = QCheckBox("Reverse order")
         self._reverse_check.setChecked(self._reverse)
         self._reverse_check.toggled.connect(self._on_reverse_toggle)
         cl.addWidget(self._reverse_check)
-        lay.addWidget(chans)
+        return chans
 
-        # Amplitude (timeline).
-        self._amp_group = QGroupBox("Amplitude")
-        al = QHBoxLayout(self._amp_group)
-        al.addWidget(QLabel("Gain:"))
-        self._gain_spin = QDoubleSpinBox()
-        self._gain_spin.setRange(0.01, 1000.0)
-        self._gain_spin.setDecimals(2)
-        self._gain_spin.setValue(1.0)
-        self._gain_spin.valueChanged.connect(self._on_gain_value)
-        al.addWidget(self._gain_spin)
-        al.addWidget(self._icon_button("zoom_out.png", "Decrease gain",
-                                       lambda: self._on_gain_step(-1)))
-        al.addWidget(self._icon_button("zoom_in.png", "Increase gain",
-                                       lambda: self._on_gain_step(1)))
-        lay.addWidget(self._amp_group)
-
-        # Colour (heatmap).
-        self._color_group = QGroupBox("Colour")
-        cgl = QVBoxLayout(self._color_group)
-        crow = QHBoxLayout()
-        crow.addWidget(QLabel("Map:"))
-        self._cmap_combo = QComboBox()
-        self._cmap_combo.addItems(_COLORMAPS)
-        self._cmap_combo.currentTextChanged.connect(self._on_cmap)
-        crow.addWidget(self._cmap_combo)
-        cgl.addLayout(crow)
-        contrast = QHBoxLayout()
-        contrast.addWidget(QLabel("Contrast:"))
-        contrast.addWidget(self._icon_button("zoom_out.png", "Less contrast",
-                                             lambda: self._on_gain_step(-1)))
-        contrast.addWidget(self._icon_button("zoom_in.png", "More contrast",
-                                             lambda: self._on_gain_step(1)))
-        cgl.addLayout(contrast)
-        lay.addWidget(self._color_group)
-        self._color_group.setVisible(False)
-
-        # Time.
+    def _build_time_group(self):
         tgrp = QGroupBox("Time")
         tl = QVBoxLayout(tgrp)
         wrow = QHBoxLayout()
@@ -532,15 +486,16 @@ class TimeViewerWindow(QMainWindow):
         srow.addWidget(self._step_spin)
         tl.addLayout(srow)
         nav = QHBoxLayout()
-        nav.addWidget(self._icon_button("rr.png", "Rewind",
+        nav.addWidget(self._icon_button("fast_rewind", "Rewind",
                                         lambda: self._shift_window(-1)))
-        nav.addWidget(self._icon_button("ff.png", "Forward",
+        nav.addWidget(self._icon_button("fast_forward", "Forward",
                                         lambda: self._shift_window(1)))
         tl.addLayout(nav)
-        lay.addWidget(tgrp)
+        return tgrp
 
-        # Legend & visibility: a master legend toggle plus per-item checkboxes
-        # (signal series + each event category) rebuilt as content is added.
+    def _build_legend_group(self):
+        # A master legend toggle plus per-item checkboxes (signal series + each
+        # event category), rebuilt as content is added.
         vgrp = QGroupBox("Legend && visibility")
         vl = QVBoxLayout(vgrp)
         self._legend_check = QCheckBox("Show legend")
@@ -552,10 +507,7 @@ class TimeViewerWindow(QMainWindow):
         self._vis_layout.setContentsMargins(0, 4, 0, 0)
         self._vis_layout.setSpacing(2)
         vl.addWidget(self._vis_container)
-        lay.addWidget(vgrp)
-
-        lay.addStretch(1)
-        return panel
+        return vgrp
 
     def _add_action(self, bar, text, slot, shortcut=None, icon=None):
         act = QAction(text, self)
@@ -589,127 +541,56 @@ class TimeViewerWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_Equal), self, lambda: self._on_gain_step(1))
         QShortcut(QKeySequence(Qt.Key_Minus), self, lambda: self._on_gain_step(-1))
 
-    # -- public API -------------------------------------------------------
-    def add_timeline(self, data, *, fs=None, times=None, color=None,
-                     label=None, t_offset=0.0, events=None, event_hue=None):
-        """Show a multichannel time-series, or overlay a transformation of it.
+    # -- mode-specific hooks (overridden by the subclasses) ---------------
+    def _build_view_controls(self) -> list:
+        """The view-specific control group(s), inserted after *Channels*."""
+        return []
 
-        This view is built around a single signal seen through different
-        transformations (e.g. raw vs filtered), **not** several unrelated
-        signals. The first call fixes the channel layout (count + labels); every
-        later call **overlays another version of that same signal** on the same
-        channel baselines, in a distinct colour named by ``label`` in the legend.
-        Consequently every call must pass the **same number of channels** (a
-        mismatch raises :class:`ValueError`), and channel ``i`` must refer to the
-        same channel across calls.
+    def _apply_channel_ylim(self):
+        """Set the y-limits to the visible-channel block (view-specific)."""
+        raise NotImplementedError
 
-        Parameters
-        ----------
-        data : numpy.ndarray
-            ``(n_samples, n_channels)`` or segmented ``(n_segments, n_samples,
-            n_channels)``. ``n_channels`` must match the first signal added.
-        fs : float, optional
-            Sampling rate (Hz). Ignored when ``times`` is given.
-        times : array-like, optional
-            Explicit per-sample timestamps (seconds); overrides ``fs``.
-        color : str, optional
-            Trace colour for this version; defaults to the next brand colour.
-        label : str, optional
-            Name shown in the legend (e.g. ``"raw"``, ``"filtered"``).
-        t_offset : float, optional
-            Shift this version in time (seconds). Usually ``0``, since overlays
-            of the same recording share its timebase.
-        events, event_hue : optional
-            BIDS events overlay — an :class:`~medusa.core.data.events.Events` or
-            a DataFrame with ``onset``/``duration`` (and an optional
-            ``event_hue`` column) — drawn as onset lines (``duration == 0``) or
-            shaded spans (``duration > 0``), coloured/legended by ``event_hue``.
+    def _on_gain_step(self, direction):
+        """Wheel / +/- step: amplitude gain (timeline) or contrast (heatmap)."""
+        raise NotImplementedError
 
-        Raises
-        ------
-        ValueError
-            If an overlay's channel count differs from the first signal's.
+    def _reset_scale(self):
+        """Reset the view-specific scale (gain -> 1, or clim -> data range)."""
+        raise NotImplementedError
+
+    def _layout_margins(self) -> dict:
+        """``subplots_adjust`` margins that leave room for the view's furniture."""
+        return dict(left=0.08, right=0.94, top=0.98, bottom=0.10)
+
+    def _refresh_scrubber(self):
+        """Rebuild the overview strip from the current content (view-specific)."""
+        raise NotImplementedError
+
+    def _rebuild_series_visibility(self, layout):
+        """Add the *Series* show/hide rows for this view (event rows are shared)."""
+
+    def _clear_mode_state(self):
+        """Reset any view-specific accumulated state (overview layers, ...)."""
+
+    def _clear_stored_inputs(self):
+        """Drop the stored raw signal inputs kept for the reverse rebuild."""
+
+    def _render_stored_signals(self):
+        """Re-add every stored signal under the current ``_reverse`` flag.
+
+        Called by :meth:`_rebuild_reversed` after the engine has been torn down;
+        must re-register the events too (they are cleared with the engine).
         """
-        if self._mode == "heatmap":
-            raise RuntimeError("this viewer already shows a heatmap.")
-        data = np.asarray(data, dtype=float)
-        data2d = data.reshape(-1, data.shape[-1]) if data.ndim >= 2 else \
-            data.reshape(-1, 1)
-        n_ch = data2d.shape[1]
-        times = self._resolve_times(data2d.shape[0], fs, times, t_offset)
-        raw_lo, raw_hi = float(times[0]), float(times[-1])
-        ordered = data if self._reverse else data[..., ::-1]
+        raise NotImplementedError
 
-        with _styled():
-            if self._engine is None:
-                self._mode = "timeline"
-                self._n_cha = n_ch
-                self._init_channels(n_ch)
-                self._engine = TimeLinePlot(
-                    self._ax, cha_labels=self._engine_labels(),
-                    color=color, gain=self._gain,
-                    amplitude_unit=self._amplitude_unit, legend=True)
-                self._engine.set_data(ordered, times=times, label=label)
-            else:
-                if n_ch != self._n_cha:
-                    raise ValueError(
-                        f"add_timeline got {n_ch} channels but the viewer was "
-                        f"set up with {self._n_cha}. Overlays must be the same "
-                        f"signal under a different transformation (e.g. raw vs "
-                        f"filtered), so every call needs the same number of "
-                        f"channels.")
-                col = color or medusa_style.categorical_color(self._n_signals)
-                self._engine.add_overlay(ordered, color=col, label=label,
-                                         times=times)
-            self._n_signals += 1
-            self._signal_labels.append(label)
-            self._register_events(events, event_hue, t_offset)
-            self._record_overview_layer(data2d, times, color)
-            self._extend_extent(raw_lo, raw_hi)
-            self._after_add()
-        return self
+    def _snapshot_scale(self):
+        """Capture the view scale (gain / contrast) to restore across a rebuild."""
+        return None
 
-    def add_timeheatmap(self, data, *, y_values, fs=None, times=None,
-                        cmap=None, clim=None, label=None, events=None,
-                        event_hue=None):
-        """Show a per-channel heatmap (e.g. spectrogram); one signal per viewer.
+    def _restore_scale(self, snapshot):
+        """Re-apply a scale captured by :meth:`_snapshot_scale` after a rebuild."""
 
-        ``data`` is ``(n_y, n_times, n_channels)`` or segmented
-        ``(n_segments, n_y, n_times, n_channels)`` and ``y_values`` are the
-        per-channel y-coordinates (e.g. frequencies). ``events`` is BIDS-aligned
-        (an :class:`~medusa.core.data.events.Events` or an ``onset``/``duration``
-        DataFrame with an optional ``event_hue`` column).
-        """
-        if self._engine is not None:
-            raise RuntimeError(
-                "a signal is already shown; heatmap mode takes one signal.")
-        data = np.asarray(data, dtype=float)
-        n_ch = data.shape[-1]
-        n_time = data.shape[1] if data.ndim == 3 else \
-            data.shape[0] * data.shape[2]
-        times = self._resolve_times(n_time, fs, times, 0.0)
-        ordered = data if self._reverse else data[..., ::-1]
-        self._clim_data = (float(np.nanmin(data)), float(np.nanmax(data))) \
-            if clim is None else (float(clim[0]), float(clim[1]))
-
-        with _styled():
-            self._mode = "heatmap"
-            self._n_cha = n_ch
-            self._init_channels(n_ch)
-            cmap = cmap or _COLORMAPS[0]
-            self._engine = TimeHeatmapPlot(
-                self._ax, cha_labels=self._engine_labels(), y_values=y_values,
-                cmap=cmap, clim=self._clim_data, colorbar=True, legend=True)
-            self._engine.set_data(ordered, times=times)
-            self._n_signals += 1
-            self._signal_labels = [label]
-            self._sync_combo(self._cmap_combo, cmap)
-            self._register_events(events, event_hue, 0.0)
-            self._record_heatmap_overview(ordered, times, cmap)
-            self._extend_extent(float(times[0]), float(times[-1]))
-            self._after_add()
-        return self
-
+    # -- public API (shared) ----------------------------------------------
     def add_events(self, events, *, event_hue=None, t_offset=0.0):
         """Overlay extra events (an ``Events`` or an onset/duration DataFrame)."""
         if self._t_extent is None:
@@ -721,23 +602,61 @@ class TimeViewerWindow(QMainWindow):
             self._canvas.draw_idle()
         return self
 
-    def clear(self):
-        """Remove everything and reset the viewer to its empty state."""
+    def _teardown_engine(self):
+        """Tear down the engine + axes furniture, keeping the window config.
+
+        Shared by :meth:`clear` (a full reset) and :meth:`_rebuild_reversed` (a
+        rebuild from the stored inputs). Restores the axes' pristine subplotspec so
+        a re-created colorbar never nests a fresh gridspec on top of the previous
+        one (which would shift the bar leftward on every rebuild).
+        """
         self._ax.clear()
         for cb in list(self._canvas.fig.axes):
             if cb is not self._ax:
                 cb.remove()
+        if self._orig_subplotspec is not None:
+            self._ax.set_subplotspec(self._orig_subplotspec)
         self._engine = None
-        self._mode = None
-        self._n_cha = self._vis_window = self._vis_ch = None
-        self._t_extent = self._clim_data = None
+        self._t_extent = None
         self._n_signals = 0
-        self._gain = self._contrast = 1.0
+        self._signal_labels = []
+        self._clear_mode_state()
+
+    def clear(self):
+        """Remove everything and reset the viewer to its empty state."""
+        self._teardown_engine()
+        self._n_cha = self._vis_window = self._vis_ch = None
         self._events = None
         self._event_hue = None
-        self._signal_labels = []
-        self._overview_layers, self._hm_overview = [], None
+        self._clear_stored_inputs()
+        self._scrubber.reset()   # drop the stale (still-wired) overview window
         self._rebuild_visibility()
+        self._canvas.draw_idle()
+
+    def _rebuild_reversed(self):
+        """Rebuild every stored signal under the current ``_reverse`` flag.
+
+        The channel order is baked into the data at draw time, so flipping the
+        *Reverse order* toggle means re-drawing from the stored inputs. The
+        viewport, the view-specific scale (gain / contrast) and the events survive
+        the rebuild — only the top-to-bottom channel order changes.
+        """
+        vis_window = list(self._vis_window) if self._vis_window else None
+        vis_ch = list(self._vis_ch) if self._vis_ch else None
+        scale = self._snapshot_scale()
+        self._teardown_engine()
+        self._render_stored_signals()   # re-adds signals + events, reversed
+        self._restore_scale(scale)
+        if vis_window is not None:
+            self._vis_window = vis_window
+        if vis_ch is not None:
+            self._vis_ch = vis_ch
+        self._apply_viewport()
+        self._refresh_scrubber()
+        if self._vis_window is not None:
+            self._scrubber.set_window(*self._vis_window)
+        self._rebuild_visibility()
+        self._update_status()
         self._canvas.draw_idle()
 
     # -- navigation / view ------------------------------------------------
@@ -778,28 +697,11 @@ class TimeViewerWindow(QMainWindow):
         self._apply_channel_ylim()
         self._canvas.draw_idle()
 
-    def _apply_channel_ylim(self):
-        if self._vis_ch is None or self._engine is None:
-            return
-        n = self._n_cha
-        s, e = self._vis_ch
-        if self._mode == "timeline":
-            off = self._engine.offset_value
-            half = 0.6 * off
-            self._ax.set_ylim((n - e) * off - half, (n - 1 - s) * off + half)
-        else:  # heatmap bands: channel i occupies slot [n-1-i, n-i)
-            self._ax.set_ylim(n - e, n - s)
-
     def reset_view(self):
         if self._engine is None:
             return
-        self._gain = self._contrast = 1.0
         with _styled():
-            if self._mode == "timeline":
-                self._engine.set_gain(1.0)
-                self._sync_spin(self._gain_spin, 1.0)
-            elif self._clim_data is not None:
-                self._engine.set_clim(*self._clim_data)
+            self._reset_scale()
         t0, t1 = self._t_extent
         self._vis_window = [t0, min(t0 + self._window, t1)]
         self._vis_ch = [0, min(self._channels_visible, self._n_cha)]
@@ -807,42 +709,7 @@ class TimeViewerWindow(QMainWindow):
         self._scrubber.set_window(*self._vis_window)
         self._update_status()
 
-    # -- control callbacks ------------------------------------------------
-    def _on_gain_step(self, direction):
-        if self._engine is None:
-            return
-        with _styled():
-            if self._mode == "timeline":
-                self._gain *= self._zoom_factor ** direction
-                self._engine.set_gain(self._gain)
-                self._sync_spin(self._gain_spin, self._gain)
-                self._canvas.draw_idle()
-            elif self._clim_data is not None:
-                self._contrast *= self._zoom_factor ** direction
-                lo, hi = self._clim_data
-                mid, half = (hi + lo) / 2, (hi - lo) / 2
-                half = half / self._contrast if self._contrast else half
-                self._engine.set_clim(mid - half, mid + half)
-                self._canvas.draw_idle()
-
-    def _on_gain_value(self, value):
-        if self._mode != "timeline" or self._engine is None:
-            return
-        self._gain = float(value)
-        with _styled():
-            self._engine.set_gain(self._gain)
-            self._canvas.draw_idle()
-
-    def _on_cmap(self, name):
-        if self._mode == "heatmap" and self._engine is not None:
-            with _styled():
-                self._engine.set_cmap(name)
-                self._canvas.draw_idle()
-                if self._hm_overview is not None:
-                    t, img, _ = self._hm_overview
-                    self._hm_overview = (t, img, name)
-                    self._refresh_scrubber()
-
+    # -- control callbacks (shared) ---------------------------------------
     def _on_window_length(self, value):
         self._window = float(value)
         if self._vis_window is None:
@@ -866,13 +733,18 @@ class TimeViewerWindow(QMainWindow):
         self._update_status()
 
     def _on_reverse_toggle(self, checked):
-        # Reversing channel order means rebuilding from the stored data; for
-        # simplicity we only flip the flag for signals added afterwards and warn.
+        # Flip the on-screen channel order live: reversing is equivalent to
+        # re-drawing every stored signal with the opposite channel ordering, so
+        # rebuild in place (keeping the viewport, scale and events) rather than
+        # only affecting signals added afterwards.
+        checked = bool(checked)
+        if checked == self._reverse:
+            return
         self._reverse = checked
-        if self._engine is not None:
-            self.statusBar().showMessage(
-                "Reverse applies to signals added next; clear() to re-add.",
-                4000)
+        if self._engine is None:
+            return
+        with _styled():
+            self._rebuild_reversed()
 
     def _on_legend_visible(self, checked):
         if self._engine is not None:
@@ -881,6 +753,10 @@ class TimeViewerWindow(QMainWindow):
                 self._canvas.draw_idle()
 
     def _on_scrubber_window(self, lo, hi):
+        # Ignore stray drags of a stale overview strip after clear() (no signal):
+        # _vis_ch is None then, and _update_status would unpack it.
+        if self._n_cha is None:
+            return
         self._vis_window = [lo, hi]
         self._ax.set_xlim(lo, hi)
         self._canvas.draw_idle()
@@ -898,7 +774,7 @@ class TimeViewerWindow(QMainWindow):
         with _styled():
             dlg = _ExportDialog(self, batch=False,
                                 default_size=tuple(fig.get_size_inches()),
-                                default_name="time_viewer")
+                                default_name=self._EXPORT_NAME)
         if dlg.exec() != QDialog.Accepted:
             return
         opts = dlg.options()
@@ -917,7 +793,7 @@ class TimeViewerWindow(QMainWindow):
             self._canvas.draw_idle()
         self.statusBar().showMessage(f"Saved {opts['path']}", 5000)
 
-    # -- helpers ----------------------------------------------------------
+    # -- helpers (shared) -------------------------------------------------
     def _resolve_times(self, n, fs, times, t_offset):
         if times is not None:
             return np.asarray(times, dtype=float).ravel() + t_offset
@@ -932,10 +808,7 @@ class TimeViewerWindow(QMainWindow):
             self._channels_visible = n_ch
         self._channels_visible = min(self._channels_visible, n_ch)
         self._vis_ch = [0, self._channels_visible]
-        self._sync_spin(self._chan_spin, self._channels_visible,
-                        maximum=n_ch)
-        self._amp_group.setVisible(self._mode == "timeline")
-        self._color_group.setVisible(self._mode == "heatmap")
+        self._sync_spin(self._chan_spin, self._channels_visible, maximum=n_ch)
 
     def _engine_labels(self):
         return self._cha_labels if self._reverse else self._cha_labels[::-1]
@@ -956,21 +829,6 @@ class TimeViewerWindow(QMainWindow):
         self._events = self._events.sort_values("onset").reset_index(drop=True)
         self._engine.set_events(self._events, hue=self._event_hue)
 
-    def _record_overview_layer(self, data2d, times, color):
-        # Mirror the engine's per-layer default so the scrubber matches the main
-        # plot: every layer (primary + overlays) uses its categorical data color.
-        col = color or medusa_style.categorical_color(self._n_signals - 1)
-        self._overview_layers.append({
-            "times": times, "values": np.median(data2d, axis=1), "color": col})
-
-    def _record_heatmap_overview(self, ordered, times, cmap):
-        img = np.median(ordered.reshape(ordered.shape[0], len(times), -1)
-                        if ordered.ndim == 3 else
-                        np.concatenate([ordered[k] for k in
-                                        range(ordered.shape[0])], axis=1),
-                        axis=2)
-        self._hm_overview = (times, img, cmap)
-
     def _extend_extent(self, lo, hi):
         if self._t_extent is None:
             self._t_extent = (lo, hi)
@@ -989,54 +847,21 @@ class TimeViewerWindow(QMainWindow):
         self.statusBar().clearMessage()
 
     def _tighten_layout(self):
-        """Trim wasted figure margins (keep room for labels + scale bar/colorbar)."""
-        fig = self._canvas.fig
-        if self._mode == "heatmap":
-            # Leave the right margin to the colorbar; widen the left a touch for
-            # the per-band frequency axis + channel labels.
-            fig.subplots_adjust(left=0.11, top=0.97, bottom=0.11)
-        else:
-            # Keep a small right margin for the amplitude scale bar.
-            fig.subplots_adjust(left=0.07, right=0.90, top=0.97, bottom=0.11)
+        """Trim wasted figure margins (view-specific, see ``_layout_margins``)."""
+        self._canvas.fig.subplots_adjust(**self._layout_margins())
 
-    def _refresh_scrubber(self):
-        events = self._events
+    def _scrubber_events(self):
+        """The current events table and the engine's per-category event colors."""
         colors = self._engine.event_colors() if self._engine else {}
-        if self._mode == "timeline":
-            maxy = max((float(np.nanmax(np.abs(layer["values"])))
-                        for layer in self._overview_layers
-                        if layer["values"].size), default=1.0) or 1.0
-            self._scrubber.set_overview(
-                mode="timeline", t_extent=self._t_extent,
-                layers=self._overview_layers, events=events,
-                event_hue=self._event_hue, event_colors=colors, maxy=maxy)
-        elif self._hm_overview is not None:
-            self._scrubber.set_overview(
-                mode="heatmap", t_extent=self._t_extent,
-                image=self._hm_overview, events=events,
-                event_hue=self._event_hue, event_colors=colors, maxy=1.0)
+        return self._events, colors
 
-    # -- visibility section ----------------------------------------------
+    # -- visibility section (shared frame; series rows are view-specific) --
     def _rebuild_visibility(self):
         """Repopulate the per-item show/hide checkboxes (series + event types)."""
         self._clear_layout(self._vis_layout)
         if self._engine is None:
             return
-        if self._mode == "timeline" and self._signal_labels:
-            self._vis_layout.addWidget(self._section_label("Series"))
-            for idx, label in enumerate(self._signal_labels):
-                lines = self._series_lines(idx)
-                vis = all(ln.get_visible() for ln in lines) if lines else True
-                self._vis_layout.addWidget(self._vis_check(
-                    label or f"Signal {idx + 1}", vis,
-                    lambda on, i=idx: self._toggle_series(i, on)))
-        elif self._mode == "heatmap":
-            self._vis_layout.addWidget(self._section_label("Series"))
-            label = self._signal_labels[0] if self._signal_labels else None
-            imgs = self._engine.artists.get("images", [])
-            vis = all(im.get_visible() for im in imgs) if imgs else True
-            self._vis_layout.addWidget(self._vis_check(
-                label or "Heatmap", vis, self._toggle_heatmap))
+        self._rebuild_series_visibility(self._vis_layout)
         if self._events is not None and len(self._events) > 0:
             self._vis_layout.addWidget(self._section_label("Events"))
             arts = self._engine.artists.get("events", [])
@@ -1055,29 +880,6 @@ class TimeViewerWindow(QMainWindow):
                 self._vis_layout.addWidget(self._vis_check(
                     "Events", vis,
                     lambda on: self._toggle_event_category(None, on)))
-
-    def _series_lines(self, idx):
-        arts = self._engine.artists
-        if idx == 0:
-            return arts.get("lines", [])
-        overlays = arts.get("overlays", [])
-        return overlays[idx - 1] if idx - 1 < len(overlays) else []
-
-    def _toggle_series(self, idx, on):
-        if self._engine is None or self._mode != "timeline":
-            return
-        for ln in self._series_lines(idx):
-            ln.set_visible(on)
-        self._canvas.draw_idle()
-
-    def _toggle_heatmap(self, on):
-        if self._engine is None:
-            return
-        for im in self._engine.artists.get("images", []):
-            im.set_visible(on)
-        if "image" in self._engine.artists:
-            self._engine.artists["image"].set_visible(on)
-        self._canvas.draw_idle()
 
     def _toggle_event_category(self, cat, on):
         if self._engine is None or self._events is None:
@@ -1114,7 +916,7 @@ class TimeViewerWindow(QMainWindow):
     def _section_label(text):
         lab = QLabel(text)
         lab.setStyleSheet(
-            f"color: {medusa_style.current_theme().palette.text_secondary}; "
+            f"color: {medusa_style.current_theme().text_secondary}; "
             f"font-size: 11px; margin-top: 4px;")
         return lab
 
@@ -1128,7 +930,7 @@ class TimeViewerWindow(QMainWindow):
             else:
                 sub = item.layout()
                 if sub is not None:
-                    TimeViewerWindow._clear_layout(sub)
+                    _BaseTimeViewerWindow._clear_layout(sub)
 
     def _update_status(self):
         if self._vis_window is None:
@@ -1155,53 +957,3 @@ class TimeViewerWindow(QMainWindow):
             idx = combo.findText(text)
         combo.setCurrentIndex(idx)
         combo.blockSignals(False)
-
-
-class TimeViewer:
-    """Headless-friendly handle that owns the ``QApplication`` and the window.
-
-    Reuses an existing ``QApplication`` when one is running (a process holds only
-    one), so it composes with a larger Qt app.
-    """
-
-    def __init__(self, *, cha_labels=None, channels_visible=None,
-                 reverse_channels=True, window=10.0, step=2.0,
-                 zoom_factor=1.2, amplitude_unit="a.u."):
-        # Theme the whole Qt application from the MEDUSA single source of truth
-        # (Fusion + QSS + palette + bundled fonts + app icon); reuses an existing
-        # QApplication if one is already running.
-        self.app = medusa_style.qt.application(sys.argv)
-        self.window = TimeViewerWindow(
-            cha_labels=cha_labels, channels_visible=channels_visible,
-            reverse_channels=reverse_channels, window=window, step=step,
-            zoom_factor=zoom_factor, amplitude_unit=amplitude_unit)
-
-    def add_timeline(self, data, **kwargs):
-        """Show a multichannel time-series, or overlay a transformation of it.
-
-        Call once to show a signal; call again with the **same number of
-        channels** to overlay another version of it (e.g. raw vs filtered) — the
-        viewer compares transformations of one signal, not unrelated signals. See
-        :meth:`TimeViewerWindow.add_timeline` for the full parameter list.
-        """
-        self.window.add_timeline(data, **kwargs)
-        return self
-
-    def add_timeheatmap(self, data, **kwargs):
-        """Show a per-channel heatmap (see the window method)."""
-        self.window.add_timeheatmap(data, **kwargs)
-        return self
-
-    def add_events(self, events, **kwargs):
-        """Overlay extra events."""
-        self.window.add_events(events, **kwargs)
-        return self
-
-    def clear(self):
-        """Reset the viewer."""
-        self.window.clear()
-
-    def show(self):
-        """Show the window and run the event loop (blocks until closed)."""
-        self.window.show()
-        self.app.exec()

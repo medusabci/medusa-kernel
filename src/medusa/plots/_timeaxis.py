@@ -146,7 +146,7 @@ def _overlay_events(ax, events, *, hue: str | None = None,
         colors = [color_of[v] for v in hue_values]
     else:
         hue_values = [None] * len(df)
-        colors = [medusa_style.current_theme().palette.highlight] * len(df)
+        colors = [medusa_style.current_theme().highlight] * len(df)
 
     artists: list = []
     handles: list = []

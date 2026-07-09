@@ -26,8 +26,15 @@ import medusa_style
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from matplotlib.colors import to_hex
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QColor, QFontMetrics, QKeySequence, QPixmap
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFontMetrics,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -37,6 +44,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,9 +57,15 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
-    QToolBar,
     QVBoxLayout,
     QWidget,
+)
+
+from medusa.widgets._toolbar import (
+    add_main_toolbar,
+    add_toolbar_spacer,
+    add_toolbar_status_label,
+    pin_toolbar_width,
 )
 
 __all__ = ["PlotVisualizer", "PlotVisualizerWindow"]
@@ -69,7 +83,7 @@ def _filmstrip_qss() -> str:
     not cover: cards toggle their own highlight via the ``selected`` dynamic
     property (no stylesheet swap), so nothing shifts between states.
     """
-    pal = medusa_style.current_theme().palette
+    pal = medusa_style.current_theme()
     return f"""
 QListWidget {{ border: none; outline: 0; background: {pal.surface}; }}
 QListWidget::item {{ border: none; }}
@@ -121,6 +135,28 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "figure"
 
 
+#: Extensions treated as a replaceable image-format suffix (a superset of the
+#: selectable ``_FORMATS``) so a real typed extension is swapped — but a dot that
+#: is part of the name (e.g. ``sub-01_run-1.2``) is preserved and appended to.
+_KNOWN_EXTS = frozenset(_FORMATS) | {"jpeg", "tif", "tiff", "eps", "ps"}
+
+
+def _with_format_suffix(raw_path: str, fmt: str) -> str:
+    """Coerce ``raw_path``'s extension to ``fmt`` without mangling dotted names.
+
+    Replaces the suffix only when it is already a recognized image extension;
+    otherwise the trailing dot is part of the filename and ``.<fmt>`` is appended.
+    A path with no filename component is returned unchanged (the caller validates
+    the destination separately), so this never raises on ``"."`` / ``"C:\\"``.
+    """
+    p = Path(raw_path)
+    if not p.name:
+        return raw_path
+    if p.suffix.lower().lstrip(".") in _KNOWN_EXTS:
+        return str(p.with_suffix(f".{fmt}"))
+    return f"{p}.{fmt}"
+
+
 def _thumbnail(fig, long_px: int = 360) -> QPixmap:
     """Render ``fig`` to a ``QPixmap`` source for the filmstrip.
 
@@ -138,21 +174,84 @@ def _thumbnail(fig, long_px: int = 360) -> QPixmap:
     return pix
 
 
+class _FigurePreview(QWidget):
+    """Live WYSIWYG preview of the figure to be exported, over a checkerboard.
+
+    The checkerboard backdrop reveals a transparent export (a solid/paper
+    background hides it, exactly as the saved file will look). The pixmap is
+    re-rendered by :class:`_ExportDialog` whenever an export option changes and
+    is scaled here to fit, so the preview always tracks the current settings.
+    """
+
+    _TILE = 9  # checkerboard tile size (px)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pix: QPixmap | None = None
+        pal = medusa_style.current_theme()
+        self._light = QColor(pal.surface)
+        self._dark = QColor(pal.surface_variant)
+        self.setMinimumSize(300, 240)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def set_pixmap(self, pix: QPixmap):
+        self._pix = pix
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        rect = self.rect()
+        t = self._TILE
+        painter.fillRect(rect, self._light)
+        for y in range(rect.top(), rect.bottom() + 1, t):
+            for x in range(rect.left(), rect.right() + 1, t):
+                if ((x // t) + (y // t)) % 2:
+                    painter.fillRect(x, y, t, t, self._dark)
+        if self._pix is not None and not self._pix.isNull():
+            scaled = self._pix.scaled(rect.size(), Qt.KeepAspectRatio,
+                                      Qt.SmoothTransformation)
+            x = rect.x() + (rect.width() - scaled.width()) // 2
+            y = rect.y() + (rect.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        painter.end()
+
+
 class _ExportDialog(QDialog):
-    """Single dialog gathering all export options (one figure or the whole set)."""
+    """Single dialog gathering all export options (one figure or the whole set).
+
+    When a ``fig`` is supplied (single-figure exports), the dialog shows a live
+    preview that re-renders the figure exactly as it will be saved — the chosen
+    size, background/transparency and margin trimming — so the export is WYSIWYG.
+    In ``batch`` mode (the whole set) no figure is previewed and per-figure size
+    is fixed to each figure's own dimensions.
+    """
+
+    #: Cap on the preview raster's long side (px) so re-rendering stays snappy.
+    _PREVIEW_MAX_PX = 900
 
     def __init__(self, parent, *, batch: bool,
                  default_size: "tuple[float, float] | None" = None,
-                 default_name: str = "figure"):
+                 default_name: str = "figure", fig=None):
         super().__init__(parent)
         self._batch = batch
         self._default_name = default_name
+        # A preview only makes sense for a single figure (not the batch set).
+        self._fig = None if batch else fig
         if default_size is None:  # fall back to the active style's figure size
             default_size = tuple(mpl.rcParams["figure.figsize"])
         self._bg = QColor(_rc_facecolor())  # default to the style's paper color
+        self._aspect = (default_size[0] / default_size[1]
+                        if default_size[1] else 1.0)
+        self._syncing_size = False           # re-entrancy guard for lock-aspect
         self.setWindowTitle("Export all figures" if batch else "Export figure")
-        self.setMinimumWidth(380)
-        form = QFormLayout(self)
+
+        # Debounced preview re-render so dragging a spin box is not a savefig storm.
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(150)
+        self._preview_timer.timeout.connect(self._render_preview)
+
+        form = QFormLayout()
 
         self.path_edit = QLineEdit(self)
         browse = QPushButton("Browse…", self)
@@ -164,11 +263,13 @@ class _ExportDialog(QDialog):
 
         self.fmt = QComboBox(self)
         self.fmt.addItems(_FORMATS)
+        self.fmt.currentTextChanged.connect(self._on_format_changed)
         form.addRow("Format:", self.fmt)
 
         self.dpi = QSpinBox(self)
         self.dpi.setRange(30, 1200)
         self.dpi.setValue(_rc_savefig_dpi())
+        self.dpi.valueChanged.connect(self._on_dims_changed)
         form.addRow("DPI:", self.dpi)
 
         if not batch:
@@ -177,19 +278,45 @@ class _ExportDialog(QDialog):
             self.width.setDecimals(1)
             self.width.setValue(default_size[0] * _CM_PER_IN)
             self.width.setSuffix(" cm")
+            self.width.valueChanged.connect(self._on_width_changed)
             self.height = QDoubleSpinBox(self)
             self.height.setRange(1.0, 300.0)
             self.height.setDecimals(1)
             self.height.setValue(default_size[1] * _CM_PER_IN)
             self.height.setSuffix(" cm")
+            self.height.valueChanged.connect(self._on_height_changed)
             size = QHBoxLayout()
             size.addWidget(self.width)
             size.addWidget(QLabel("×"))
             size.addWidget(self.height)
             form.addRow("Size:", size)
 
+            self.lock_aspect = QCheckBox("Lock aspect ratio", self)
+            self.lock_aspect.setChecked(True)
+            self.lock_aspect.toggled.connect(self._on_lock_toggled)
+            form.addRow("", self.lock_aspect)
+
+            self.dims_label = QLabel(self)
+            self.dims_label.setStyleSheet(
+                f"color: {medusa_style.current_theme().text_secondary};")
+            self.dims_label.setToolTip(
+                "Full-canvas pixel size at this DPI; 'trim margins' crops it to "
+                "the drawn content.")
+            form.addRow("", self.dims_label)
+
+        self.pad = QDoubleSpinBox(self)
+        self.pad.setRange(0.0, 5.0)
+        self.pad.setDecimals(2)
+        self.pad.setSingleStep(0.05)
+        self.pad.setValue(0.13)          # ~0.05 in, the save_figure default, in cm
+        self.pad.setSuffix(" cm")
+        self.pad.setToolTip("Whitespace kept around the trimmed content.")
+        self.pad.valueChanged.connect(self._schedule_preview)
+        form.addRow("Margin padding:", self.pad)
+
         self.tight = QCheckBox("Trim margins (tight bounding box)", self)
         self.tight.setChecked(True)
+        self.tight.toggled.connect(self._on_tight_toggled)
         form.addRow("", self.tight)
 
         self.transparent = QCheckBox("Transparent background", self)
@@ -205,7 +332,30 @@ class _ExportDialog(QDialog):
             QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+
+        # Assemble: the option form on the left, an optional live preview on the
+        # right (single-figure exports only). Buttons span the whole dialog.
+        form_host = QWidget(self)
+        form_host.setLayout(form)
+        root = QVBoxLayout(self)
+        if self._fig is not None:
+            self._preview = _FigurePreview(self)
+            preview_box = QGroupBox("Preview", self)
+            pv = QVBoxLayout(preview_box)
+            pv.setContentsMargins(6, 6, 6, 6)
+            pv.addWidget(self._preview)
+            columns = QHBoxLayout()
+            columns.addWidget(form_host, 0)
+            columns.addWidget(preview_box, 1)
+            root.addLayout(columns)
+            self.setMinimumSize(780, 500)
+            self._update_dims()
+            self._render_preview()
+        else:
+            self._preview = None
+            root.addWidget(form_host)
+            self.setMinimumWidth(380)
+        root.addWidget(buttons)
 
     # -- callbacks --------------------------------------------------------
     def _browse(self):
@@ -221,34 +371,133 @@ class _ExportDialog(QDialog):
             if path:
                 self.path_edit.setText(path)
 
+    def _on_format_changed(self, fmt: str):
+        # The Format combo is authoritative: keep the destination's extension in
+        # step so choosing e.g. "pdf" actually writes a PDF (savefig infers the
+        # format from the suffix). Only rewrites an already-typed file path.
+        if self._batch:
+            return
+        current = self.path_edit.text().strip()
+        if current:
+            self.path_edit.setText(_with_format_suffix(current, fmt))
+
+    def _on_tight_toggled(self, tight: bool):
+        self.pad.setEnabled(tight)   # pad_inches only applies to a tight bbox
+        self._schedule_preview()
+
+    def _on_lock_toggled(self, locked: bool):
+        if locked and self.height.value():
+            # Capture the current ratio so the user can dial in a custom shape,
+            # then lock it for subsequent edits.
+            self._aspect = self.width.value() / self.height.value()
+        self._schedule_preview()
+
+    def _on_width_changed(self, *_):
+        if self.lock_aspect.isChecked() and not self._syncing_size and self._aspect:
+            self._syncing_size = True
+            self.height.setValue(self.width.value() / self._aspect)
+            self._syncing_size = False
+        self._on_dims_changed()
+
+    def _on_height_changed(self, *_):
+        if self.lock_aspect.isChecked() and not self._syncing_size:
+            self._syncing_size = True
+            self.width.setValue(self.height.value() * self._aspect)
+            self._syncing_size = False
+        self._on_dims_changed()
+
+    def _on_dims_changed(self, *_):
+        self._update_dims()
+        self._schedule_preview()
+
+    def _update_dims(self):
+        if self._batch or self._fig is None:
+            return
+        w_px = round(self.width.value() / _CM_PER_IN * self.dpi.value())
+        h_px = round(self.height.value() / _CM_PER_IN * self.dpi.value())
+        self.dims_label.setText(f"≈ {w_px} × {h_px} px  ·  {self.dpi.value()} dpi")
+
     def _toggle_bg(self, transparent: bool):
         self.bg_btn.setEnabled(not transparent)
+        self._schedule_preview()
 
     def _pick_bg(self):
         color = QColorDialog.getColor(self._bg, self, "Background color")
         if color.isValid():
             self._bg = color
             self._refresh_bg_btn()
+            self._schedule_preview()
 
     def _refresh_bg_btn(self):
         self.bg_btn.setText(self._bg.name())
         self.bg_btn.setStyleSheet(f"background-color: {self._bg.name()};")
 
     def _accept(self):
-        if not self.path_edit.text().strip():
+        text = self.path_edit.text().strip()
+        # Non-batch needs a real filename (a bare "." / "C:\" has no name part).
+        if not text or (not self._batch and not Path(text).name):
             QMessageBox.warning(self, "Missing destination",
                                 "Choose a destination first.")
             return
         self.accept()
 
+    # -- preview ----------------------------------------------------------
+    def _schedule_preview(self, *_):
+        if self._fig is not None:
+            self._preview_timer.start()
+
+    def _render_preview(self):
+        """Rasterize the figure with the current options and show it in the panel.
+
+        Renders through ``savefig`` (as the export does), so the preview matches
+        the saved file. The figure is briefly resized and always restored, and the
+        raster's long side is capped for a responsive re-render.
+        """
+        if self._fig is None:
+            return
+        opts = self.options()
+        fig = self._fig
+        live = tuple(fig.get_size_inches())
+        buf = io.BytesIO()
+        try:
+            if opts["size"] is not None:
+                fig.set_size_inches(*opts["size"])
+            w, h = fig.get_size_inches()
+            dpi = max(16.0, min(float(opts["dpi"]),
+                                self._PREVIEW_MAX_PX / max(w, h)))
+            save_kw = dict(format="png", dpi=dpi, bbox_inches=opts["bbox_inches"],
+                           pad_inches=opts["pad_inches"])
+            if opts["transparent"]:
+                fig.savefig(buf, transparent=True, **save_kw)
+            else:
+                fc = opts["facecolor"]
+                fig.savefig(buf, transparent=False, facecolor=fc, edgecolor=fc,
+                            **save_kw)
+        except Exception:
+            # A transient bad value mid-edit must never crash the modal dialog.
+            return
+        finally:
+            fig.set_size_inches(*live)
+        pix = QPixmap()
+        pix.loadFromData(buf.getvalue(), "PNG")
+        self._preview.set_pixmap(pix)
+
     # -- result -----------------------------------------------------------
     def options(self) -> dict:
         transparent = self.transparent.isChecked()
+        raw_path = self.path_edit.text().strip()
+        fmt = self.fmt.currentText()
+        # Non-batch: the file suffix follows the selected format so the saved
+        # format is always the chosen one (batch paths are folders — left alone).
+        path = (_with_format_suffix(raw_path, fmt)
+                if raw_path and not self._batch else raw_path)
         opts = dict(
-            path=self.path_edit.text().strip(),
-            fmt=self.fmt.currentText(),
+            path=path,
+            fmt=fmt,
             dpi=self.dpi.value(),
             bbox_inches="tight" if self.tight.isChecked() else None,
+            # UI is metric (cm); matplotlib's pad_inches wants inches.
+            pad_inches=self.pad.value() / _CM_PER_IN,
             transparent=transparent,
             facecolor=None if transparent else self._bg.name(),
             # matplotlib needs inches; the UI is cm.
@@ -288,10 +537,7 @@ class PlotVisualizerWindow(QMainWindow):
         self._index = -1
 
         # Navigation / export toolbar.
-        bar = QToolBar(self)
-        bar.setMovable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.addToolBar(bar)
+        bar = add_main_toolbar(self)
         self._act_prev = self._action(bar, "Previous", self.previous,
                                       [QKeySequence(Qt.Key_Left), "PgUp"],
                                       icon="arrow_back")
@@ -303,12 +549,11 @@ class PlotVisualizerWindow(QMainWindow):
                      icon="save_as")
         self._action(bar, "Export all…", self.export_all, ["Ctrl+Shift+S"],
                      icon="download")
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        bar.addWidget(spacer)
+        add_toolbar_spacer(bar)
         self._counter = QLabel("0 / 0", self)
         self._counter.setStyleSheet("padding-right: 10px;")
-        bar.addWidget(self._counter)
+        add_toolbar_status_label(bar, self._counter)
+        pin_toolbar_width(bar)
 
         # Filmstrip (left) + figure stack (right), in a resizable splitter.
         # Cards carry their own border highlight, so the list's selection
@@ -455,7 +700,7 @@ class PlotVisualizerWindow(QMainWindow):
         title = self._titles[self._index]
         if len(title) > 60:
             title = title[:57] + "…"
-        muted = medusa_style.current_theme().palette.text_secondary
+        muted = medusa_style.current_theme().text_secondary
         self._counter.setText(
             f"<b>{self._index + 1} / {n}</b>&nbsp;&nbsp;·&nbsp;&nbsp;"
             f"<span style='color: {muted};'>{html.escape(title)}</span>")
@@ -477,7 +722,8 @@ class PlotVisualizerWindow(QMainWindow):
             return
         i = self._index
         dlg = _ExportDialog(self, batch=False, default_size=self._sizes[i],
-                            default_name=_slug(self._titles[i]))
+                            default_name=_slug(self._titles[i]),
+                            fig=self._figs[i])
         if dlg.exec() != QDialog.Accepted:
             return
         opts = dlg.options()
@@ -524,7 +770,8 @@ class PlotVisualizerWindow(QMainWindow):
                 fig.set_size_inches(*size)
             save_figure(fig, path, transparent=opts["transparent"],
                         facecolor=opts["facecolor"], dpi=opts["dpi"],
-                        bbox_inches=opts["bbox_inches"])
+                        bbox_inches=opts["bbox_inches"],
+                        pad_inches=opts["pad_inches"])
         finally:
             fig.set_size_inches(*live)
             canvas.draw_idle()

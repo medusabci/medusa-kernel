@@ -9,9 +9,9 @@ from scipy import signal as scipy_signal
 
 from medusa.core.utils import check_data_dims
 
-_BType = Literal['lowpass', 'highpass', 'bandpass', 'bandstop']
-_FIRMethod = Literal['filtfilt', 'lfilter']
-_IIRMethod = Literal['sosfiltfilt', 'sosfilt']
+BAND_TYPES = Literal['lowpass', 'highpass', 'bandpass', 'bandstop']
+FIRMethods = Literal['filtfilt', 'lfilter']
+IIRMethods = Literal['sosfiltfilt', 'sosfilt']
 
 _Cutoff = float | tuple[float, float] | list[float] | NDArray
 
@@ -19,6 +19,9 @@ __all__ = [
     "FIRFilter",
     "IIRFilter",
     "display_filter",
+    "BAND_TYPES",
+    "FIRMethods",
+    "IIRMethods"
 ]
 
 
@@ -76,19 +79,19 @@ class FIRFilter:
         self,
         order: int,
         cutoff: _Cutoff,
-        btype: _BType,
+        btype: BAND_TYPES,
         width: float | None = None,
         window: str = 'hamming',
         scale: bool = True,
-        filt_method: _FIRMethod = 'filtfilt',
+        filt_method: FIRMethods = 'filtfilt',
     ) -> None:
-        self.btype: _BType = btype
+        self.btype: BAND_TYPES = btype
         self.order = order
         self.cutoff = cutoff
         self.width = width
         self.window = window
         self.scale = scale
-        self.filt_method: _FIRMethod = filt_method
+        self.filt_method: FIRMethods = filt_method
 
         # Filled by fit().
         self.fs: float | None = None
@@ -225,13 +228,13 @@ class IIRFilter:
         self,
         order: int,
         cutoff: _Cutoff,
-        btype: _BType,
-        filt_method: _IIRMethod = 'sosfiltfilt',
+        btype: BAND_TYPES,
+        filt_method: IIRMethods = 'sosfiltfilt',
     ) -> None:
-        self.btype: _BType = btype
+        self.btype: BAND_TYPES = btype
         self.order = order
         self.cutoff = cutoff
-        self.filt_method: _IIRMethod = filt_method
+        self.filt_method: IIRMethods = filt_method
 
         # Filled by fit().
         self.fs: float | None = None

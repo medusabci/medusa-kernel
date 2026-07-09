@@ -60,7 +60,7 @@ def test_plot_scalp_chrome_defaults_to_theme_foreground(channel_set):
     """Head outline color defaults to the active theme's plot_fg."""
     _, ax = plt.subplots()
     _, artists = plot_scalp(channel_set, ax)
-    fg = medusa_style.current_theme().palette.plot_fg
+    fg = medusa_style.current_theme().plot_fg
     assert to_hex(artists["head-line"].get_color()).lower() == fg.lower()
 
 

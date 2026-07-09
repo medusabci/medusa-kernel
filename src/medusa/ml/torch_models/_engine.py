@@ -342,6 +342,15 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
             est._restore_fitted_state(obj['fitted_state'])
         return est
 
+    # Route *any* dill/pickle of a live estimator (e.g. nested inside a trained
+    # pipeline) through the portable config+state_dict bundle, so it reloads across
+    # devices/torch versions -- the same contract as ``save``, not a live-module pickle.
+    def __getstate__(self) -> dict:
+        return self.to_pickleable_obj()
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(type(self).from_pickleable_obj(state).__dict__)
+
     def save(self, path, protocol=None):
         """Save to a single dill file (CPU-portable ``config + state_dict``)."""
         import dill

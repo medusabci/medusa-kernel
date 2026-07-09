@@ -23,6 +23,7 @@ See ``plots/TODO.md`` for the 2.0 refactor roadmap.
 
 import medusa_style
 
+from medusa.plots.erp import plot_erp, plot_erp_channels, plot_erp_grid
 from medusa.plots.scalp import plot_scalp
 from medusa.plots.scalp_connectivity import ConnectivityPlot, plot_connectivity
 from medusa.plots.scalp_topography import TopographicPlot, plot_topography
@@ -53,4 +54,8 @@ __all__ = [
     "TimeHeatmapPlot",
     # Shaded-line summary (mean ± error/CI band; ERP, mean PSD, ...)
     "plot_shaded_line",
+    # Event-related potentials (single ERP + per-channel grid + channel overlay)
+    "plot_erp",
+    "plot_erp_grid",
+    "plot_erp_channels",
 ]

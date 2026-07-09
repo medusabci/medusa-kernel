@@ -292,3 +292,140 @@ class TestSerialization:
         # clean-break: SettingsTree is standalone JSON, not the multi-format base
         assert not hasattr(SettingsTree, "save_to_mat")
         assert not hasattr(SettingsTree, "update_tree_from_widget")
+
+
+# ---------------------------------------------------------------------------
+# group-lists (a variable-length list of same-schema groups)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def filterbank_tree():
+    """A ``freq_filtering`` group holding a ``filterbank`` group-list (one default filter)."""
+    s = SettingsTree()
+    ff = s.add_group("freq_filtering")
+    fb = ff.add_group_list("filterbank", info="Parallel sub-band filters")
+    elem = fb.element
+    elem.add_item("filt_type", value="iir", value_options=["iir", "fir"])
+    elem.add_item("band_type", value="bandpass",
+                  value_options=["bandpass", "bandstop", "lowpass", "highpass"])
+    elem.add_item("cutoff", value=[1.0, 70.0])
+    elem.add_item("order", value=5, value_range=[1, None])
+    fb.add_element()
+    s.snapshot_defaults()          # baseline the group-list default (as Configurable does)
+    return s
+
+
+class TestGroupList:
+    DEFAULT = {"filt_type": "iir", "band_type": "bandpass",
+               "cutoff": [1.0, 70.0], "order": 5}
+
+    def test_is_group_list_and_to_dict_projects_to_list(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        assert fb.is_group_list and fb.is_group
+        assert filterbank_tree.to_dict() == {"freq_filtering": {"filterbank": [self.DEFAULT]}}
+
+    def test_add_element_clones_template_with_overrides(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.add_element({"band_type": "bandstop", "cutoff": [48.0, 52.0], "order": 4})
+        bank = filterbank_tree.to_dict()["freq_filtering"]["filterbank"]
+        assert len(bank) == 2
+        assert bank[1] == {"filt_type": "iir", "band_type": "bandstop",
+                           "cutoff": [48.0, 52.0], "order": 4}
+
+    def test_partial_override_fills_template_defaults(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.set_elements([{"cutoff": [6.0, 40.0]}])          # only cutoff given
+        assert fb.to_dict() == [{"filt_type": "iir", "band_type": "bandpass",
+                                 "cutoff": [6.0, 40.0], "order": 5}]
+
+    def test_remove_element(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.add_element()
+        fb.remove_element(0)
+        assert len(fb.to_dict()) == 1
+
+    def test_update_from_dict_rebuilds_elements(self, filterbank_tree):
+        filterbank_tree.update_from_dict({"freq_filtering": {"filterbank": [
+            {"band_type": "bandpass", "cutoff": [6.0, 40.0], "order": 4},
+            {"filt_type": "fir", "band_type": "lowpass", "cutoff": 30.0, "order": 64}]}})
+        bank = filterbank_tree.to_dict()["freq_filtering"]["filterbank"]
+        assert len(bank) == 2 and bank[1]["filt_type"] == "fir"
+
+    def test_update_from_dict_rejects_non_list(self, filterbank_tree):
+        with pytest.raises(ValueError, match="group-list"):
+            filterbank_tree.update_from_dict({"freq_filtering": {"filterbank": {"x": 1}}})
+
+    def test_validate_checks_each_element_with_indexed_path(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fb.add_element({"band_type": "weird", "order": 0})
+        paths = {p for p, _ in filterbank_tree.validate()}
+        assert "freq_filtering.filterbank.1.band_type" in paths
+        assert "freq_filtering.filterbank.1.order" in paths
+
+    def test_reset_restores_default_elements(self, filterbank_tree):
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.set_elements([{"cutoff": [1.0, 10.0]}, {"cutoff": [10.0, 20.0]}])
+        filterbank_tree.reset()
+        assert filterbank_tree.to_dict()["freq_filtering"]["filterbank"] == [self.DEFAULT]
+
+    def test_edit_time_add_element_preserves_default(self, filterbank_tree):
+        # add_element at edit time must NOT corrupt the build-time default
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.add_element({"cutoff": [10.0, 20.0]})
+        filterbank_tree.reset()
+        assert filterbank_tree.to_dict()["freq_filtering"]["filterbank"] == [self.DEFAULT]
+
+    def test_user_overrides_reports_group_list_edits(self, filterbank_tree):
+        assert filterbank_tree.user_overrides() == {}          # unedited -> no override
+        fb = filterbank_tree.get_item("freq_filtering", "filterbank")
+        fb.add_element({"cutoff": [10.0, 20.0]})
+        ov = filterbank_tree.user_overrides()
+        assert len(ov["freq_filtering"]["filterbank"]) == 2
+
+    def test_reset_no_default_is_noop(self):
+        # a group-list never snapshot_defaults()'d resets to a no-op (current == default)
+        s = SettingsTree()
+        fb = s.add_group_list("gl")
+        fb.element.add_item("x", value=1, value_range=[0, None])
+        fb.add_element()
+        s.reset()
+        assert s.to_dict() == {"gl": [{"x": 1}]}
+
+    def test_default_snapshot_is_deepcopied(self):
+        # the captured default must not alias (share list objects with) live elements
+        s = SettingsTree()
+        fb = s.add_group_list("gl")
+        fb.element.add_item("cutoff", value=[1.0, 2.0])
+        fb.add_element()
+        s.snapshot_defaults()
+        s.to_dict()["gl"][0]["cutoff"].append(99.0)      # in-place mutation of a cfg list
+        s.reset()
+        assert s.to_dict() == {"gl": [{"cutoff": [1.0, 2.0]}]}
+
+    def test_nested_group_list_gets_its_own_default(self):
+        s = SettingsTree()
+        outer = s.add_group_list("outer")
+        inner = outer.element.add_group_list("inner")
+        inner.element.add_item("x", value=1, value_range=[0, None])
+        inner.add_element()
+        outer.add_element()
+        s.snapshot_defaults()
+        inner_node = s.get_item("outer").elements[0].get_item("inner")
+        assert inner_node.is_group_list and "default" in inner_node.tree
+
+    def test_json_round_trip_preserves_group_list(self, filterbank_tree, tmp_path):
+        filterbank_tree.get_item("freq_filtering", "filterbank").add_element(
+            {"cutoff": [8.0, 30.0]})
+        path = tmp_path / "s.json"
+        filterbank_tree.to_json(str(path))
+        loaded = SettingsTree.from_json(str(path))
+        assert loaded.to_dict() == filterbank_tree.to_dict()
+        assert loaded.get_item("freq_filtering", "filterbank").is_group_list
+
+    def test_element_mutators_require_group_list(self):
+        plain = SettingsTree().add_group("g")
+        with pytest.raises(TypeError):
+            plain.add_element()
+        with pytest.raises(TypeError):
+            _ = plain.element

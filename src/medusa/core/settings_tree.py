@@ -6,7 +6,9 @@ A :class:`SettingsTree` is a tree of named *items*. Each item carries a
 (``value_range`` for numerics, ``value_options`` for enums, ``element_schema``
 for the elements of a list value). Items may nest: an item created with
 :meth:`SettingsTree.add_group` (or any item that gains children) becomes a
-*branch*; items with a value are *leaves*.
+*branch*; items with a value are *leaves*. A :meth:`SettingsTree.add_group_list`
+is a *group-list* -- a variable-length list of same-schema groups (typed,
+per-element validated) that projects to a plain list of dicts in :meth:`to_dict`.
 
 The class is the schema half of MEDUSA's "build it, edit it, read it back"
 loop:
@@ -37,11 +39,13 @@ Examples
 
 from __future__ import annotations
 
+import copy
 import json
 import warnings
+from abc import ABC, abstractmethod
 from typing import Any, Iterator, Optional, Union
 
-__all__ = ["SettingsTree", "infer_input_format", "INPUT_FORMATS"]
+__all__ = ["SettingsTree", "Configurable", "infer_input_format", "INPUT_FORMATS"]
 
 #: A leaf value: a JSON primitive or a list of them.
 Primitive = Union[str, int, float, bool, list]
@@ -245,7 +249,8 @@ class SettingsTree:
             "value_range": [min, max], # optional numeric bounds (None = open)
             "value_options": [...],    # optional enum
             "element_schema": {...},   # optional template for list elements
-            "items": [ <node>, ... ],  # present iff this node is a branch
+            "element_group": {...},    # group-list only: the element (group) template
+            "items": [ <node>, ... ],  # branch children, or (group-list) element instances
         }
     """
 
@@ -281,6 +286,11 @@ class SettingsTree:
     def is_group(self) -> bool:
         """Whether the node is a branch (has children)."""
         return "items" in self.tree
+
+    @property
+    def is_group_list(self) -> bool:
+        """Whether the node is a *group-list* (a repeated group; see :meth:`add_group_list`)."""
+        return "element_group" in self.tree
 
     def _child_nodes(self) -> list:
         return self.tree.get("items", [])
@@ -357,6 +367,107 @@ class SettingsTree:
             node["info"] = info
         self._append(node)
         return SettingsTree(node)
+
+    # -- group-lists (a variable-length list of same-schema groups) ----------
+    def add_group_list(self, key: str,
+                       info: Optional[str] = None) -> "SettingsTree":
+        """Add a *group-list*: a variable-length list whose elements are groups.
+
+        Every element shares one schema -- the **element template** -- which you populate
+        once via :attr:`element` (with the ordinary :meth:`add_item`). Append instances
+        (clones of the template) with :meth:`add_element`. In the value projection
+        (:meth:`to_dict`) a group-list becomes a **list of dicts**, one per element, so
+        consumers read it like any list value while the schema stays typed, per-element
+        validated (:meth:`validate`) and editable (add/remove elements).
+
+        Returns
+        -------
+        SettingsTree
+            A wrapper around the new group-list node.
+        """
+        key = _validate_key(key)
+        info = _validate_info(info)
+        self._reject_duplicate(key)
+        node: dict = {"key": key, "input_format": "group_list",
+                      "element_group": {"items": []}, "items": []}
+        if info is not None:
+            node["info"] = info
+        self._append(node)
+        return SettingsTree(node)
+
+    @property
+    def element(self) -> "SettingsTree":
+        """The element **template** group of a group-list; populate it with :meth:`add_item`."""
+        if not self.is_group_list:
+            raise TypeError("'element' is only available on a group-list (add_group_list).")
+        return SettingsTree(self.tree["element_group"])
+
+    @property
+    def elements(self) -> "list[SettingsTree]":
+        """The group-list's current element instances, as wrappers (in order)."""
+        if not self.is_group_list:
+            raise TypeError("'elements' is only available on a group-list (add_group_list).")
+        return [SettingsTree(e) for e in self.tree["items"]]
+
+    def add_element(self, values: Optional[dict] = None) -> "SettingsTree":
+        """Append one element (a clone of the template) to a group-list; return its wrapper.
+
+        ``values`` optionally overrides some of the element's leaf values (the rest keep the
+        template defaults). A plain append -- it does **not** touch the group-list's default
+        (that baseline is captured once by :meth:`snapshot_defaults`), so it is safe both to
+        seed the schema and to add at edit time.
+        """
+        if not self.is_group_list:
+            raise TypeError("add_element is only valid on a group-list (add_group_list).")
+        element = copy.deepcopy(self.tree["element_group"])       # {"items": [leaf clones]}
+        self.tree["items"].append(element)
+        handle = SettingsTree(element)
+        if values:
+            handle.update_from_dict(values)
+        return handle
+
+    def set_elements(self, values_list: list) -> "SettingsTree":
+        """Replace a group-list's elements from a list of value dicts. Returns ``self``.
+
+        Each dict builds one element (a clone of the template with those overrides). Like
+        :meth:`add_element`/:meth:`remove_element`, an edit -- it does not touch the default.
+        """
+        if not self.is_group_list:
+            raise TypeError("set_elements is only valid on a group-list (add_group_list).")
+        self.tree["items"] = []
+        for values in values_list:
+            self.add_element(values if isinstance(values, dict) else None)
+        return self
+
+    def remove_element(self, index: int) -> "SettingsTree":
+        """Remove the element at ``index`` from a group-list. Returns ``self``."""
+        if not self.is_group_list:
+            raise TypeError("remove_element is only valid on a group-list (add_group_list).")
+        del self.tree["items"][index]
+        return self
+
+    def snapshot_defaults(self) -> "SettingsTree":
+        """Capture the current elements of every group-list as its default (idempotent).
+
+        A group-list has no scalar ``default``; call this **once after building the schema and
+        before editing** so :meth:`reset` / :meth:`user_overrides` have a baseline (the
+        :class:`Configurable` mixin does it automatically). Group-lists that already have a
+        default are left untouched. Returns ``self``.
+        """
+        self._snapshot_defaults_node(self.tree)
+        return self
+
+    @classmethod
+    def _snapshot_defaults_node(cls, node: dict) -> None:
+        if "element_group" in node:                 # group-list -> snapshot its element list
+            # deep-copy so the baseline never aliases (shares list objects with) live elements
+            node.setdefault("default", copy.deepcopy(SettingsTree(node).to_dict()))
+            cls._snapshot_defaults_node(node["element_group"])   # template (for future clones)
+            for element in node.get("items", []):                # and any nested group-lists
+                cls._snapshot_defaults_node(element)
+            return
+        for child in node.get("items", []):
+            cls._snapshot_defaults_node(child)
 
     @staticmethod
     def _build_node(key, value, info, input_format, value_range,
@@ -520,7 +631,10 @@ class SettingsTree:
 
     @classmethod
     def _reset_node(cls, node: dict) -> None:
-        if "items" in node:
+        if "element_group" in node:                     # group-list: restore default elements
+            if "default" in node:                       # (no baseline -> nothing to restore)
+                SettingsTree(node).set_elements(node["default"])
+        elif "items" in node:
             for child in node["items"]:
                 cls._reset_node(child)
         elif "default" in node:
@@ -539,13 +653,15 @@ class SettingsTree:
         ValueError
             If two siblings share a key (the projection would be ambiguous).
         """
+        if self.is_group_list:                          # a group-list projects to a list of dicts
+            return [SettingsTree(e).to_dict() for e in self.tree.get("items", [])]
         config: dict = {}
         for child in self._child_nodes():
             key = child.get("key")
             if key in config:
                 raise ValueError(
                     f"duplicate key {key!r}: cannot project to a plain dict.")
-            if "items" in child:
+            if "items" in child:                        # nested group or group-list (recurses)
                 config[key] = SettingsTree(child).to_dict()
             else:
                 config[key] = child.get("value", child.get("default"))
@@ -608,7 +724,13 @@ class SettingsTree:
                 warnings.warn(f"update_from_dict: unknown key {key!r}; "
                               "skipping.", stacklevel=2)
                 continue
-            if isinstance(value, dict) and item.is_group:
+            if item.is_group_list:
+                if not isinstance(value, list):
+                    raise ValueError(
+                        f"{key!r} is a group-list; expected a list of dicts, got "
+                        f"{type(value).__name__}.")
+                item.set_elements(value)
+            elif isinstance(value, dict) and item.is_group:
                 item.update_from_dict(value)
             else:
                 item.edit_item(value=value)
@@ -619,7 +741,12 @@ class SettingsTree:
         overrides: dict = {}
         for child in self._child_nodes():
             key = child.get("key")
-            if "items" in child:
+            if "element_group" in child:                    # group-list: differs from default?
+                if "default" in child:
+                    current = SettingsTree(child).to_dict()
+                    if current != child["default"]:
+                        overrides[key] = current
+            elif "items" in child:
                 nested = SettingsTree(child).user_overrides()
                 if nested:
                     overrides[key] = nested
@@ -641,6 +768,10 @@ class SettingsTree:
 
     @classmethod
     def _validate_node(cls, node: dict, path: list, out: list) -> None:
+        if "element_group" in node:                     # group-list: validate each element
+            for i, element in enumerate(node.get("items", [])):
+                cls._validate_node(element, path + [str(i)], out)
+            return
         if "items" in node:
             for child in node["items"]:
                 cls._validate_node(child, path + [child.get("key")], out)
@@ -736,8 +867,78 @@ class SettingsTree:
         return len(self._child_nodes())
 
     def __repr__(self) -> str:
+        if self.is_group_list:
+            return (f"SettingsTree(group-list {self.key!r}, "
+                    f"{len(self.tree.get('items', []))} elements)")
         if self.is_group:
             keys = [child.get("key") for child in self._child_nodes()]
             label = "root" if self.key is None else repr(self.key)
             return f"SettingsTree({label}, items={keys})"
         return f"SettingsTree(item {self.key!r}={self.value!r})"
+
+
+class Configurable(ABC):
+    """A ``SettingsTree`` configuration mixin (for pipelines and command decoders).
+
+    A subclass declares its configuration **once** in :meth:`default_settings`. That
+    method returns a :class:`SettingsTree` schema with the defaults and their constraints.
+    Each instance keeps its own *live, editable* copy in :attr:`settings`. The Qt editor
+    (``widgets.settings_tree``) edits this copy **in place**, with no round-trip through
+    the class. :attr:`cfg` reads the current values back as a plain dict.
+
+    You may pass the following to the constructor. All are optional and are applied on
+    top of the defaults:
+
+    * as the first argument, a full :class:`SettingsTree` (for example an edited or a
+      saved one), or a plain ``dict`` of values;
+    * ``**overrides`` keyword values, for a quick change in code.
+
+    Examples
+    --------
+    >>> class MyConfig(Configurable):
+    ...     @classmethod
+    ...     def default_settings(cls):
+    ...         s = SettingsTree()
+    ...         s.add_item("filt_order", value=5, value_range=[1, None])
+    ...         return s
+    >>> obj = MyConfig(filt_order=7)                        # kwargs override the defaults
+    >>> _ = obj.settings.set_value("filt_order", value=3)   # live edit (or via the GUI)
+    >>> obj.cfg["filt_order"]
+    3
+    """
+
+    @classmethod
+    @abstractmethod
+    def default_settings(cls) -> SettingsTree:
+        """Return a fresh configuration schema (defaults + constraints) for this class."""
+
+    def __init__(self, settings: "SettingsTree | dict | None" = None,
+                 **overrides) -> None:
+        self.settings = (settings if isinstance(settings, SettingsTree)
+                         else self.default_settings())
+        self.settings.snapshot_defaults()   # baseline any group-list defaults before editing
+        if isinstance(settings, dict):
+            self.settings.update_from_dict(settings)
+        if overrides:
+            self._reject_unknown(overrides)
+            self.settings.update_from_dict(overrides)
+        self._check_settings()
+
+    def _reject_unknown(self, overrides: dict) -> None:
+        valid = set(self.settings.to_dict())
+        unknown = sorted(k for k in overrides if k not in valid)
+        if unknown:
+            raise TypeError(
+                f"unknown setting(s) {unknown} for {type(self).__name__}; "
+                f"valid keys: {sorted(valid)}.")
+
+    def _check_settings(self) -> None:
+        issues = self.settings.validate()
+        if issues:
+            raise ValueError(
+                f"invalid settings for {type(self).__name__}: {issues}")
+
+    @property
+    def cfg(self) -> dict:
+        """Current configuration values as a fresh dict from the live settings tree."""
+        return self.settings.to_dict()

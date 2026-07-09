@@ -1,48 +1,23 @@
 """Brain-Computer Interface (BCI) paradigm pipelines.
 
-Each module bundles the data containers, processing methods (preprocessing /
-feature extraction) and models for one BCI paradigm:
+Organised by *signal-generation mode* -- the axis that mirrors the decoding stack:
 
-- :mod:`~medusa.pipelines.bci.cvep_spellers` — code-modulated VEP spellers.
-- :mod:`~medusa.pipelines.bci.erp_spellers` — event-related potential spellers.
-- :mod:`~medusa.pipelines.bci.mi_paradigms` — motor imagery paradigms.
-- :mod:`~medusa.pipelines.bci.nft_paradigms` — neurofeedback paradigms.
-- :mod:`~medusa.pipelines.bci.ssvep_spellers` — steady-state VEP spellers.
-
-The paradigms intentionally share class names (every speller module defines its
-own ``StandardPreprocessing`` / ``StandardFeatureExtraction`` and command
-decoding helpers), so they are re-exported here as *namespaces* rather than
-flattened into this package::
-
-    from medusa.pipelines.bci import erp_spellers
-    model = erp_spellers.CMDModelRLDA()
+- :mod:`~medusa.pipelines.bci.vep_spellers` -- visual-evoked-potential spellers, i.e.
+  stimulus/event-locked paradigms (c-VEP, SSVEP, ERP/P300): a stimulation codebook plus the
+  Layer-2 ``VEPCommandDecoder``.
+- :mod:`~medusa.pipelines.bci.endogenous` -- self-generated paradigms (motor imagery,
+  neurofeedback): Layer-1 decoding pipelines only (no codebook, no command decoder).
 
 Paradigm-agnostic performance metrics live in
-:mod:`~medusa.pipelines.bci.performance` (``itr`` is re-exported for
-convenience) and plotting helpers in :mod:`~medusa.pipelines.bci.plots`.
+:mod:`~medusa.pipelines.bci.performance` (``itr`` is re-exported for convenience).
 """
 
-from medusa.pipelines.bci import (
-    cvep_spellers,
-    erp_spellers,
-    mi_paradigms,
-    nft_paradigms,
-    ssvep_spellers,
-    performance,
-    plots,
-)
+from medusa.pipelines.bci import vep_spellers, endogenous, performance
 from medusa.pipelines.bci.performance import itr
 
 __all__ = [
-    # Paradigm namespaces
-    "cvep_spellers",
-    "erp_spellers",
-    "mi_paradigms",
-    "nft_paradigms",
-    "ssvep_spellers",
-    # Performance metrics
+    "vep_spellers",
+    "endogenous",
     "performance",
     "itr",
-    # Plotting helpers
-    "plots",
 ]

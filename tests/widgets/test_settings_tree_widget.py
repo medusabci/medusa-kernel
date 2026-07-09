@@ -25,6 +25,11 @@ from medusa.widgets.settings_tree import (  # noqa: E402
     SettingsTreeWidget,
     TreeViewer,
 )
+from medusa.widgets.settings_tree.tree_viewer import (  # noqa: E402
+    _KIND_GROUP_ELEMENT,
+    _ROLE_KEY,
+    _ROLE_KIND,
+)
 
 
 @pytest.fixture(scope="session")
@@ -126,6 +131,80 @@ class TestListEditing:
         s.add_item("matrix", value=[[1, 2], [3, 4]])
         w = SettingsTreeWidget(s)
         assert w.get_values() == {"matrix": [[1, 2], [3, 4]]}
+
+
+@pytest.fixture
+def gl_schema():
+    """A ``filterbank`` group-list (one default filter) for the widget tests."""
+    s = SettingsTree()
+    fb = s.add_group_list("filterbank", info="Parallel sub-band filters")
+    elem = fb.element
+    elem.add_item("filt_type", value="iir", value_options=["iir", "fir"])
+    elem.add_item("band_type", value="bandpass",
+                  value_options=["bandpass", "bandstop", "lowpass", "highpass"])
+    elem.add_item("cutoff", value=[1.0, 70.0])
+    elem.add_item("order", value=5, value_range=[1, None])
+    fb.add_element()
+    s.snapshot_defaults()
+    return s
+
+
+class TestGroupListEditing:
+    DEFAULT = {"filt_type": "iir", "band_type": "bandpass",
+               "cutoff": [1.0, 70.0], "order": 5}
+
+    @staticmethod
+    def _elements(gl):
+        return [gl.child(j) for j in range(gl.childCount())
+                if gl.child(j).data(0, _ROLE_KIND) == _KIND_GROUP_ELEMENT]
+
+    def test_render_round_trip(self, qapp, gl_schema):
+        w = SettingsTreeWidget(gl_schema)
+        assert w.get_values() == {"filterbank": [self.DEFAULT]}
+
+    def test_add_group_element_uses_template_defaults(self, qapp, gl_schema):
+        w = SettingsTreeWidget(gl_schema)
+        _, gl = _find(w, "filterbank")
+        w._add_group_element(gl)
+        vals = w.get_values()["filterbank"]
+        assert len(vals) == 2 and vals[1] == self.DEFAULT
+
+    def test_remove_group_element(self, qapp, gl_schema):
+        w = SettingsTreeWidget(gl_schema)
+        _, gl = _find(w, "filterbank")
+        w._add_group_element(gl)
+        w._remove_list_element(gl, self._elements(gl)[0])
+        assert len(w.get_values()["filterbank"]) == 1
+
+    def test_edit_element_leaf_round_trips(self, qapp, gl_schema):
+        w = SettingsTreeWidget(gl_schema)
+        _, gl = _find(w, "filterbank")
+        elem = self._elements(gl)[0]
+        order_row = next(elem.child(k) for k in range(elem.childCount())
+                         if elem.child(k).data(0, _ROLE_KEY) == "order")
+        w.tree_widget.itemWidget(order_row, 1).setValue(9)
+        assert w.get_values()["filterbank"][0]["order"] == 9
+
+    def test_reset_group_list_restores_default(self, qapp, gl_schema):
+        w = SettingsTreeWidget(gl_schema)
+        _, gl = _find(w, "filterbank")
+        w._add_group_element(gl)
+        w._reset_row(gl)
+        assert w.get_values()["filterbank"] == [self.DEFAULT]
+
+    def test_reset_element_with_nested_group(self, qapp):
+        # reset must restore nested-group values in an element (not the template defaults)
+        s = SettingsTree()
+        fb = s.add_group_list("gl")
+        band = fb.element.add_group("band")
+        band.add_item("low", value=1.0)
+        band.add_item("high", value=40.0)
+        fb.add_element({"band": {"low": 8.0, "high": 12.0}})
+        s.snapshot_defaults()
+        w = SettingsTreeWidget(s)
+        _, gl = _find(w, "gl")
+        w._reset_row(gl)
+        assert w.get_values() == {"gl": [{"band": {"low": 8.0, "high": 12.0}}]}
 
 
 class TestSearch:
@@ -318,6 +397,15 @@ class TestViewerToolbar:
         viewer.widget.reset_all()
         assert viewer.get_settings().to_dict()["update_rate"] == 0.2
 
+    def test_toolbar_never_overflows(self, qapp, schema):
+        # Narrowing the window must not push toolbar buttons into a "»" overflow
+        # menu: the toolbar is pinned to hold all its buttons (which propagates to
+        # the window's minimum width). See tests/widgets/test_toolbar.py for the
+        # shared-helper mechanism.
+        viewer = TreeViewer(schema)
+        bar = viewer.findChildren(QToolBar)[0]
+        assert bar.minimumWidth() >= bar.sizeHint().width()
+
 
 class TestViewOptions:
     def test_value_fills_key_and_info_resizable(self, qapp, schema):
@@ -340,16 +428,36 @@ class TestViewOptions:
         assert w.tree_widget.columnWidth(0) > 0
 
     def test_info_wrap_toggle(self, qapp, schema):
+        from PySide6.QtCore import Qt
         w = SettingsTreeWidget(schema)
-        assert not w.tree_widget.wordWrap()       # one-line by default
+        assert not w._info_delegate.wrap                       # one-line default
+        assert w.tree_widget.textElideMode() == Qt.ElideRight
         w.set_info_wrap(True)
-        assert w.tree_widget.wordWrap()
+        assert w._info_delegate.wrap
+        assert w.tree_widget.textElideMode() == Qt.ElideNone   # don't elide wrapped
         w.set_info_wrap(False)
-        assert not w.tree_widget.wordWrap()
+        assert not w._info_delegate.wrap
+        assert w.tree_widget.textElideMode() == Qt.ElideRight
 
     def test_wrap_info_constructor_arg(self, qapp, schema):
         w = SettingsTreeWidget(schema, wrap_info=True)
-        assert w.tree_widget.wordWrap()
+        assert w._info_delegate.wrap
+
+    def test_wrap_grows_info_row(self, qapp):
+        # The core of the fix: wrapping a long Info string must make the row
+        # taller (so nothing clips), not stay one clipped line.
+        from PySide6.QtWidgets import QStyleOptionViewItem
+        s = SettingsTree()
+        s.add_item("k", value=1, info="word " * 60)
+        w = SettingsTreeWidget(s)
+        w.tree_widget.setColumnWidth(2, 140)
+        idx = w.tree_widget.indexFromItem(w.tree_widget.topLevelItem(0), 2)
+        delegate = w._info_delegate
+        delegate.wrap = False
+        one_line = delegate.sizeHint(QStyleOptionViewItem(), idx).height()
+        delegate.wrap = True
+        wrapped = delegate.sizeHint(QStyleOptionViewItem(), idx).height()
+        assert wrapped > one_line
 
     # NOTE: selection-highlight color is no longer set per-widget — it comes
     # from the app-wide medusa-style theme (QSS + QPalette via

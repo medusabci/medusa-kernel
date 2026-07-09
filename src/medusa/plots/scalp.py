@@ -52,7 +52,7 @@ def _bare_axes(ax) -> None:
 def _scalp_positions(channel_set):
     """2-D projected positions + labels of every located channel in the set."""
     pos3d = channel_set.get_positions(types=None)
-    labels = list(channel_set.uids)
+    labels = list(channel_set.labels)
     pos2d = project_azimuthal(pos3d)
     valid = ~np.isnan(pos2d).any(axis=1)
     if not valid.all():
@@ -84,7 +84,7 @@ def _draw_head_artists(ax, pos, labels, *, radius, line_width, head_color,
     foreground (``plot_fg``) for outlines / sensors / labels, the background
     (``plot_bg``) for the sensor-marker halo, so the diagram matches the figure.
     """
-    palette = medusa_style.current_theme().palette
+    palette = medusa_style.current_theme()
     if head_color is None:
         head_color = palette.plot_fg
     if sensor_color is None:
@@ -176,7 +176,7 @@ def plot_scalp(channel_set, ax, *,
     Parameters
     ----------
     channel_set
-        ``ChannelSet`` (or compatible) providing ``get_positions`` / ``uids``.
+        ``ChannelSet`` (or compatible) providing ``get_positions`` / ``labels``.
     ax
         Axes to draw into (**required**).
     radius

@@ -1,29 +1,25 @@
-"""Interactive multichannel viewer — ``medusa.widgets.time_viewer.TimeViewer``.
+"""Interactive multichannel viewers — ``medusa.widgets.time_viewer``.
 
 Run:  python examples/time_viewer_usage.py
 
 Opens two windows over a long fake recording:
 
-  1. a stacked-trace **timeline** — raw vs a 10 Hz-enhanced "filtered" copy
-     overlaid on the same baselines, with a BIDS event overlay (onset lines +
-     shaded condition spans, coloured by ``trial_type``);
-  2. a per-channel **heatmap** — a spectrogram per channel (time-frequency).
+  1. a stacked-trace **timeline** (:class:`TimeLineViewer`) — raw vs a 10 Hz
+     "filtered" copy overlaid on the same baselines, with a BIDS event overlay
+     (onset lines + shaded condition spans, coloured by ``trial_type``);
+  2. a per-channel **heatmap** (:class:`TimeHeatmapViewer`) — a spectrogram per
+     channel (time-frequency), with 3 frequency ticks per band by default (its
+     lower edge, midpoint and upper edge) and a *Freq ticks/ch* control to show
+     more.
 
 Both browse the record with a draggable scrubber, keyboard navigation and
 one-click export; all chrome uses the active ``medusa_style`` theme.
-
-Set ``MEDUSA_EXAMPLE_HEADLESS=1`` (with ``QT_QPA_PLATFORM=offscreen``) to build
-the windows without entering the blocking Qt event loop (CI / smoke).
 """
-import os
-
 import numpy as np
 from scipy.signal import spectrogram
 
 from medusa.core.data.events import Events
-from medusa.widgets.time_viewer import TimeViewer
-
-HEADLESS = bool(os.environ.get("MEDUSA_EXAMPLE_HEADLESS"))
+from medusa.widgets.time_viewer import TimeHeatmapViewer, TimeLineViewer
 
 rng = np.random.default_rng(0)
 fs, n_cha, dur = 250.0, 16, 120.0
@@ -50,7 +46,8 @@ events.append([
     {"onset": 95.0, "duration": 0.0, "trial_type": "Movement"},
 ])
 
-timeline = TimeViewer(cha_labels=labels, channels_visible=6, amplitude_unit="µV")
+timeline = TimeLineViewer(cha_labels=labels, channels_visible=6,
+                          amplitude_unit="µV")
 timeline.add_timeline(raw, times=t_raw, label="raw",
                       events=events, event_hue="trial_type")
 timeline.add_timeline(filtered, times=t_raw, label="filtered")  # same channels
@@ -63,13 +60,10 @@ band = freqs <= 40.0
 # scipy returns (n_channels, n_freqs, n_times); the heatmap wants
 # (n_freqs, n_times, n_channels).
 power = 10 * np.log10(sxx[:, band, :].transpose(1, 2, 0) + 1e-12)
-heatmap = TimeViewer(cha_labels=labels, channels_visible=6)
+heatmap = TimeHeatmapViewer(cha_labels=labels, channels_visible=6)
 heatmap.add_timeheatmap(power, y_values=freqs[band], times=times)
 
-if not HEADLESS:
-    # Both viewers share one QApplication: show both windows, run one loop.
-    timeline.window.show()
-    heatmap.window.show()
-    timeline.app.exec()
-else:
-    print("headless: built timeline + heatmap viewers (event loop skipped)")
+# Both viewers share one QApplication: show both windows, run one loop.
+timeline.window.show()
+heatmap.window.show()
+timeline.app.exec()

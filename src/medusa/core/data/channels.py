@@ -11,8 +11,8 @@ Two distinct concepts, mirroring the BIDS file split:
 The mapping is **many-to-many**: a bipolar channel spans two sensors; a sensor may
 feed several channels; reference/ground sensors are not data columns; ``TRIG``
 columns have no sensor. :class:`ChannelSet` groups them. Channels link to sensors
-by ``uid``, which doubles as the human label and the BIDS ``name`` and is unique
-within a :class:`ChannelSet`.
+by ``label``, which is also the BIDS ``name`` and is unique within a
+:class:`ChannelSet`.
 """
 
 import warnings
@@ -30,16 +30,16 @@ __all__ = ["Channel", "Sensor", "ChannelSet", "REFERENCE_METHODS"]
 
 # Reference *scheme* vocabulary for ``Channel.reference_method``. ``None`` means
 # unspecified / unreferenced. The scheme is orthogonal to the *operand*, held
-# separately in ``Channel.reference`` as sensor ``uid``(s) or ``None``.
+# separately in ``Channel.reference`` as sensor ``label``(s) or ``None``.
 REFERENCE_METHODS = ("common", "average", "bipolar")
 
 # Explicitly-modelled attribute names for each class. Anything else passed at
 # construction is a free-form *extra*: stored flat on the instance (so it surfaces
 # as an extra BIDS tsv column) and round-tripped. Single source of truth for the
 # core/extra split.
-_SENSOR_CORE = ("uid", "coordinates", "sensor_type", "location", "material",
+_SENSOR_CORE = ("label", "coordinates", "sensor_type", "location", "material",
                 "impedance")
-_CHANNEL_CORE = ("uid", "ch_type", "unit", "sensor", "reference",
+_CHANNEL_CORE = ("label", "ch_type", "unit", "sensor", "reference",
                  "reference_method")
 
 
@@ -72,12 +72,12 @@ class Sensor(SerializableComponent):
     """A physical transducer (electrode, optode, EMG sensor, ...).
 
     Not a data column: a device that optionally has a position. Channels link to
-    it by ``uid``. Exports as one row of ``electrodes.tsv`` / ``optodes.tsv`` under
-    :attr:`ChannelSet.coord_system`.
+    it by ``label``. Exports as one row of ``electrodes.tsv`` / ``optodes.tsv``
+    under :attr:`ChannelSet.coord_system`.
 
     Parameters
     ----------
-    uid
+    label
         Unique identifier within the :class:`ChannelSet` (e.g. ``"C3"``); BIDS
         ``name``.
     coordinates
@@ -101,16 +101,16 @@ class Sensor(SerializableComponent):
     Examples
     --------
     >>> Sensor("C3", coordinates=[-0.3249, 0.0, 0.9211], material="Ag/AgCl")
-    Sensor(uid='C3', ...)
+    Sensor(label='C3', ...)
     >>> Sensor("EMG-quad", location="upper-quadriceps", sensor_type="surface")
-    Sensor(uid='EMG-quad', ...)
+    Sensor(label='EMG-quad', ...)
     """
 
-    def __init__(self, uid: str, coordinates: "ArrayLike | dict | None" = None,
+    def __init__(self, label: str, coordinates: "ArrayLike | dict | None" = None,
                  sensor_type: str | None = None, location: str | None = None,
                  material: str | None = None, impedance: float | None = None,
                  **kwargs) -> None:
-        self.uid = str(uid)
+        self.label = str(label)
         self.coordinates = _coerce_coordinates(coordinates)
         self.sensor_type = sensor_type
         self.location = location
@@ -120,12 +120,12 @@ class Sensor(SerializableComponent):
             setattr(self, k, v)
 
     def __repr__(self) -> str:
-        return (f"Sensor(uid={self.uid!r}, sensor_type={self.sensor_type!r}, "
+        return (f"Sensor(label={self.label!r}, sensor_type={self.sensor_type!r}, "
                 f"located={self.coordinates is not None})")
 
     def to_serializable_obj(self) -> dict:
         obj = {
-            "uid": self.uid,
+            "label": self.label,
             "coordinates": (None if self.coordinates is None
                             else self.coordinates.tolist()),
             "sensor_type": self.sensor_type,
@@ -141,9 +141,9 @@ class Sensor(SerializableComponent):
     @classmethod
     def from_serializable_obj(cls, data: dict) -> "Sensor":
         data = dict(data)
-        uid = data.pop("uid")
+        label = data.pop("label")
         return cls(
-            uid,
+            label,
             coordinates=data.pop("coordinates", None),
             sensor_type=data.pop("sensor_type", None),
             location=data.pop("location", None),
@@ -153,24 +153,24 @@ class Sensor(SerializableComponent):
         )
 
     def __eq__(self, other: object) -> bool:
-        """Content equality (uid + position + all attributes); ``uid`` conflicts."""
+        """Content equality (label + position + all attributes); ``label`` conflicts."""
         if not isinstance(other, Sensor):
             return NotImplemented
         return self.to_serializable_obj() == other.to_serializable_obj()
 
-    __hash__ = None   # mutable; identified by uid within a ChannelSet (dict key)
+    __hash__ = None   # mutable; identified by label within a ChannelSet (dict key)
 
 
 class Channel(SerializableComponent):
     """A data column: one column of ``signal``; one row of ``channels.tsv``.
 
-    Carries *what was measured* and references its transducer(s) by sensor ``uid``
-    rather than storing a position, so bipolar/derived/position-less channels are
-    first-class.
+    Carries *what was measured* and references its transducer(s) by sensor
+    ``label`` rather than storing a position, so bipolar/derived/position-less
+    channels are first-class.
 
     Parameters
     ----------
-    uid
+    label
         Unique identifier within the :class:`ChannelSet` (e.g. ``"C3"``,
         ``"F3-C3"``); BIDS ``name``.
     ch_type
@@ -180,15 +180,15 @@ class Channel(SerializableComponent):
     unit
         Physical unit of the column; BIDS ``units``.
     sensor
-        ``uid`` of the active sensor (position source); must already be registered
+        ``label`` of the active sensor (position source); must already be registered
         in the :class:`ChannelSet`. ``None`` for ``TRIG``/``MISC``/derived columns.
     reference
-        Reference *operand* as sensor ``uid``(s): the reference electrode (common),
+        Reference *operand* as sensor ``label``(s): the reference electrode (common),
         the subtracted electrode (bipolar), or averaged electrodes (e.g.
         ``["M1", "M2"]``). ``None`` for CAR / unreferenced.
     reference_method
         Reference *scheme* -- one of :data:`REFERENCE_METHODS` or ``None``.
-        Disambiguates a single-``uid`` operand (common vs bipolar).
+        Disambiguates a single-``label`` operand (common vs bipolar).
     **kwargs
         Extra attributes, stored flat and surfaced as extra ``channels.tsv``
         columns; round-tripped on (de)serialization.
@@ -209,16 +209,16 @@ class Channel(SerializableComponent):
     --------
     >>> Channel("C3", "EEG", "uV", sensor="C3", reference="M1",
     ...         reference_method="common")
-    Channel(uid='C3', ch_type='EEG', ...)
+    Channel(label='C3', ch_type='EEG', ...)
     >>> Channel("TRIG", "TRIG", "n/a")  # no sensor, no reference
-    Channel(uid='TRIG', ch_type='TRIG', ...)
+    Channel(label='TRIG', ch_type='TRIG', ...)
     """
 
-    def __init__(self, uid: str, ch_type: str, unit: str,
+    def __init__(self, label: str, ch_type: str, unit: str,
                  sensor: str | None = None,
                  reference: "str | list[str] | None" = None,
                  reference_method: str | None = None, **kwargs) -> None:
-        self.uid = str(uid)
+        self.label = str(label)
         self.ch_type = self._validate_ch_type(ch_type)
         self.unit = unit
         self.sensor = sensor
@@ -252,13 +252,13 @@ class Channel(SerializableComponent):
         return norm
 
     def __repr__(self) -> str:
-        return (f"Channel(uid={self.uid!r}, ch_type={self.ch_type!r}, "
+        return (f"Channel(label={self.label!r}, ch_type={self.ch_type!r}, "
                 f"sensor={self.sensor!r}, reference={self.reference!r}, "
                 f"reference_method={self.reference_method!r})")
 
     def to_serializable_obj(self) -> dict:
         obj = {
-            "uid": self.uid,
+            "label": self.label,
             "ch_type": self.ch_type,
             "unit": self.unit,
             "sensor": self.sensor,
@@ -273,9 +273,9 @@ class Channel(SerializableComponent):
     @classmethod
     def from_serializable_obj(cls, data: dict) -> "Channel":
         data = dict(data)
-        uid = data.pop("uid")
+        label = data.pop("label")
         return cls(
-            uid,
+            label,
             ch_type=data.pop("ch_type", "EEG"),
             unit=data.pop("unit", "uV"),
             sensor=data.pop("sensor", None),
@@ -290,15 +290,15 @@ class ChannelSet(SerializableComponent):
 
     Mirrors the BIDS three-file split: :attr:`channels` (``channels.tsv``, an
     ordered list where ``channels[i]`` <-> ``signal[:, i]``), :attr:`sensors`
-    (``electrodes.tsv`` / ``optodes.tsv``, a ``{uid: Sensor}`` dict) and
+    (``electrodes.tsv`` / ``optodes.tsv``, a ``{label: Sensor}`` dict) and
     :attr:`coord_system` (``coordsystem.json``). The two collections are
     independent in size (no position for ``TRIG``; extra reference/ground sensors).
 
     Build **sensors-first**: register sensors with :meth:`add_sensors` (or let
     :meth:`add_unipolar_eeg_channels` mint them from a montage), then add columns
     with :meth:`add_channels` (both accept a single item or a list). A channel
-    links to its sensor(s) by ``uid`` only; naming an unregistered sensor, or a
-    duplicate channel ``uid``, raises on add, so the set is valid as soon as a
+    links to its sensor(s) by ``label`` only; naming an unregistered sensor, or a
+    duplicate channel ``label``, raises on add, so the set is valid as soon as a
     builder returns (no finalisation step).
 
     Parameters
@@ -306,8 +306,8 @@ class ChannelSet(SerializableComponent):
     channels
         Data columns, in signal-column order.
     sensors
-        Physical transducers (list or ``{uid: Sensor}`` dict); a conflicting uid
-        raises.
+        Physical transducers (list or ``{label: Sensor}`` dict); a conflicting
+        label raises.
     coord_system
         BIDS ``coordsystem.json`` content. :meth:`add_unipolar_eeg_channels`
         records the montage name in its ``description``.
@@ -315,7 +315,7 @@ class ChannelSet(SerializableComponent):
     Raises
     ------
     ValueError
-        On duplicate channel/sensor ``uid``s, or a channel linking to an
+        On duplicate channel/sensor ``label``s, or a channel linking to an
         unregistered sensor.
 
     Examples
@@ -327,7 +327,7 @@ class ChannelSet(SerializableComponent):
     >>> _ = cs.add_channels(Channel("VEOG", "VEOG", "uV", sensor="VEOG_up",
     ...                             reference="VEOG_down",
     ...                             reference_method="bipolar"), index=2)
-    >>> cs.uids
+    >>> cs.labels
     ['Fz', 'Cz', 'VEOG', 'Pz', 'Oz']
     """
 
@@ -335,9 +335,9 @@ class ChannelSet(SerializableComponent):
                  sensors: "list[Sensor] | dict[str, Sensor] | None" = None,
                  coord_system: dict | None = None) -> None:
         self.channels = []
-        self.sensors = {}   # {uid: Sensor}; uniqueness is structural
+        self.sensors = {}   # {label: Sensor}; uniqueness is structural
         self.coord_system = coord_system
-        # Sensors first: a channel links to its sensor(s) by uid, so those
+        # Sensors first: a channel links to its sensor(s) by label, so those
         # sensors must already be registered before the channels are added
         # (add_channels enforces this).
         if sensors is not None:
@@ -351,61 +351,61 @@ class ChannelSet(SerializableComponent):
     # Validation
     # ------------------------------------------------------------------
     @staticmethod
-    def _linked_sensor_uids(channel: Channel) -> "list[str]":
-        """Sensor ``uid``s a channel links to (active ``sensor`` + ``reference``)."""
-        uids = []
+    def _linked_sensor_labels(channel: Channel) -> "list[str]":
+        """Sensor ``label``s a channel links to (active ``sensor`` + ``reference``)."""
+        labels = []
         if isinstance(channel.sensor, str):
-            uids.append(channel.sensor)
+            labels.append(channel.sensor)
         ref = channel.reference
         if isinstance(ref, str):
-            uids.append(ref)
+            labels.append(ref)
         elif isinstance(ref, (list, tuple)):
-            uids.extend(ref)
-        return [u for u in uids if u is not None]
+            labels.extend(ref)
+        return [label for label in labels if label is not None]
 
-    def _check_new_channel_uids(self, new_channels: "list[Channel]") -> None:
-        """Raise if any incoming channel ``uid`` clashes (with existing or itself)."""
-        existing = {c.uid for c in self.channels}
+    def _check_new_channel_labels(self, new_channels: "list[Channel]") -> None:
+        """Raise if any incoming channel ``label`` clashes (with existing or itself)."""
+        existing = {c.label for c in self.channels}
         seen = set()
         for c in new_channels:
             if not isinstance(c, Channel):
                 raise TypeError("channels must be Channel instances")
-            if c.uid in existing or c.uid in seen:
+            if c.label in existing or c.label in seen:
                 raise ValueError(
-                    f"Duplicate channel uid {c.uid!r} in ChannelSet; channel "
-                    f"uids must be unique.")
-            seen.add(c.uid)
+                    f"Duplicate channel label {c.label!r} in ChannelSet; channel "
+                    f"labels must be unique.")
+            seen.add(c.label)
 
     def _check_sensor_links(self, channel: Channel) -> None:
-        """Raise if a channel names a sensor ``uid`` that is not registered."""
-        missing = [u for u in self._linked_sensor_uids(channel)
-                   if u not in self.sensors]
+        """Raise if a channel names a sensor ``label`` that is not registered."""
+        missing = [label for label in self._linked_sensor_labels(channel)
+                   if label not in self.sensors]
         if missing:
             raise ValueError(
-                f"Channel {channel.uid!r} links to unregistered sensor(s) "
+                f"Channel {channel.label!r} links to unregistered sensor(s) "
                 f"{missing}; add them with add_sensors before adding the channel "
                 f"(sensors must be registered first).")
 
     def _register_sensor(self, sensor: Sensor) -> None:
-        """Register one sensor by ``uid``; equal re-add is a no-op, conflict raises."""
+        """Register one sensor by ``label``; equal re-add is a no-op, conflict raises."""
         if not isinstance(sensor, Sensor):
             raise TypeError("sensors must be Sensor instances")
-        existing = self.sensors.get(sensor.uid)
+        existing = self.sensors.get(sensor.label)
         if existing is None:
-            self.sensors[sensor.uid] = sensor
+            self.sensors[sensor.label] = sensor
         elif existing != sensor:
             raise ValueError(
-                f"Conflicting definition for sensor {sensor.uid!r}: a different "
-                f"sensor with the same uid is already registered. Sensor uids "
+                f"Conflicting definition for sensor {sensor.label!r}: a different "
+                f"sensor with the same label is already registered. Sensor labels "
                 f"must identify a single physical transducer.")
 
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
     @property
-    def uids(self) -> "list[str]":
-        """Channel ``uid``s, in column order."""
-        return [c.uid for c in self.channels]
+    def labels(self) -> "list[str]":
+        """Channel ``label``s, in column order."""
+        return [c.label for c in self.channels]
 
     @property
     def n_channels(self) -> int:
@@ -437,7 +437,7 @@ class ChannelSet(SerializableComponent):
 
         Accepts a single :class:`Channel` or a list of them. Every channel's named
         sensor(s) must already be registered (see :meth:`add_sensors`) and channel
-        ``uid``s must be unique; both are checked before anything is inserted.
+        ``label``s must be unique; both are checked before anything is inserted.
 
         Parameters
         ----------
@@ -451,10 +451,10 @@ class ChannelSet(SerializableComponent):
         Raises
         ------
         ValueError
-            If a channel ``uid`` clashes, or a channel names an unregistered sensor.
+            If a channel ``label`` clashes, or a channel names an unregistered sensor.
         """
         channels = [channels] if isinstance(channels, Channel) else list(channels)
-        self._check_new_channel_uids(channels)
+        self._check_new_channel_labels(channels)
         for c in channels:
             self._check_sensor_links(c)
         if index is None:
@@ -467,7 +467,7 @@ class ChannelSet(SerializableComponent):
         """Register one :class:`Sensor` or several (before the channels that link to them).
 
         Accepts a single :class:`Sensor` or a list. Re-adding an equal sensor is a
-        no-op; a different sensor under an existing ``uid`` raises. Returns ``self``.
+        no-op; a different sensor under an existing ``label`` raises. Returns ``self``.
         """
         for s in ([sensors] if isinstance(sensors, Sensor) else sensors):
             self._register_sensor(s)
@@ -475,7 +475,7 @@ class ChannelSet(SerializableComponent):
 
     def add_unipolar_eeg_channels(
             self,
-            uids: "list[str]",
+            labels: "list[str]",
             montage: "dict | None" = None,
             reference: "str | list[str] | None" = None,
             ground: str | None = None,
@@ -496,7 +496,7 @@ class ChannelSet(SerializableComponent):
 
         Parameters
         ----------
-        uids
+        labels
             EEG channel/sensor labels (e.g. ``["Fz", "Cz", "Pz"]``, or
             ``get_standard_montage_labels("10-20")``).
         montage
@@ -557,7 +557,7 @@ class ChannelSet(SerializableComponent):
                 "add_unipolar_eeg_channels(get_standard_montage_labels('10-20')).")
 
         # Reference operand -> scheme.
-        ref_uid = reference
+        ref_operand = reference
         if isinstance(reference, str):
             ref_labels = [reference]
             reference_method = reference_method or "common"
@@ -582,14 +582,14 @@ class ChannelSet(SerializableComponent):
                               f"added without coordinates.")
             new_sensors.append(Sensor(ground, coordinates=coords,
                                       sensor_type="ground"))
-        for uid in uids:
-            coords = _coords_for(uid)
+        for label in labels:
+            coords = _coords_for(label)
             if coords is None:
-                warnings.warn(f"Channel {uid!r} not in montage {montage_name!r}; "
+                warnings.warn(f"Channel {label!r} not in montage {montage_name!r}; "
                               f"added without coordinates.")
-            new_sensors.append(Sensor(uid, coordinates=coords))
-            new_channels.append(Channel(uid, ch_type="EEG", unit="uV",
-                                        sensor=uid, reference=ref_uid,
+            new_sensors.append(Sensor(label, coordinates=coords))
+            new_channels.append(Channel(label, ch_type="EEG", unit="uV",
+                                        sensor=label, reference=ref_operand,
                                         reference_method=reference_method))
 
         # A custom montage may be 2-D; flag it once (not BIDS-EEG compliant).
@@ -601,10 +601,10 @@ class ChannelSet(SerializableComponent):
                 "requires 3-D (x, y, z). Topographic plotting still works.")
 
         seen = set()
-        for s in new_sensors:   # de-dup within this block (e.g. a label used as
-            if s.uid in seen:   # both a channel and the reference); first wins
+        for s in new_sensors:     # de-dup within this block (e.g. a label used as
+            if s.label in seen:   # both a channel and the reference); first wins
                 continue
-            seen.add(s.uid)
+            seen.add(s.label)
             self._register_sensor(s)
         self.add_channels(new_channels, index=index)
         # The EEG block defines the head coordinate system for the whole set; the
@@ -613,38 +613,103 @@ class ChannelSet(SerializableComponent):
                              else default_coord_system)
         return self
 
-    def get_channel(self, uid: str) -> Channel:
-        """Return the :class:`Channel` with this ``uid`` (raises ``KeyError``)."""
+    def get_channel(self, label: str) -> Channel:
+        """Return the :class:`Channel` with this ``label`` (raises ``KeyError``)."""
         for c in self.channels:
-            if c.uid == uid:
+            if c.label == label:
                 return c
-        raise KeyError(f"No channel with uid {uid!r}")
+        raise KeyError(f"No channel with label {label!r}")
 
-    def get_sensor(self, uid: str) -> Sensor:
-        """Return the :class:`Sensor` with this ``uid`` (raises ``KeyError``)."""
+    def get_sensor(self, label: str) -> Sensor:
+        """Return the :class:`Sensor` with this ``label`` (raises ``KeyError``)."""
         try:
-            return self.sensors[uid]
+            return self.sensors[label]
         except KeyError:
-            raise KeyError(f"No sensor with uid {uid!r}")
+            raise KeyError(f"No sensor with label {label!r}")
+
+    def channels_linking_sensor(self, label: str) -> "list[str]":
+        """``label``s of the channels that link ``label`` (as active sensor or reference).
+
+        The blast radius of :meth:`rename_sensor` / removing a sensor: every channel
+        whose ``sensor`` **or** ``reference`` names ``label``. Empty if none do.
+        """
+        return [c.label for c in self.channels
+                if label in self._linked_sensor_labels(c)]
+
+    # ------------------------------------------------------------------
+    # Renaming (metadata edits that must keep links consistent)
+    # ------------------------------------------------------------------
+    def rename_channel(self, old: str, new: str) -> "ChannelSet":
+        """Rename a data column ``label`` (BIDS ``channels.tsv`` ``name``); returns ``self``.
+
+        A channel ``label`` is *not* referenced by any other channel (references name
+        **sensor** labels), so the only constraint is uniqueness -- no cascade. The
+        active-sensor link is by sensor label and is untouched. ``label``s are
+        free-form BIDS names (e.g. ``"F3-C3"``), so no label grammar is imposed.
+        Raises ``KeyError`` if ``old`` is unknown, ``ValueError`` if ``new`` already
+        exists.
+        """
+        channel = self.get_channel(old)
+        new = str(new)
+        if new == old:
+            return self
+        if any(c.label == new for c in self.channels):
+            raise ValueError(
+                f"channel label {new!r} already exists; channel labels must be "
+                f"unique.")
+        channel.label = new
+        return self
+
+    def rename_sensor(self, old: str, new: str) -> "ChannelSet":
+        """Rename a :class:`Sensor` ``label`` and cascade to every channel that links it.
+
+        Rewrites the ``{label: Sensor}`` key (order preserved), the
+        :attr:`Sensor.label`, and every ``channel.sensor``/``channel.reference``
+        operand (string or list form) that named ``old`` -- so link integrity is
+        preserved. Raises ``KeyError`` if ``old`` is unknown, ``ValueError`` if
+        ``new`` collides with another sensor.
+        """
+        if old not in self.sensors:
+            raise KeyError(f"No sensor with label {old!r}")
+        new = str(new)
+        if new == old:
+            return self
+        if new in self.sensors:
+            raise ValueError(
+                f"sensor label {new!r} already exists; sensor labels must be unique.")
+        sensor = self.sensors[old]
+        sensor.label = new
+        # Rebuild the dict so the renamed sensor keeps its position.
+        self.sensors = {(new if label == old else label): s
+                        for label, s in self.sensors.items()}
+        for c in self.channels:
+            if c.sensor == old:
+                c.sensor = new
+            ref = c.reference
+            if ref == old:
+                c.reference = new
+            elif isinstance(ref, (list, tuple)):
+                c.reference = [new if r == old else r for r in ref]
+        return self
 
     # ------------------------------------------------------------------
     # Selection
     # ------------------------------------------------------------------
-    def index(self, uids: "str | list[str]") -> NDArray:
-        """Return the column indices of ``uids``, in the given order (raises if unknown)."""
-        if isinstance(uids, str):
-            uids = [uids]
-        pos = {c.uid: i for i, c in enumerate(self.channels)}
-        missing = [u for u in uids if u not in pos]
+    def index(self, labels: "str | list[str]") -> NDArray:
+        """Return the column indices of ``labels``, in the given order (raises if unknown)."""
+        if isinstance(labels, str):
+            labels = [labels]
+        pos = {c.label: i for i, c in enumerate(self.channels)}
+        missing = [label for label in labels if label not in pos]
         if missing:
-            raise KeyError(f"Unknown channel uid(s): {missing}")
-        return np.array([pos[u] for u in uids], dtype=int)
+            raise KeyError(f"Unknown channel label(s): {missing}")
+        return np.array([pos[label] for label in labels], dtype=int)
 
     def pick(self, types: "str | list[str] | None" = None,
-             uids: "str | list[str] | None" = None) -> "tuple[ChannelSet, NDArray]":
-        """Select a subset of channels by ``ch_type`` and/or ``uid``.
+             labels: "str | list[str] | None" = None) -> "tuple[ChannelSet, NDArray]":
+        """Select a subset of channels by ``ch_type`` and/or ``label``.
 
-        ``uids`` is applied before ``types``.
+        ``labels`` is applied before ``types``.
 
         Returns
         -------
@@ -653,8 +718,8 @@ class ChannelSet(SerializableComponent):
         idx : numpy.ndarray
             Selected column indices into the original set (to slice ``signal``).
         """
-        if uids is not None:
-            idx = self.index(uids)
+        if labels is not None:
+            idx = self.index(labels)
         else:
             idx = np.arange(self.n_channels, dtype=int)
         if types is not None:
@@ -701,8 +766,8 @@ class ChannelSet(SerializableComponent):
         sensors = self.sensors
         pos = np.full((len(channels), dim), np.nan, dtype=float)
         for i, cha in enumerate(channels):
-            uid = cha.sensor
-            s = sensors.get(uid) if isinstance(uid, str) else None
+            label = cha.sensor
+            s = sensors.get(label) if isinstance(label, str) else None
             if s is not None and s.coordinates is not None \
                     and s.coordinates.shape[0] == dim:
                 pos[i] = s.coordinates
@@ -720,7 +785,7 @@ class ChannelSet(SerializableComponent):
         rows = []
         for c in self.channels:
             row = {
-                "name": c.uid,
+                "name": c.label,
                 "type": c.ch_type,
                 "units": c.unit,
                 "reference": self._bids_reference(c),
@@ -755,7 +820,7 @@ class ChannelSet(SerializableComponent):
         for s in self.sensors.values():
             coords = s.coordinates
             row = {
-                "name": s.uid,
+                "name": s.label,
                 "x": None if coords is None else float(coords[0]),
                 "y": None if coords is None else float(coords[1]),
                 "z": (float(coords[2]) if coords is not None

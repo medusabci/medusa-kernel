@@ -108,6 +108,27 @@ CHANNEL_COUNT_TYPE = {
     "ORNT": "ORNT", "POS": "POS", "VEL": "VEL",
 }
 
+#: Sidecar fields MEDUSA auto-fills from the ``Signal`` and a BIDS export
+#: recomputes (see ``recording._autofill_derivable``). Not the mappable
+#: ``<X>ChannelCount`` fields, which are handled by :func:`is_derived_sidecar_field`.
+_DERIVED_SCALAR_FIELDS = ("SamplingFrequency", "RecordingDuration")
+
+
+def is_derived_sidecar_field(field: str) -> bool:
+    """Whether a sidecar ``field`` is *derived* from the ``Signal`` (not hand-set).
+
+    Derived fields (``SamplingFrequency``, ``RecordingDuration`` and the mappable
+    ``<X>ChannelCount`` counts) are auto-filled by ``recording._autofill_derivable``
+    and a BIDS export recomputes them; a metadata editor must render them read-only.
+    Single source of truth shared by the auto-fill and the editor so the two cannot
+    drift. ``MotionChannelCount`` (a total, not a single-type count) is *not* derived.
+    """
+    if field in _DERIVED_SCALAR_FIELDS:
+        return True
+    if field.endswith("ChannelCount"):
+        return CHANNEL_COUNT_TYPE.get(field[:-len("ChannelCount")]) is not None
+    return False
+
 
 # --------------------------------------------------------------------------- #
 # Entity grammar (filename identity)

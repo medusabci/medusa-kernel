@@ -37,10 +37,11 @@ key* -- robust to row reordering, info rows and the list "Add" button.
 import copy
 
 import medusa_style
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -52,6 +53,9 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSpinBox,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -60,6 +64,7 @@ from PySide6.QtWidgets import (
 )
 
 from medusa.core.settings_tree import SettingsTree, infer_input_format
+from medusa.widgets._toolbar import add_main_toolbar, pin_toolbar_width
 
 __all__ = ["SettingsTreeWidget", "TreeViewer", "TreeSearchBar"]
 
@@ -73,6 +78,8 @@ _KIND_LEAF = "leaf"            # a scalar value with a single editor
 _KIND_LIST = "list"            # a list value (expands into element rows)
 _KIND_ELEMENT = "element"      # one scalar element of a list value
 _KIND_ADD = "add"             # the trailing "Add" button row of a list
+_KIND_GROUP_LIST = "group_list"      # a group-list (repeated group; expands into element groups)
+_KIND_GROUP_ELEMENT = "group_element"  # one element (a group of leaves) of a group-list
 
 # QSpinBox is limited to signed 32-bit; QDoubleSpinBox gets a wide finite range.
 _INT_MIN, _INT_MAX = -2_147_483_648, 2_147_483_647
@@ -327,8 +334,62 @@ class TreeSearchBar(QWidget):
         else:
             self._box.setStyleSheet(
                 f"QLineEdit {{ color: "
-                f"{medusa_style.current_theme().palette.error}; }}")
+                f"{medusa_style.current_theme().error}; }}")
             self._counter.setText("0 of 0")
+
+
+# ---------------------------------------------------------------------------
+# Info column word-wrap
+# ---------------------------------------------------------------------------
+class _InfoColumnDelegate(QStyledItemDelegate):
+    """Word-wrapping delegate for the Info column.
+
+    Qt's ``QTreeView.setWordWrap(True)`` wraps the glyphs but never grows the
+    row, so a long Info string clips to one line. This delegate closes that gap:
+    when :attr:`wrap` is on it reports the *wrapped* height for the Info column's
+    current width (so the row grows to fit) and paints the text wrapped. When off
+    it defers to the base delegate (single line, elided, with a tooltip).
+    :meth:`SettingsTreeWidget.set_info_wrap` flips :attr:`wrap`.
+    """
+
+    _PAD = 6   # cell padding (px) mirrored into the width/height budget
+
+    def __init__(self, tree):
+        super().__init__(tree)
+        self._tree = tree
+        self.wrap = False
+
+    def sizeHint(self, option, index):
+        hint = super().sizeHint(option, index)
+        if not self.wrap:
+            return hint
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        width = self._tree.columnWidth(index.column()) - 2 * self._PAD
+        if not opt.text or width <= 0:
+            return hint
+        rect = QFontMetrics(opt.font).boundingRect(
+            0, 0, width, 1 << 20, Qt.TextWordWrap, opt.text)
+        return QSize(hint.width(), max(hint.height(), rect.height() + 2 * self._PAD))
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        if not self.wrap or not opt.text:
+            super().paint(painter, option, index)
+            return
+        text, opt.text = opt.text, ""          # let the style draw only the chrome
+        style = (opt.widget.style() if opt.widget else QApplication.style())
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        rect = style.subElementRect(QStyle.SE_ItemViewItemText, opt, opt.widget)
+        selected = bool(opt.state & QStyle.State_Selected)
+        painter.save()
+        painter.setClipRect(opt.rect)
+        painter.setFont(opt.font)
+        painter.setPen(opt.palette.color(
+            QPalette.HighlightedText if selected else QPalette.Text))
+        painter.drawText(rect, Qt.TextWordWrap | Qt.AlignTop | Qt.AlignLeft, text)
+        painter.restore()
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +437,10 @@ class SettingsTreeWidget(QWidget):
         header.setSectionResizeMode(2, QHeaderView.Interactive)   # Info
         header.setStretchLastSection(False)
         header.setMinimumSectionSize(50)
+        # Word-wrap the Info column on demand (grows the row so nothing clips).
+        self._info_delegate = _InfoColumnDelegate(self.tree_widget)
+        self.tree_widget.setItemDelegateForColumn(2, self._info_delegate)
+        header.sectionResized.connect(self._on_section_resized)
         self.tree_widget.setHorizontalScrollMode(
             QAbstractItemView.ScrollPerPixel)
         self.tree_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -425,6 +490,12 @@ class SettingsTreeWidget(QWidget):
         self.tree_widget.setColumnWidth(2, _INFO_COL_WIDTH)  # Info default
         # (Value stretches to fill whatever width remains.)
 
+    def _set_value_widget(self, item, widget):
+        """Place an editor in the Value column, height-capped to its size hint so
+        it stays compact and top-aligned when word-wrapped Info grows the row."""
+        widget.setMaximumHeight(widget.sizeHint().height())
+        self.tree_widget.setItemWidget(item, 1, widget)
+
     def _add_node_row(self, node, parent):
         key = node.get("key", "")
         value = node.get("value", node.get("default"))
@@ -439,7 +510,15 @@ class SettingsTreeWidget(QWidget):
             row.setText(2, str(info))
             row.setToolTip(2, str(info))
 
-        if items is not None:
+        if "element_group" in node:           # a group-list (has 'items' too: check this first)
+            row.setData(0, _ROLE_KIND, _KIND_GROUP_LIST)
+            self._set_bold(row, True)
+            self._make_group_list_value_widget(row)
+            for element in items or []:
+                self._insert_group_element(row, row.childCount(), element)
+            self._append_group_add_button(row)
+            self._relabel_group_list(row)
+        elif items is not None:
             row.setData(0, _ROLE_KIND, _KIND_GROUP)
             self._set_bold(row, True)
             row.setFirstColumnSpanned(True)   # empty Value/Info stop looking editable
@@ -459,7 +538,7 @@ class SettingsTreeWidget(QWidget):
             tooltip = self._editor_tooltip(node)
             if tooltip:
                 editor.setToolTip(tooltip)
-            self.tree_widget.setItemWidget(row, 1, editor)
+            self._set_value_widget(row, editor)
             self._baseline_of[row] = _read_editor(editor)
             self._connect_change(editor, row)
 
@@ -512,7 +591,7 @@ class SettingsTreeWidget(QWidget):
             lambda: self._add_list_element(list_item, element_schema))
         layout.addWidget(summary, 1)
         layout.addWidget(add, 0)
-        self.tree_widget.setItemWidget(list_item, 1, container)
+        self._set_value_widget(list_item, container)
         self._summary_label_of[list_item] = summary
 
     def _build_list_rows(self, list_item, elements, element_schema):
@@ -540,7 +619,7 @@ class SettingsTreeWidget(QWidget):
                 or infer_input_format(value, schema.get("value_options"))
             editor = _build_editor(fmt, value, schema.get("value_range"),
                                    schema.get("value_options"))
-            self.tree_widget.setItemWidget(row, 1, editor)
+            self._set_value_widget(row, editor)
             self._connect_change(editor, row)
 
     def _make_element_key_widget(self, list_item, element_row):
@@ -605,7 +684,10 @@ class SettingsTreeWidget(QWidget):
     def _remove_list_element(self, list_item, element_row):
         self._element_remove_btn.pop(element_row, None)
         list_item.removeChild(element_row)
-        self._relabel_list(list_item)
+        if list_item.data(0, _ROLE_KIND) == _KIND_GROUP_LIST:
+            self._relabel_group_list(list_item)
+        else:
+            self._relabel_list(list_item)
 
     def _relabel_list(self, list_item):
         idx = 0
@@ -630,6 +712,90 @@ class SettingsTreeWidget(QWidget):
         if len(inner) > _SUMMARY_MAX:
             inner = inner[:_SUMMARY_MAX - 1] + "…"
         label.setText(f"[{inner}] ({len(values)})")
+
+    # -- group-list editing (a repeated group; each element is an editable group) -----
+    def _make_group_list_value_widget(self, list_item):
+        """Value-cell of a group-list row: an element ``(n)`` count + a ``+`` add button."""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        summary = QLabel("")
+        add = QToolButton()
+        add.setIcon(medusa_style.qt.icon("add"))
+        add.setAutoRaise(True)
+        add.setToolTip("Add element")
+        add.clicked.connect(lambda: self._add_group_element(list_item))
+        layout.addWidget(summary, 1)
+        layout.addWidget(add, 0)
+        self._set_value_widget(list_item, container)
+        self._summary_label_of[list_item] = summary
+
+    def _insert_group_element(self, list_item, index, element_node):
+        """Insert one element: a ``[i]`` row (with a remove button) + its leaf editor rows."""
+        element_row = QTreeWidgetItem()
+        list_item.insertChild(index, element_row)
+        element_row.setData(0, _ROLE_KIND, _KIND_GROUP_ELEMENT)
+        self._node_of[element_row] = element_node
+        self.tree_widget.setItemWidget(
+            element_row, 0, self._make_element_key_widget(list_item, element_row))
+        for leaf in element_node.get("items", []):
+            self._add_node_row(leaf, element_row)
+        return element_row
+
+    def _append_group_add_button(self, list_item):
+        add_row = QTreeWidgetItem(list_item)
+        add_row.setData(0, _ROLE_KIND, _KIND_ADD)
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        button = QToolButton()
+        button.setIcon(medusa_style.qt.icon("add"))
+        button.setText("Add element")
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setAutoRaise(True)
+        button.clicked.connect(lambda: self._add_group_element(list_item))
+        layout.addWidget(button)
+        layout.addStretch()
+        self.tree_widget.setItemWidget(add_row, 0, container)
+
+    def _add_group_element(self, list_item):
+        node = self._node_of.get(list_item)
+        template = (node or {}).get("element_group") or {"items": []}
+        element = copy.deepcopy(template)              # a fresh element (template + its defaults)
+        index = max(0, list_item.childCount() - 1)     # before the trailing Add-button row
+        self._insert_group_element(list_item, index, element)
+        self._relabel_group_list(list_item)
+        list_item.setExpanded(True)
+
+    def _relabel_group_list(self, list_item):
+        count = 0
+        for j in range(list_item.childCount()):
+            child = list_item.child(j)
+            if child.data(0, _ROLE_KIND) != _KIND_GROUP_ELEMENT:
+                continue
+            container = self.tree_widget.itemWidget(child, 0)
+            if container is not None:
+                label = container.findChild(QLabel)
+                if label is not None:
+                    label.setText(f"[{count}]")
+            count += 1
+        summary = self._summary_label_of.get(list_item)
+        if summary is not None:
+            summary.setText(f"({count})")
+
+    def _rebuild_group_list(self, list_item, node):
+        while list_item.childCount():
+            child = list_item.child(0)
+            self._element_remove_btn.pop(child, None)
+            list_item.removeChild(child)
+        template = node.get("element_group") or {"items": []}
+        for values in node.get("default") or []:
+            element = copy.deepcopy(template)
+            SettingsTree(element).update_from_dict(values)   # deep (nested groups/lists too)
+            self._insert_group_element(list_item, list_item.childCount(), element)
+        self._append_group_add_button(list_item)
+        self._relabel_group_list(list_item)
 
     # -- override marker / reset -------------------------------------------
     def _is_overridden(self, item):
@@ -656,6 +822,10 @@ class SettingsTreeWidget(QWidget):
             node = self._node_of.get(item)
             if node and "default" in node:
                 self._rebuild_list(item, node)
+        elif kind == _KIND_GROUP_LIST:
+            node = self._node_of.get(item)
+            if node and "default" in node:
+                self._rebuild_group_list(item, node)
         elif kind == _KIND_LEAF:
             node = self._node_of.get(item)
             if node and "default" in node:
@@ -670,7 +840,7 @@ class SettingsTreeWidget(QWidget):
         tooltip = self._editor_tooltip(node)
         if tooltip:
             editor.setToolTip(tooltip)
-        self.tree_widget.setItemWidget(item, 1, editor)
+        self._set_value_widget(item, editor)
         self._connect_change(editor, item)
         self._baseline_of[item] = _read_editor(editor)
         self._refresh_override_marker(item)
@@ -691,10 +861,18 @@ class SettingsTreeWidget(QWidget):
     # -- view options -------------------------------------------------------
     def set_info_wrap(self, enabled):
         """Toggle the Info column between single-line (elided + tooltip) and
-        word-wrapped (full text on multiple lines)."""
+        word-wrapped (full text on multiple lines; the row grows to fit)."""
         self._wrap_info = bool(enabled)
-        self.tree_widget.setWordWrap(self._wrap_info)
+        self._info_delegate.wrap = self._wrap_info
+        # Stop the base delegate from eliding the Info text out from under ours.
+        self.tree_widget.setTextElideMode(
+            Qt.ElideNone if self._wrap_info else Qt.ElideRight)
         self.tree_widget.doItemsLayout()
+
+    def _on_section_resized(self, index, _old, _new):
+        """Re-flow wrapped Info rows when the Info column is resized."""
+        if self._wrap_info and index == 2:
+            self.tree_widget.doItemsLayout()
 
     def resize_columns_to_contents(self):
         """Size every column (Key, Value, Info) to fit its contents."""
@@ -764,6 +942,19 @@ class SettingsTreeWidget(QWidget):
             rm.setShortcut(QKeySequence("Del"))
             rm.triggered.connect(
                 lambda: self._remove_list_element(item.parent(), item))
+        elif kind == _KIND_GROUP_LIST:
+            add = menu.addAction(ic("add"), "Add element")
+            add.setShortcut(QKeySequence("Ins"))
+            add.triggered.connect(lambda: self._add_group_element(item))
+            node = self._node_of.get(item)
+            if node and "default" in node:
+                reset = menu.addAction(ic("refresh"), "Reset to default")
+                reset.triggered.connect(lambda: self._reset_row(item))
+        elif kind == _KIND_GROUP_ELEMENT:
+            rm = menu.addAction(ic("remove"), "Remove element")
+            rm.setShortcut(QKeySequence("Del"))
+            rm.triggered.connect(
+                lambda: self._remove_list_element(item.parent(), item))
         elif kind == _KIND_GROUP:
             menu.addAction(ic("unfold_more"), "Expand subtree",
                            lambda: self._set_subtree_expanded(item, True))
@@ -798,20 +989,25 @@ class SettingsTreeWidget(QWidget):
         if item is None:
             return None
         kind = item.data(0, _ROLE_KIND)
-        if kind == _KIND_LIST:
+        if kind in (_KIND_LIST, _KIND_GROUP_LIST):
             return item
-        if kind == _KIND_ELEMENT:
+        if kind in (_KIND_ELEMENT, _KIND_GROUP_ELEMENT):
             return item.parent()
         return None
 
     def _add_to_current_list(self):
         target = self._current_list()
-        if target is not None:
+        if target is None:
+            return
+        if target.data(0, _ROLE_KIND) == _KIND_GROUP_LIST:
+            self._add_group_element(target)
+        else:
             self._add_list_element(target)
 
     def _remove_current_element(self):
         item = self.tree_widget.currentItem()
-        if item is not None and item.data(0, _ROLE_KIND) == _KIND_ELEMENT:
+        if item is not None and item.data(0, _ROLE_KIND) in (
+                _KIND_ELEMENT, _KIND_GROUP_ELEMENT):
             self._remove_list_element(item.parent(), item)
 
     def _reset_current(self):
@@ -881,6 +1077,23 @@ class SettingsTreeWidget(QWidget):
                 child_node = by_key.get(child_item.data(0, _ROLE_KEY))
                 if child_node is not None:
                     self._read_into_node(child_item, child_node)
+        elif kind == _KIND_GROUP_LIST:
+            # rebuild the element list from the current GUI rows (adds/removes included);
+            # each element is a fresh template clone with its leaf editors read in.
+            template = node["element_group"]
+            node["items"] = []
+            for j in range(item.childCount()):
+                element_item = item.child(j)
+                if element_item.data(0, _ROLE_KIND) != _KIND_GROUP_ELEMENT:
+                    continue                         # skip the trailing Add-button row
+                element = copy.deepcopy(template)
+                by_key = {c.get("key"): c for c in element.get("items", [])}
+                for k in range(element_item.childCount()):
+                    leaf_item = element_item.child(k)
+                    leaf_node = by_key.get(leaf_item.data(0, _ROLE_KEY))
+                    if leaf_node is not None:
+                        self._read_into_node(leaf_item, leaf_node)
+                node["items"].append(element)
         elif kind == _KIND_LIST:
             node["value"] = self._read_list(item)
         elif kind == _KIND_LEAF:
@@ -927,9 +1140,7 @@ class TreeViewer(QMainWindow):
         self._build_toolbar()
 
     def _build_toolbar(self):
-        bar = self.addToolBar("Actions")
-        bar.setMovable(False)
-        bar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        bar = add_main_toolbar(self)
         tree = self.widget.tree_widget
         ic = medusa_style.qt.icon  # theme-recoloring SVGs
         bar.addAction(ic("unfold_more"), "Expand all", tree.expandAll)
@@ -941,6 +1152,9 @@ class TreeViewer(QMainWindow):
         wrap = bar.addAction(ic("wrap_text"), "Wrap info")
         wrap.setCheckable(True)
         wrap.toggled.connect(self.widget.set_info_wrap)
+        # Keep every action visible: pin the toolbar so its buttons never spill
+        # into a "»" overflow menu when the window is narrowed.
+        pin_toolbar_width(bar)
 
     def get_settings(self):
         """Return the edited :class:`SettingsTree` (see

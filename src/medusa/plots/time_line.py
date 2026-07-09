@@ -367,7 +367,7 @@ class TimeLinePlot:
             return []
         for ln in self.artists.pop("boundaries", []):
             ln.remove()
-        ink = medusa_style.current_theme().palette.plot_fg
+        ink = medusa_style.current_theme().plot_fg
         lines = [self.ax.axvline(x, color=ink, ls=_BOUNDARY_STYLE,
                                  lw=_BOUNDARY_LW, alpha=_BOUNDARY_ALPHA,
                                  zorder=1.2) for x in boundaries]
@@ -427,7 +427,7 @@ class TimeLinePlot:
         value = _nice_number(self._offset_value)
         label_value = value / self._gain if self._gain else value
         text_size = mpl.rcParams["legend.fontsize"]
-        ink = medusa_style.current_theme().palette.plot_fg
+        ink = medusa_style.current_theme().plot_fg
         bars = AuxTransformBox(self.ax.transData)
         bars.add_artist(
             Rectangle((0, 0), 0, value, ec=ink, lw=_SCALE_BAR_LW, fc="none"))

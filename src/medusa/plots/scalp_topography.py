@@ -192,7 +192,7 @@ class TopographicPlot:
             if "contour" in self.artists:
                 self.artists.pop("contour").remove()
             cs = self.ax.contour(
-                gx, gy, zi, colors=medusa_style.current_theme().palette.plot_fg,
+                gx, gy, zi, colors=medusa_style.current_theme().plot_fg,
                 alpha=_CONTOUR_ALPHA, linewidths=_CONTOUR_LW, zorder=1)
             cs.set_clip_path(patches.Circle((0, 0), self.radius,
                                             transform=self.ax.transData))

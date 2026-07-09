@@ -17,7 +17,7 @@ medusa-kernel owns no visual identity of its own: the palette, categorical
 cycle, colormaps and Matplotlib ``rcParams`` all come from the ``medusa_style``
 package (the MEDUSA-wide single source of truth). Plotting code calls it
 directly where a color is needed — ``medusa_style.categorical_color(i)`` for a
-series color, ``medusa_style.current_theme().palette.plot_fg`` / ``.plot_bg``
+series color, ``medusa_style.current_theme().plot_fg`` / ``.plot_bg``
 for chrome, ``medusa_style.mpl.sequential_cmap()`` / ``diverging_cmap()`` for the
 colormaps — rather than going through kernel-side wrappers.
 """

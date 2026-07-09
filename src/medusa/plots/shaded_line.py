@@ -14,8 +14,8 @@ from medusa.plots.utils import _resolve_colors
 
 __all__ = ["plot_shaded_line"]
 
-_ERROR_HELP = ("error must be 'std', 'sem', or 'ci<level>' (e.g. 'ci95', "
-               "'ci75', 'ci50')")
+_ERROR_HELP = ("error must be 'none', 'std', 'sem', or 'ci<level>' (e.g. "
+               "'ci95', 'ci75', 'ci50')")
 
 
 def _parse_ci_level(error: str) -> float:
@@ -30,14 +30,17 @@ def _parse_ci_level(error: str) -> float:
     return level
 
 
-def _summary(data: NDArray, error: str) -> tuple[NDArray, NDArray]:
+def _summary(data: NDArray, error: str | None) -> tuple[NDArray, NDArray | None]:
     """Mean and ± band half-width across the observation axis (axis 0).
 
     ``data`` has shape ``(n_observations, n_points, n_series)``. ``error`` is
-    ``"std"``, ``"sem"`` or ``"ci<level>"`` (two-sided Student-t CI). Fewer than
-    two observations give a zero-width band.
+    ``"none"`` (mean only -> ``None`` half-width, no band), ``"std"``, ``"sem"``
+    or ``"ci<level>"`` (two-sided Student-t CI). Fewer than two observations give
+    a zero-width band.
     """
-    e = error.lower()
+    e = (error or "none").lower()
+    if e == "none":
+        return np.nanmean(data, axis=0), None
     is_ci = e.startswith("ci")
     if not is_ci and e not in ("std", "sem"):
         raise ValueError(f"{_ERROR_HELP}; got {error!r}.")
@@ -60,7 +63,7 @@ def _summary(data: NDArray, error: str) -> tuple[NDArray, NDArray]:
 def plot_shaded_line(
         data, ax, *,
         x: ArrayLike | None = None,
-        error: str = "ci95",
+        error: str | None = "ci95",
         series_labels: ArrayLike | None = None,
         color: str | list | None = None, label: str | None = None,
         legend: bool = True, line_width: float = 1.5,
@@ -79,8 +82,10 @@ def plot_shaded_line(
         x-coordinates (length ``n_points``), e.g. times or frequencies; the point
         index when ``None``. Set ``ax.set_xlabel`` for the meaning.
     error
-        Band half-width: ``"std"``, ``"sem"``, or ``"ci<level>"`` — a two-sided
-        Student-t confidence interval at any level (``"ci95"``, ``"ci67"``, ...).
+        Band half-width: ``"none"`` (mean trace only, no band), ``"std"``,
+        ``"sem"``, or ``"ci<level>"`` — a two-sided Student-t confidence interval
+        at any level (``"ci95"``, ``"ci67"``, ...). ``None`` is an alias for
+        ``"none"``.
     series_labels
         Per-series legend labels (length ``n_series``); unlabelled when ``None``.
     color
@@ -99,7 +104,7 @@ def plot_shaded_line(
         The axes drawn into.
     artists : dict
         ``"mean"`` (one ``Line2D`` per series) and ``"band"`` (one
-        ``PolyCollection`` per series).
+        ``PolyCollection`` per series; empty when ``error="none"``).
 
     Examples
     --------
@@ -146,11 +151,12 @@ def plot_shaded_line(
     for i in range(n_series):
         (line,) = ax.plot(x, mean[:, i], color=colors[i], lw=line_width,
                           label=labels[i], zorder=2, **kwargs)
-        band = ax.fill_between(x, mean[:, i] - half[:, i], mean[:, i] + half[:, i],
-                               color=colors[i], alpha=band_alpha, linewidth=0,
-                               zorder=1)
         means.append(line)
-        bands.append(band)
+        if half is not None:  # error="none" -> mean trace only, no band
+            band = ax.fill_between(
+                x, mean[:, i] - half[:, i], mean[:, i] + half[:, i],
+                color=colors[i], alpha=band_alpha, linewidth=0, zorder=1)
+            bands.append(band)
 
     ax.margins(x=0)
     for side in ("top", "right"):

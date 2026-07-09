@@ -570,7 +570,7 @@ class ICA:
 
         sources = self.get_sources(signal)[:, component]
         components = self.get_components()
-        # The new plots package needs the new ChannelSet (positions/uids); rebuild
+        # The new plots package needs the new ChannelSet (positions/labels); rebuild
         # one from the channel labels (as plot_components does), bridging the
         # legacy EEGChannelSet stored on the model.
         channel_set = ChannelSet().add_unipolar_eeg_channels(self.l_cha)

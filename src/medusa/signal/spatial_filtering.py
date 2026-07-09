@@ -665,7 +665,7 @@ class CSP:
                 "interp_points": 500,
             }
 
-        # The new plots package needs the new ChannelSet (positions/uids); rebuild
+        # The new plots package needs the new ChannelSet (positions/labels); rebuild
         # one from the channel labels, bridging a legacy EEGChannelSet argument.
         topo_channels = ChannelSet().add_unipolar_eeg_channels(channel_set.l_cha)
 

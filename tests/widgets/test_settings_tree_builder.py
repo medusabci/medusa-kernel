@@ -161,3 +161,73 @@ class TestRoundTripWithPreview:
         builder._preview_()
         assert builder._preview is not None
         assert builder._preview.get_settings().to_dict() == schema.to_dict()
+
+
+@pytest.fixture
+def gl_schema():
+    s = SettingsTree()
+    fb = s.add_group_list("filterbank", info="filters")
+    e = fb.element
+    e.add_item("filt_type", value="iir", value_options=["iir", "fir"])
+    e.add_item("band_type", value="bandpass",
+               value_options=["bandpass", "bandstop", "lowpass", "highpass"])
+    e.add_item("cutoff", value=[1.0, 70.0])
+    e.add_item("order", value=5, value_range=[1, None])
+    fb.add_element()
+    s.snapshot_defaults()
+    return s
+
+
+class TestGroupList:
+    DEFAULT = {"filt_type": "iir", "band_type": "bandpass",
+               "cutoff": [1.0, 70.0], "order": 5}
+
+    def test_type_classification_and_element_labels(self, qapp, gl_schema):
+        b = SettingsTreeBuilder(gl_schema)
+        gl_item = b._item_of[id(b._tree.tree["items"][0])]
+        assert gl_item.text(1) == "Group list"
+        elem = gl_item.child(0)
+        assert elem.text(0) == "[0]" and elem.text(1) == "Element"
+
+    def test_add_element_on_selected_group_list(self, qapp, gl_schema):
+        b = SettingsTreeBuilder(gl_schema)
+        b.select_node(b._tree.tree["items"][0])
+        b._add("item")
+        vals = b.to_settings().to_dict()["filterbank"]
+        assert len(vals) == 2 and vals[1] == self.DEFAULT
+
+    def test_add_element_from_inside_element(self, qapp, gl_schema):
+        b = SettingsTreeBuilder(gl_schema)
+        leaf = b._tree.tree["items"][0]["items"][0]["items"][0]   # a leaf inside element 0
+        b.select_node(leaf)
+        b._add("item")
+        vals = b.to_settings().to_dict()["filterbank"]
+        assert len(vals) == 2
+        # elements keep exactly the template keys -- no stray item added inside an element
+        assert all(set(f) == set(self.DEFAULT) for f in vals)
+
+    def test_apply_preserves_group_list(self, qapp, gl_schema):
+        b = SettingsTreeBuilder(gl_schema)
+        b.select_node(b._tree.tree["items"][0])
+        b.info_edit.setText("edited")
+        b._apply()
+        node = b._tree.tree["items"][0]
+        assert "element_group" in node and node["info"] == "edited"
+        assert b.to_settings().get_item("filterbank").is_group_list
+
+    def test_delete_element(self, qapp, gl_schema):
+        b = SettingsTreeBuilder(gl_schema)
+        b.select_node(b._tree.tree["items"][0])
+        b._add("item")                                            # now 2 elements
+        b.select_node(b._tree.tree["items"][0]["items"][0])       # element 0
+        b._delete()
+        assert len(b.to_settings().to_dict()["filterbank"]) == 1
+
+    def test_value_equal_elements_get_distinct_indices(self, qapp, gl_schema):
+        # two default filters are value-equal; their [i] labels must be distinct (identity)
+        b = SettingsTreeBuilder(gl_schema)
+        b.select_node(b._tree.tree["items"][0])
+        b._add("item")                                            # a 2nd, value-equal element
+        gl_item = b._item_of[id(b._tree.tree["items"][0])]
+        labels = [gl_item.child(j).text(0) for j in range(gl_item.childCount())]
+        assert labels == ["[0]", "[1]"]                           # not both "[0]"

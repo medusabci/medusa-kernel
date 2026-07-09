@@ -80,7 +80,7 @@ data classes; modality is a property of each channel.
 - **`Channel` / `Sensor` / `ChannelSet`** — mirror the BIDS three-file split. A
   `Channel` is a data column with a BIDS channel type; a `Sensor` is a physical
   transducer with an optional 3-D position; a `ChannelSet` groups ordered
-  channels and sensors with independent cardinalities, linked by `uid`, plus a
+  channels and sensors with independent cardinalities, linked by `label`, plus a
   reference scheme (`reference_method ∈ {common, average, bipolar}`) and a
   coordinate system. It is built with a chainable, eagerly validated builder.
 - **`Recording`** — one BIDS run: a `BidsInfo` identity, a dict of named
@@ -304,8 +304,13 @@ pre-trained weights come from outside.
 - **All Qt/PySide6 code lives only in `widgets/`.** The non-visual layers
   (`core`, `signal`, `graph`, `ml`) are Qt-free; this is enforced by a headless
   import test and a dedicated CI job. Widget tools include a figure browser
-  (`PlotVisualizer`), a time-series/TFR viewer (`TimeViewer`), and settings-tree
-  editors. Widgets theme their application through `medusa-style`.
+  (`PlotVisualizer`), time-series/TFR viewers (`TimeLineViewer` for stacked
+  traces, `TimeHeatmapViewer` for per-channel time-frequency heatmaps — sibling
+  subclasses of a shared base), an ERP explorer
+  (`ERPViewer` — temporal split/mean + spatial topography, exports incl. GIF), and
+  settings-tree editors. Each widget keeps Qt to interaction/layout and delegates
+  drawing to Qt-free `plots/` engines. Widgets theme their application through
+  `medusa-style`.
 
 ---
 

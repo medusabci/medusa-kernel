@@ -163,7 +163,7 @@ class Signal(RecordingData):
     def pick(self, channel_names: "str | list[str]") -> "Signal":
         """Return a sub-:class:`Signal` of the named channels, in the given order.
 
-        Selects (and may reorder) by channel ``uid``; raises ``KeyError`` on an
+        Selects (and may reorder) by channel ``label``; raises ``KeyError`` on an
         unknown name.
         """
         idx = self.channel_set.index(channel_names)

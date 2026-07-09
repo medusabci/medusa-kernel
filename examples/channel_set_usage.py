@@ -13,7 +13,7 @@ Walks through the D1 channel model (``Channel`` / ``Sensor`` / ``ChannelSet``):
   7. The validation errors raised on malformed sets.
 
 Recurring ideas: a *channel* is a data column (``channels.tsv``); a *sensor* is a
-physical transducer (``electrodes.tsv``); they link by ``uid``. Register sensors
+physical transducer (``electrodes.tsv``); they link by ``label``. Register sensors
 first, then add channels additively -- each add enforces consistency eagerly, so
 the set needs no separate finalisation step.
 """
@@ -48,7 +48,7 @@ print("the full 10-20 system has",
       len(get_standard_montage_labels('10-20')), "scalp labels (refs excluded):")
 print(" ", get_standard_montage_labels('10-20'))
 
-print("channels      :", eeg.uids)
+print("channels      :", eeg.labels)
 print("n_channels    :", eeg.n_channels)
 print("modalities    :", set(eeg.types))
 print("reference     :", eeg.reference_method, "(derived from the channels)")
@@ -63,8 +63,8 @@ print(eeg.to_sensors_dataframe().head(4).to_string(index=False))
 # 2. Mixed-modality set: EEG + EOG + EMG + TRIG
 # ---------------------------------------------------------------------------- #
 # One Signal can mix channel types. Build the EEG block, then add other columns
-# with `add_channels`. A channel links to its sensor(s) by uid only, so register
-# the sensors first with `add_sensors`; naming a sensor uid that is not registered
+# with `add_channels`. A channel links to its sensor(s) by label only, so register
+# the sensors first with `add_sensors`; naming a sensor label that is not registered
 # raises on add.
 section("2. Mixed EEG + EOG + EMG + TRIG (built sensors-first)")
 
@@ -87,7 +87,7 @@ mixed.add_channels(Channel('EMG-neck', 'EMG', 'uV', sensor='EMG-neck'))
 # A trigger column: a data column with no sensor and no reference.
 mixed.add_channels(Channel('TRIG', 'TRIG', 'n/a'))
 
-print("channels      :", mixed.uids)
+print("channels      :", mixed.labels)
 print("modalities    :", mixed.types)
 print("reference     :", mixed.reference_method, "(channels disagree -> 'mixed')")
 print("VEOG links     -> sensor:", mixed.get_channel('VEOG').sensor,
@@ -99,7 +99,7 @@ print("EMG placement :", mixed.get_sensor('EMG-neck').location)
 # 3. Reference schemes (scheme + operand are two separate fields)
 # ---------------------------------------------------------------------------- #
 # `reference_method` is the SCHEME (common/average/bipolar); `reference` is the
-# OPERAND (sensor uid(s) or None). Together they fold into BIDS' single
+# OPERAND (sensor label(s) or None). Together they fold into BIDS' single
 # `reference` column on export.
 section("3. Reference schemes: common / CAR / linked mastoids / bipolar")
 
@@ -134,7 +134,7 @@ print("  bipolar->", [veog_ref], "(VEOG-VEOG_down)")
 section("4. pick / index / get_positions")
 
 eeg_only, idx = mixed.pick(types='EEG')
-print("pick('EEG')   : uids =", eeg_only.uids, "| signal column idx =", idx)
+print("pick('EEG')   : labels =", eeg_only.labels, "| signal column idx =", idx)
 print("index(['C4','F3']) =", mixed.index(['C4', 'F3']))
 
 pos = mixed.get_positions('EEG')
@@ -187,12 +187,12 @@ print("standalone ground registered:", 'Fpz-gnd' in ground_set.sensors,
 # ---------------------------------------------------------------------------- #
 # Every component is a SerializableComponent: to/from a plain dict (json/bson/mat
 # backends). Sensors persist as a list of rows and rebuild as a dict; channels
-# persist their sensor links as plain uids.
+# persist their sensor links as plain labels.
 section("6. Serialization round-trip")
 
 obj = mixed.to_serializable_obj()
 restored = ChannelSet.from_serializable_obj(obj)
-print("uids preserved        :", restored.uids == mixed.uids)
+print("labels preserved      :", restored.labels == mixed.labels)
 print("sensors rebuilt as dict:", isinstance(restored.sensors, dict),
       "| keys =", list(restored.sensors)[:4], "...")
 print("VEOG reference kept   :", restored.get_channel('VEOG').reference)
@@ -204,15 +204,15 @@ print("VEOG reference kept   :", restored.get_channel('VEOG').reference)
 # The hard invariants are checked eagerly, at the offending call.
 section("7. Validation errors")
 
-# (a) Duplicate channel uid.
+# (a) Duplicate channel label.
 try:
     cs = ChannelSet()
     cs.add_channels(Channel('C3', 'EEG', 'uV'))
     cs.add_channels(Channel('C3', 'EEG', 'uV'))
 except ValueError as e:
-    print("duplicate channel uid  ->", e)
+    print("duplicate channel label ->", e)
 
-# (b) Registering two DIFFERENT sensors under the same uid.
+# (b) Registering two DIFFERENT sensors under the same label.
 try:
     cs = ChannelSet()
     cs.add_sensors(Sensor('C3', coordinates=[0, 0, 1]))
@@ -233,7 +233,7 @@ try:
 except TypeError as e:
     print("bad montage type       ->", e)
 
-# (e) Unknown channel uid lookups.
+# (e) Unknown channel label lookups.
 try:
     cs = ChannelSet()
     cs.add_channels(Channel('Fz', 'EEG', 'uV'))
@@ -248,7 +248,7 @@ with warnings.catch_warnings(record=True) as w:
     print(f"unknown ch_type 'FOO'  -> coerced to {ch.ch_type!r} (+ warning: "
           f"{any('vocabulary' in str(x.message) for x in w)})")
 
-# (g) Naming a sensor uid that was never registered raises on add (sensors-first).
+# (g) Naming a sensor label that was never registered raises on add (sensors-first).
 try:
     cs = ChannelSet()
     cs.add_channels(Channel('O1', 'EEG', 'uV', sensor='O1'))   # 'O1' not registered
