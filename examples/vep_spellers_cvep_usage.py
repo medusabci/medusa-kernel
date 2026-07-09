@@ -44,15 +44,22 @@ DATA = os.path.join(HERE, "data", "cvep")
 
 def band(cutoff, order=7):
     """A single band-pass IIR filter spec for the ``freq_filtering`` filter bank."""
-    return {"filt_type": "iir", "band_type": "bandpass",
-            "cutoff": list(cutoff), "order": order}
+    return {
+        "filt_type": "iir",
+        "band_type": "bandpass",
+        "cutoff": list(cutoff),
+        "order": order
+    }
 
 
 #: The two front-ends compared for both methods: one band vs a three-band bank.
 FILTERINGS = {
     "single band 1-70 Hz": [band((1.0, 70.0))],
-    "filter bank 1/10/30-70 Hz": [band((1.0, 70.0)), band((10.0, 70.0)),
-                                  band((30.0, 70.0))],
+    "filter bank 1/10/30-70 Hz": [
+        band((1.0, 70.0)),
+        band((10.0, 70.0)),
+        band((30.0, 70.0))
+    ],
 }
 METHODS = ("BWR", "TM")
 

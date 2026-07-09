@@ -61,7 +61,7 @@ dependencies = [
     "bson>=0.5",
     "dill>=0.3.7",
     "PySide6>=6.5",
-    "medusa-style>=0.2",
+    "medusa-style>=0.3",
 ]
 
 [project.urls]
@@ -155,16 +155,6 @@ exclude = [
 # Lockfile uv.lock is committed; it is the single source of truth for CI
 # and for medusa-installer's resolution of medusa-platform's environment.
 managed = true
-
-# TEMPORARY BRIDGE: `medusa-style` is a core dependency but is not yet
-# published on PyPI. Until it is, point uv at the source repo so `uv sync`
-# (CI pytest/ruff jobs) and `uv lock` can resolve it. This source override is
-# honored only by uv — the wheel/sdist metadata still declares the plain
-# `medusa-style>=0.2` requirement, so once it lands on PyPI the only cleanup
-# is to delete this block, run `uv lock`, and drop the git-install step from
-# the headless job in .github/workflows/tests.yml.
-[tool.uv.sources]
-medusa-style = { git = "https://github.com/medusabci/medusa-style.git", branch = "main" }
 
 # -----------------------------------------------------------------------------
 # Tool configurations

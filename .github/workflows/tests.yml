@@ -132,18 +132,11 @@ jobs:
       - name: Install kernel without any extras
         # Use plain pip (not uv) so we get a clean, no-lockfile install
         # that mirrors what an external `pip install medusa-kernel` user
-        # would experience. Install pytest separately so it does not
-        # pull in the `[dev]` extra.
-        #
-        # TEMPORARY BRIDGE: `medusa-style` is a core dependency that is not yet
-        # on PyPI, so install it from its source repo FIRST. pip then sees the
-        # `medusa-style>=0.2` requirement as already satisfied during
-        # `pip install .` and does not try (and fail) to fetch it from PyPI.
-        # Remove this line once medusa-style is published — at that point a
-        # bare `pip install .` resolves it from PyPI like any other dep.
+        # would experience (medusa-style resolves from PyPI like any other
+        # dependency). Install pytest separately so it does not pull in the
+        # `[dev]` extra.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/medusabci/medusa-style.git@main"
           python -m pip install .
           python -m pip install pytest
 

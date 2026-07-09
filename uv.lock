@@ -1042,7 +1042,7 @@ requires-dist = [
     { name = "h5py", specifier = ">=3.9" },
     { name = "matplotlib", specifier = ">=3.7" },
     { name = "medusa-kernel", extras = ["dev", "docs"], marker = "extra == 'all'" },
-    { name = "medusa-style", git = "https://github.com/medusabci/medusa-style.git?branch=main" },
+    { name = "medusa-style", specifier = ">=0.3" },
     { name = "mike", marker = "extra == 'docs'", specifier = ">=2.1" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-gen-files", marker = "extra == 'docs'", specifier = ">=0.5" },
@@ -1067,11 +1067,15 @@ provides-extras = ["dev", "docs", "all"]
 
 [[package]]
 name = "medusa-style"
-version = "0.2.0"
-source = { git = "https://github.com/medusabci/medusa-style.git?branch=main#7ed92d1e96ec88f02fd4385136ba570512cf39d3" }
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
     { name = "pyside6" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/99/cc2c02c82f3114fb25ff8c111d15850a66b2cb9a5f8a7f9952e66fcd3728/medusa_style-0.4.0.tar.gz", hash = "sha256:9a71f7d6c86329ea6ae1af8c2953f2b987168d64643d1335bbeb1b7953aa1bc8", size = 4277585, upload-time = "2026-07-09T08:29:44.499Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/4b/6ed8014ce39875fdd8f3d661a58cdf6d130bd7df41425877447daad0aa16/medusa_style-0.4.0-py3-none-any.whl", hash = "sha256:a618be615278bda47b1c8c17cb6ad72b5ba1b3dfe6b8d5cc649e5979098be6d5", size = 4268836, upload-time = "2026-07-09T08:29:42.373Z" },
 ]
 
 [[package]]
