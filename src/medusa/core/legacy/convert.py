@@ -538,6 +538,74 @@ def rcp_recording_to_v2(legacy_recording, *, spell_target=None, signal_key="eeg"
     return rec
 
 
+def mi_recording_to_v2(legacy_recording, *, signal_key="eeg", task="mi"):
+    """Convert a legacy motor-imagery recording to a 2.0 :class:`Recording`.
+
+    Maps the legacy ``EEG`` biosignal to a :class:`~medusa.core.data.signal.Signal` (keeping
+    the absolute timestamps so the cue onsets align) and the ``MIData`` experiment to a
+    **trial timeline**: one :class:`~medusa.core.data.events.Events` row per motor-imagery
+    trial, carrying ``trial_idx`` and the integer class ``label``. That is the shared trial
+    contract of :mod:`~medusa.pipelines.bci.trial_events`, ready for
+    :mod:`~medusa.pipelines.bci.motor_decoding`.
+
+    Motor decoding needs **no data class** -- the trials are independent, and their timing and
+    class live in the events. The remaining run metadata that the decoder never reads (the
+    ``label`` -> class-name map, the run ``mode``, and the paradigm timings) is kept as a plain
+    provenance ``dict`` in ``Recording.experiment`` so nothing is lost on conversion.
+
+    Parameters
+    ----------
+    legacy_recording : medusa.core.legacy.recording.Recording
+        A recording loaded from a legacy ``.mi.*`` file (an ``MIData`` experiment).
+    signal_key : str, optional
+        Key under which the EEG stream is stored (default ``"eeg"``).
+    task : str, optional
+        BIDS ``task`` label for the new recording (default ``"mi"``).
+
+    Returns
+    -------
+    medusa.core.data.recording.Recording
+        The converted recording: an EEG signal, a per-trial events timeline (``trial_idx`` /
+        ``label``), and a plain-dict provenance experiment.
+    """
+    from medusa.core.data import (Recording, BidsInfo, Signal, ChannelSet, Events)
+
+    eeg = _find_attr(legacy_recording, "biosignals", "EEG")
+    exp = _find_attr(legacy_recording, "experiments", "MIData")
+
+    # -- Signal (keep the absolute timestamps so the cue onsets align) -------
+    channel_set = ChannelSet().add_unipolar_eeg_channels(list(eeg.channel_set.l_cha))
+    signal = Signal(np.asarray(eeg.signal), fs=float(eeg.fs), channel_set=channel_set,
+                    times=np.asarray(eeg.times))
+
+    # -- Events: one row per MI trial (onset = cue, label = class) -----------
+    onsets = np.asarray(exp.onsets, dtype=float)
+    labels = np.asarray(exp.mi_labels) if getattr(exp, "mi_labels", None) is not None else None
+    labelled = labels is not None and len(labels) == len(onsets)
+    w = _aslist(getattr(exp, "w_trial_t", None))
+    duration = (float(w[1]) - float(w[0])) / 1000.0 if w and len(w) == 2 else 0.0  # ms -> s
+    events = Events(optional_columns={"trial_idx": "Int64", "label": "Int64"})
+    events.append([
+        {"onset": float(o), "duration": duration, "trial_idx": int(t),
+         **({"label": int(labels[t])} if labelled else {})}
+        for t, o in enumerate(onsets)])
+
+    # -- Provenance (a plain dict; the decoder never reads it) ---------------
+    label_names = {int(k): v for k, v in (getattr(exp, "mi_labels_info", None) or {}).items()}
+    experiment = {
+        "paradigm": "motor_imagery",
+        "mode": getattr(exp, "mode", None),
+        "label_names": label_names,
+        "w_trial_t": w,
+        "paradigm_info": getattr(exp, "paradigm_info", None),
+    }
+
+    rec = Recording(BidsInfo(subject=str(legacy_recording.subject_id) or "legacy", task=task))
+    rec.add_signal(signal_key, signal).set_events(events)
+    rec.set_experiment(experiment)
+    return rec
+
+
 def _aslist(value):
     """None-safe ndarray/list -> plain list (for the ``.mat``-safe SpellerData fields)."""
     if value is None:

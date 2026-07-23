@@ -18,10 +18,14 @@ import numpy as np
 import torch
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from rich.console import Console
 from sklearn.base import BaseEstimator
 from torch.utils.data import DataLoader, random_split
 
 from medusa.core.serialization import PickleableComponent
+from ._progress import (
+    normalize_verbose, MedusaProgressBar, EpochHistory, quiet_lightning,
+    print_banner, print_summary)
 
 
 def _resolve_device(device) -> torch.device:
@@ -159,12 +163,16 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         best-checkpoint restore. ``None`` monitors training loss instead.
     device : {'auto', 'cpu', 'cuda', 'cuda:N', 'mps'}
         Resolved once at ``fit`` time and reused for inference.
-    verbose : bool
-        Show the Lightning progress bar.
+    verbose : int | str, default 1
+        Training-output verbosity level (see
+        :func:`~medusa.ml.torch_models._progress.normalize_verbose`):
+        ``0`` / ``'silent'`` -- no output; ``1`` / ``'epoch'`` (default) -- one clean line
+        per epoch (live progress + losses) with a banner and summary; ``2`` / ``'full'`` --
+        Lightning's full stock output (model summary, validation bars) for debugging.
     """
 
     def __init__(self, backbone, *, lr=1e-3, max_epochs=100, batch_size=64,
-                 val_split=None, patience=10, device='auto', verbose=True):
+                 val_split=None, patience=10, device='auto', verbose=1):
         self.backbone = backbone
         self.lr = lr
         self.max_epochs = max_epochs
@@ -224,26 +232,48 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         return train_loader, val_loader
 
     def _run_training(self, task: pl.LightningModule, train_loader, val_loader):
-        """Train ``task``; restore best weights, stash ``history_``."""
+        """Train ``task``; restore best weights, stash ``history_``.
+
+        Output verbosity follows ``self.verbose`` (see
+        :func:`~medusa.ml.torch_models._progress.normalize_verbose`): level 1 (default) shows
+        one clean line per epoch via :class:`~medusa.ml.torch_models._progress.MedusaProgressBar`
+        with a banner and summary, level 0 is silent, level 2 is Lightning's full stock output.
+        Per-epoch loss curves are captured at every level by
+        :class:`~medusa.ml.torch_models._progress.EpochHistory`.
+        """
         self.device_ = _resolve_device(self.device)
         accelerator, devices = _trainer_target(self.device_)
         monitor = 'val_loss' if val_loader is not None else 'train_loss'
+        level = normalize_verbose(self.verbose)
 
-        early = EarlyStopping(monitor=monitor, mode='min',
-                              patience=self.patience)
+        early = EarlyStopping(monitor=monitor, mode='min', patience=self.patience)
+        history = EpochHistory()
+        console = Console() if level == 1 else None
+        bar = MedusaProgressBar(console) if level == 1 else None
         with tempfile.TemporaryDirectory() as ckpt_dir:
             checkpoint = ModelCheckpoint(dirpath=ckpt_dir, monitor=monitor,
                                          mode='min', save_top_k=1)
-            trainer = pl.Trainer(
-                max_epochs=self.max_epochs,
-                accelerator=accelerator,
-                devices=devices,
-                callbacks=[early, checkpoint],
-                logger=False,
-                enable_progress_bar=self.verbose,
-                enable_model_summary=False,
-                num_sanity_val_steps=0)
-            trainer.fit(task, train_loader, val_loader)
+            callbacks = [early, checkpoint, history] + ([bar] if bar is not None else [])
+            with quiet_lightning(enabled=level <= 1):
+                trainer = pl.Trainer(
+                    max_epochs=self.max_epochs,
+                    accelerator=accelerator,
+                    devices=devices,
+                    callbacks=callbacks,
+                    logger=False,
+                    enable_progress_bar=level >= 1,
+                    enable_model_summary=level >= 2,
+                    num_sanity_val_steps=0)
+                if level == 1:
+                    print_banner(
+                        console, estimator=type(self).__name__, device=self.device_,
+                        n_params=sum(p.numel() for p in task.parameters()
+                                     if p.requires_grad),
+                        max_epochs=self.max_epochs, batch_size=self.batch_size,
+                        monitor=monitor, patience=self.patience)
+                trainer.fit(task, train_loader, val_loader)
+            best_score = (float(checkpoint.best_model_score)
+                          if checkpoint.best_model_score is not None else float('nan'))
             if checkpoint.best_model_path:  # restore best weights
                 state = torch.load(
                     checkpoint.best_model_path,
@@ -258,7 +288,16 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
             'val_loss': (_metric(trainer, 'val_loss')
                          if val_loader is not None else float('nan')),
             'stopped_early': bool(early.stopped_epoch),
+            'monitor': monitor,
+            'best_score': best_score,
+            'best_epoch': history.best_epoch,
+            'train_loss_curve': history.train_curve,
+            'val_loss_curve': history.val_curve,
         }
+        if level == 1:
+            print_summary(console, epochs=self.history_['epochs'],
+                          stopped_early=self.history_['stopped_early'], monitor=monitor,
+                          best_score=best_score, best_epoch=history.best_epoch)
         return task
 
     # ---- inference ---- #

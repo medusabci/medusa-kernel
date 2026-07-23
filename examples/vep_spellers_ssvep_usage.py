@@ -104,7 +104,7 @@ pipe = TMCCAPipeline(
     channels=CHANNELS,
     freq_filtering={"filterbank": [
         {"filt_type": "iir", "band_type": "bandpass", "cutoff": [6.0, 40.0], "order": 5}]},
-    reference={"mode": "harmonics", "n_harmonics": 3})
+    reference={"mode": "synthetic_harmonics", "n_harmonics": 3})
 decoder = VEPCommandDecoder()
 
 result = decoder.decode(pipe.predict(rec), SpellerData.from_recording(rec), rec.events)

@@ -36,6 +36,7 @@ __all__ = [
     "generate_freq_codebook",
     "generate_mseq_codebook",
     "generate_gold_codebook",
+    "generate_random_codebook",
     "get_optimal_frequencies",
     "plot_codebook",
     "LFSR",
@@ -631,6 +632,105 @@ def generate_gold_codebook(
             f"n_commands={n_commands} exceeds the Gold-code family size {len(codes)}.")
     codebook = np.array(codes[:n_commands], dtype=np.uint8)
     extras = [{'gold_index': i} for i in range(n_commands)]
+    return _make_commands_info(commands_info, codebook, extras)
+
+
+def generate_random_codebook(
+        n_commands: int, n_frames: int, base: int = 2, p: float = 0.5,
+        seed: "int | np.random.Generator | None" = None,
+        commands_info: "dict[str, CommandInfo] | None" = None,
+) -> "dict[str, CommandInfo]":
+    """Generate a c-VEP codebook of independent random ("noise") codes, one per command.
+
+    In random-code c-VEP every command owns its own randomly drawn per-frame code, with
+    no circular-shift (m-sequence) or frequency (SSVEP) structure. Independent random
+    codes have low mutual cross-correlation, so a bit-wise-reconstruction decoder
+    (:class:`~medusa.pipelines.bci.vep_spellers.BWRLDAPipeline`) tells them apart from the
+    reconstructed frame response alone, without a per-command template. A calibrated
+    template-matching decoder also works, but then every command must be attended during
+    calibration (each distinct code learns its own template), so BWR is the natural fit.
+
+    For a binary code (``base == 2``) each frame is ``1`` with probability ``p`` and ``0``
+    otherwise; for ``base > 2`` each frame is a uniform integer level in ``[0, base - 1]``
+    and ``p`` is ignored. Codes are drawn to be **distinct** and **non-constant** (a
+    constant code has zero variance and can never be decoded), redrawing on a collision.
+
+    Parameters
+    ----------
+    n_commands :
+        Number of commands (> 0). One random code each.
+    n_frames :
+        Code length, in frames (> 0). It must be large enough to draw ``n_commands``
+        distinct non-constant codes (``base ** n_frames`` well above ``n_commands``).
+    base :
+        Number of stimulation levels (>= 2). Default ``2`` (binary).
+    p :
+        Probability of a ``1`` per frame for a binary code (``0 < p < 1``, default
+        ``0.5`` for a balanced code). Ignored when ``base > 2``.
+    seed :
+        Controls the random draw. Give a value for reproducible output.
+    commands_info :
+        Commands to update in place (exactly ``n_commands``). Pass ``None`` to build a
+        fresh dict, with ``extra = {'code_index': ...}``.
+
+    Returns
+    -------
+    dict of {str: CommandInfo}
+        ``uid -> CommandInfo``. Each ``code`` has length ``n_frames``.
+
+    Raises
+    ------
+    ValueError
+        If an argument is out of range, or if ``n_commands`` distinct non-constant codes
+        cannot be drawn at the given ``n_frames`` / ``base``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from medusa.pipelines.bci.vep_spellers.encoding import generate_random_codebook
+    >>> cmds = generate_random_codebook(4, n_frames=63, seed=0)
+    >>> len(cmds)
+    4
+    >>> np.asarray(cmds["0"].code).shape       # (n_codes, n_frames)
+    (1, 63)
+    >>> {len(set(np.asarray(c.code)[0].tolist())) for c in cmds.values()} == {2}
+    True
+    """
+    if not (isinstance(n_commands, (int, np.integer)) and n_commands > 0):
+        raise ValueError(f"n_commands must be a positive integer, got {n_commands!r}.")
+    if not (isinstance(n_frames, (int, np.integer)) and n_frames > 0):
+        raise ValueError(f"n_frames must be a positive integer, got {n_frames!r}.")
+    if not (isinstance(base, (int, np.integer)) and base >= 2):
+        raise ValueError(f"base must be an integer >= 2, got {base!r}.")
+    if base == 2 and not 0 < p < 1:
+        raise ValueError(f"p must satisfy 0 < p < 1, got {p!r}.")
+
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+
+    def draw_row():
+        if base == 2:
+            return (rng.random(n_frames) < p).astype(np.uint8)
+        return rng.integers(0, base, size=n_frames).astype(np.uint8)
+
+    codebook = np.zeros((n_commands, n_frames), dtype=np.uint8)
+    seen: "set[bytes]" = set()
+    max_tries = 1000 * n_commands
+    for i in range(n_commands):
+        for _ in range(max_tries):
+            row = draw_row()
+            if row.min() == row.max():
+                continue                        # constant code: undecodable (zero variance)
+            key = row.tobytes()
+            if key in seen:
+                continue                        # keep codes distinct
+            seen.add(key)
+            codebook[i] = row
+            break
+        else:
+            raise ValueError(
+                f"could not draw {n_commands} distinct non-constant random codes at "
+                f"n_frames={n_frames}, base={base}; increase n_frames or lower n_commands.")
+    extras = [{'code_index': i} for i in range(n_commands)]
     return _make_commands_info(commands_info, codebook, extras)
 
 

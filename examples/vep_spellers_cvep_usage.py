@@ -1,5 +1,5 @@
-"""Compare c-VEP decoders on the bundled speller data: BWR vs template matching,
-single band-pass vs filter bank.
+"""Compare c-VEP decoders on the bundled speller data: BWR (shallow + deep) vs template
+matching, single band-pass vs filter bank.
 
 Run:  python examples/vep_spellers_cvep_usage.py
 
@@ -10,7 +10,7 @@ data, so it is the natural place to compare them head to head:
   code frame with an LDA, then correlate the frame scores against each command's shifted
   m-sequence.
 * **TM** (:class:`~medusa.pipelines.bci.vep_spellers.TMCCAPipeline`,
-  ``reference='template'``) -- learn one coherent-average template and a spatial filter
+  ``reference='calibrated_template'``) -- learn one coherent-average template and a spatial filter
   from the calibration runs, then correlate the (1-D projected) cycle EEG against each
   command's circularly-shifted template.
 
@@ -20,9 +20,18 @@ For each method we also compare two front-ends:
 * a **filter bank** of three sub-bands (1-70, 10-70, 30-70 Hz), fused before the
   classifier for BWR and combined with FBCCA weights for TM.
 
-That makes a 2x2 grid. Every pipeline trains on the same calibration runs and decodes the
-same test runs; we report decoding accuracy as a function of the number of stimulation
-cycles (the standard c-VEP performance curve) as a table and a saved figure.
+That makes a 2x2 grid. On top of it, when PyTorch is installed, we add the **deep** BWR
+pipeline (:class:`~medusa.pipelines.bci.vep_spellers.BWREEGInceptionPipeline`) with **both**
+EEG-Inception architectures (``arch='eeg_inception_v1'`` and ``'eeg_inception_v2'``) -- the
+same BWR strategy, but a convolutional frame classifier instead of the LDA. The deep
+pipeline runs on the **single band only**: a conv net consumes one multichannel epoch, so it
+cannot fuse a parallel filter bank the way the LDA concatenates sub-band features (it is the
+same class for both architectures because they share the epoch contract -- ``arch`` is just a
+setting). If PyTorch / Lightning are absent it is skipped and the shallow 2x2 grid still runs.
+
+Every pipeline trains on the same calibration runs and decodes the same test runs; we report
+decoding accuracy as a function of the number of stimulation cycles (the standard c-VEP
+performance curve) as a table and a saved figure.
 """
 import glob
 import os
@@ -52,16 +61,19 @@ def band(cutoff, order=7):
     }
 
 
-#: The two front-ends compared for both methods: one band vs a three-band bank.
+#: The two front-ends compared for the shallow methods: one band vs a three-band bank.
 FILTERINGS = {
-    "single band 1-70 Hz": [band((1.0, 70.0))],
+    "single band 1-70 Hz": [
+        band((1.0, 70.0))
+    ],
     "filter bank 1/10/30-70 Hz": [
         band((1.0, 70.0)),
         band((10.0, 70.0)),
         band((30.0, 70.0))
     ],
 }
-METHODS = ("BWR", "TM")
+SINGLE_BAND = "single band 1-70 Hz"
+METHODS = ("BWR", "TM", "BWR-EEGInc-v1", "BWR-EEGInc-v2")
 
 # --------------------------------------------------------------------------- #
 # 1) Load + convert the calibration (train) and test runs, once. A c-VEP
@@ -93,16 +105,41 @@ print(f"Test target: {labels!r} ({cursor} trials across {len(test)} runs).")
 
 
 def make_pipeline(method, filterbank):
-    """Build a fresh BWR or TM pipeline for the given method and filter bank."""
+    """Build a fresh BWR (LDA or deep), or TM, pipeline for the method and filter bank."""
     if method == "BWR":
         return BWRLDAPipeline(
             channels=channels,
             freq_filtering={"filterbank": filterbank},
             epoching={"w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": 0.0})
-    return TMCCAPipeline(
-        channels=channels,
-        freq_filtering={"filterbank": filterbank},
-        reference={"mode": "template"})
+    if method == "TM":
+        return TMCCAPipeline(
+            channels=channels,
+            freq_filtering={"filterbank": filterbank},
+            reference={"mode": "calibrated_template"})
+    if method == "BWR-EEGInc-v1" or method == "BWR-EEGInc-v2":
+        # Deep BWR: same epoching as the shallow BWR (raw 256 Hz, 250 ms -> 64 samples), but the
+        # epochs feed an EEG-Inception backbone. scales_ms suit the short frame window (-> ~32/16/8
+        # samples); training is kept brief with early stopping so the example runs quickly on CPU.
+        from medusa.pipelines.bci.vep_spellers import \
+            BWREEGInceptionPipeline
+        architecture = "eeg_inception_v1" if method == "BWR-EEGInc-v1" \
+            else "eeg_inception_v2"
+        return BWREEGInceptionPipeline(
+            channels=channels,
+            freq_filtering={
+                "filterbank": filterbank
+            },
+            epoching={
+                "w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": 0.0
+            },
+            classifier={
+                "arch": architecture,
+                "scales_ms": [125.0, 62.5, 31.25],
+                "training": {
+                    "max_epochs": 50, "batch_size": 256,
+                    "val_split": 0.2, "patience": 8,
+                    "verbose": "epoch"   # one clean line per epoch ('silent'/'epoch'/'full')
+                }})
 
 
 def accuracy_curve(pipe):
@@ -126,16 +163,39 @@ def accuracy_curve(pipe):
 
 
 # --------------------------------------------------------------------------- #
-# 2) Train each of the four (method x filtering) pipelines on the calibration
-#    runs and decode the pooled test trials into an accuracy-vs-cycles curve.
+# 2) Train each pipeline (the shallow 2x2 method x filtering grid, plus the deep
+#    BWR pipelines on the single band) on the calibration runs and decode the
+#    pooled test trials into an accuracy-vs-cycles curve.
 # --------------------------------------------------------------------------- #
 print("\nTraining + decoding the 2x2 grid ...")
 results = {}                                            # (method, filtering) -> curve
 for method in METHODS:
     for fname, fb in FILTERINGS.items():
+        # Filterbank does not make sense for BWR methods
+        if method.startswith("BWR") and len(fb) > 1:
+            continue
         pipe = make_pipeline(method, fb).fit(train)
         results[(method, fname)] = accuracy_curve(pipe)
-        print(f"  done: {method:3s} | {fname}")
+        # Deep (torch) pipelines record a training summary in clf.history_ (the engine runs
+        # with logger=False, so this dict -- not a metrics file -- is the training record).
+        # Shallow LDA/CCA pipelines fit in one shot and have no history.
+        hist = getattr(getattr(pipe, "clf", None), "history_", None)
+        summary = ("" if hist is None else
+                   f"  [{hist['epochs']} epochs, train_loss={hist['train_loss']:.3f}, "
+                   f"val_loss={hist['val_loss']:.3f}"
+                   f"{', early-stopped' if hist['stopped_early'] else ''}]")
+        print(f"  done: {method:13s} | {fname:<26}{summary}")
+#
+# # Deep BWR (EEG-Inception v1 & v2): single band only -- a conv net takes one multichannel
+# # epoch and cannot fuse a parallel filter bank. Skipped cleanly when torch is unavailable.
+# if DEEP_METHODS:
+#     print("Training the deep BWR pipelines (EEG-Inception; CPU, may take a minute) ...")
+#     for method in DEEP_METHODS:
+#         pipe = make_pipeline(method, FILTERINGS[SINGLE_BAND]).fit(train)
+#         results[(method, SINGLE_BAND)] = accuracy_curve(pipe)
+#         print(f"  done: {method} | {SINGLE_BAND}")
+# else:
+#     print("Skipping deep BWR (EEG-Inception): PyTorch / Lightning not installed.")
 
 # --------------------------------------------------------------------------- #
 # 3) Report: a compact summary table, the full per-cycle curves, and a figure.
@@ -163,7 +223,8 @@ for (method, fname), curve in results.items():
 
 # One figure: colour = method, line style = filtering, so the 2x2 grid reads at a glance.
 fig, ax = plt.subplots(figsize=(7.5, 4.5))
-colors = {"BWR": "#1f77b4", "TM": "#d62728"}
+colors = {"BWR": "#1f77b4", "TM": "#d62728",
+          "BWR-EEGInc-v1": "#2ca02c", "BWR-EEGInc-v2": "#9467bd"}
 styles = {"single band 1-70 Hz": "-", "filter bank 1/10/30-70 Hz": "--"}
 for (method, fname), curve in results.items():
     x = np.arange(1, len(curve) + 1)
@@ -171,7 +232,7 @@ for (method, fname), curve in results.items():
             label=f"{method} | {fname}")
 ax.set_xlabel("number of stimulation cycles")
 ax.set_ylabel("decoding accuracy (%)")
-ax.set_title("c-VEP: BWR vs template matching, single band vs filter bank")
+ax.set_title("c-VEP: BWR (LDA + EEG-Inception) vs template matching")
 ax.set_ylim(0, 105)
 ax.margins(x=0.02)
 ax.grid(True, alpha=0.3)

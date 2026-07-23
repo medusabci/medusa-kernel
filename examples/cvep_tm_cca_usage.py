@@ -6,7 +6,7 @@ The **template-matching** counterpart of ``cvep_evoked_usage.py`` (which decodes
 data with bit-wise reconstruction). A c-VEP calibration attends a single command -- the base
 m-sequence -- and every other command's code is a circular shift of it. So:
 
-1. ``TMCCAPipeline(reference={"mode": "template"})`` learns, from the calibration runs, one template
+1. ``TMCCAPipeline(reference={"mode": "calibrated_template"})`` learns, from the calibration runs, one template
    for the attended command **and** a spatial filter that projects it to 1-D (a full
    multichannel template would let CCA align any command, washing out discrimination);
 2. at test time it decodes all 16 commands by circularly shifting that learned 1-D template by
@@ -31,7 +31,7 @@ DATA = os.path.join(HERE, "data", "cvep")
 
 # --------------------------------------------------------------------------- #
 # 1) Load + convert the calibration runs (a single attended command) and learn
-#    the template + spatial filter. reference='template' needs the per-trial target,
+#    the template + spatial filter. reference='calibrated_template' needs the per-trial target,
 #    which the c-VEP converter fills from the file.
 # --------------------------------------------------------------------------- #
 train = [cvep_recording_to_v2(LegacyRecording.load(p))
@@ -47,7 +47,7 @@ pipe = TMCCAPipeline(
                 "cutoff": [1.0, 70.0],
                 "order": 7}]},
     reference={
-        "mode": "template"}
+        "mode": "calibrated_template"}
 )
 pipe.fit(train)
 print(f"Trained template TMCCAPipeline on {len(train)} calibration runs "

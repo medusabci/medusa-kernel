@@ -23,6 +23,15 @@ _LEGACY_MODULE_MAP = {
     'medusa.meeg': 'medusa.core.legacy.biosignals.eeg.eeg',
     'medusa.ecg.ecg': 'medusa.core.legacy.biosignals.ecg.ecg',
     'medusa.ecg': 'medusa.core.legacy.biosignals.ecg.ecg',
+    # Same flat-layout rename for the remaining 1.x biosignal modalities
+    # (NIRS/EOG/EMG), so multimodal Recorder runs load too. Both the bare
+    # package and the `package.module` form were written by different builds.
+    'medusa.nirs.nirs': 'medusa.core.legacy.biosignals.nirs.nirs',
+    'medusa.nirs': 'medusa.core.legacy.biosignals.nirs.nirs',
+    'medusa.eog.eog': 'medusa.core.legacy.biosignals.eog.eog',
+    'medusa.eog': 'medusa.core.legacy.biosignals.eog.eog',
+    'medusa.emg.emg': 'medusa.core.legacy.biosignals.emg.emg',
+    'medusa.emg': 'medusa.core.legacy.biosignals.emg.emg',
     # `medusa.components` was the 1.x dumping ground for Recording,
     # ExperimentData, CustomExperimentData, ConsistencyChecker, etc. Old
     # serialized recordings reference it via `module_name`. Repoint to the

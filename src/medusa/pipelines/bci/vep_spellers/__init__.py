@@ -7,10 +7,20 @@ These paradigms share one stimulation model -- a per-command *codebook* (see
 Layer-2 ``VEPCommandDecoder`` maps scores to commands.
 
 Both scoring families are here: bit-wise reconstruction (``BWRLDAPipeline``; ERP/P300 +
-c-VEP-BWR) and template matching (``TMCCAPipeline``, with a ``reference`` mode -- calibration-
-free SSVEP via sin/cos harmonics, or a calibrated learned template for c-VEP / SSVEP). Each
+c-VEP-BWR) and template matching (``TMCCAPipeline``, with a ``reference`` mode named for what
+the reference is made of -- ``synthetic_harmonics`` (calibration-free SSVEP),
+``calibrated_template`` (learned template; c-VEP + SSVEP), or ``mixed_harmonics_template``
+(the two fused, extended-CCA / eCCA; calibrated SSVEP)). Each
 Layer-1 pipeline emits a cumulative ``(n_cycles, n_commands)`` score matrix and the
 paradigm-agnostic ``VEPCommandDecoder`` selects the command per trial.
+
+The ``decoding`` subpackage keeps one pipeline per module
+(:mod:`~medusa.pipelines.bci.vep_spellers.decoding`). The deep BWR pipeline
+``BWREEGInceptionPipeline`` (EEG-Inception v1/v2 frame classifier) lives in
+:mod:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_eeg_inception` and is imported
+**lazily**: it needs torch, so it is resolved only when accessed
+(``vep_spellers.BWREEGInceptionPipeline``), keeping ``import
+medusa.pipelines.bci.vep_spellers`` torch-free for headless installs.
 """
 
 from medusa.pipelines.bci.vep_spellers.data import (
@@ -24,6 +34,7 @@ from medusa.pipelines.bci.vep_spellers.encoding import (
     generate_freq_codebook,
     generate_mseq_codebook,
     generate_gold_codebook,
+    generate_random_codebook,
     get_optimal_frequencies,
     plot_codebook,
     LFSR,
@@ -52,6 +63,7 @@ __all__ = [
     "generate_freq_codebook",
     "generate_mseq_codebook",
     "generate_gold_codebook",
+    "generate_random_codebook",
     "get_optimal_frequencies",
     "plot_codebook",
     "LFSR",
@@ -66,4 +78,21 @@ __all__ = [
     "select_commands",
     "command_decoding_accuracy",
     "command_decoding_accuracy_per_cycle",
+    # deep decoding (torch-gated; resolved lazily via __getattr__)
+    "BWREEGInceptionPipeline",
 ]
+
+
+def __getattr__(name: str):
+    """Resolve the torch-gated deep pipeline lazily (PEP 562).
+
+    Importing this package must stay torch-free (headless installs), so
+    ``BWREEGInceptionPipeline`` -- which pulls torch through its module -- is only
+    imported when it is actually accessed, e.g. ``vep_spellers.BWREEGInceptionPipeline``.
+    """
+    if name == "BWREEGInceptionPipeline":
+        from medusa.pipelines.bci.vep_spellers.decoding.bwr_eeg_inception import (
+            BWREEGInceptionPipeline,
+        )
+        return BWREEGInceptionPipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}.")
