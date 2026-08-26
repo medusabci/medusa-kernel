@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, get_args
 from medusa.signal.frequency_filtering import IIRFilter, FIRFilter, BAND_TYPES
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from numpy.typing import NDArray
     from medusa.core.settings_tree import SettingsTree
 
@@ -99,7 +101,11 @@ def add_band_filter_settings(settings: "SettingsTree", cutoff: list, order: int)
     add_filter_leaves(f, cutoff=cutoff, order=order, band_type="bandpass")
 
 
-def add_notch_and_filterbank_settings(settings: "SettingsTree") -> None:
+def add_notch_and_filterbank_settings(
+        settings: "SettingsTree", *,
+        bands: "Sequence[Sequence[float]]" = ((1.0, 70.0),), order: int = 5,
+        notch_cutoff: "Sequence[float]" = (48.0, 52.0), notch_order: int = 4,
+        notch_enabled: bool = True) -> None:
     """Add the notch + parallel filter-bank schema (a ``notch_filtering`` and ``freq_filtering`` group).
 
     The notch is a single filter (default: a 50 Hz line-noise bandstop), applied first, with an
@@ -107,20 +113,50 @@ def add_notch_and_filterbank_settings(settings: "SettingsTree") -> None:
     filter groups that share one schema (each is ``{filt_type, band_type, cutoff, order}``). One
     filter is a plain band-pass; several make a filter bank whose sub-bands are processed in
     parallel and then combined (FBCCA scores for template matching, concatenated features for
-    BWR). The default bank is one band-pass, 1--70 Hz. Apply it with
-    :func:`apply_notch_and_filterbank`.
+    BWR). Apply it with :func:`apply_notch_and_filterbank`.
+
+    Every band is a keyword argument, so a caller can build a *variant* of this schema -- one
+    band-pass tuned to its paradigm, or a several-sub-band bank -- instead of adding the stock
+    one and then editing it. That difference matters: the values passed here become the schema's
+    **defaults**, so ``reset()`` returns to them and ``user_overrides()`` reports only what the
+    user changed afterwards.
+
+    Parameters
+    ----------
+    settings : SettingsTree
+        Tree to add the two groups to.
+    bands : sequence of (low, high), optional
+        One band-pass cutoff pair per sub-band. One pair (the default, 1--70 Hz) is a plain
+        band-pass; several make a filter bank.
+    order : int, optional
+        Filter order shared by every sub-band.
+    notch_cutoff : (low, high), optional
+        Notch bandstop cutoffs (default 48--52 Hz, for 50 Hz line noise).
+    notch_order : int, optional
+        Notch filter order.
+    notch_enabled : bool, optional
+        Whether the notch is applied by default.
     """
+    bands = [list(band) for band in bands]
+    if not bands:
+        raise ValueError("bands must hold at least one (low, high) band-pass cutoff pair.")
+
     notch = settings.add_group(
         "notch_filtering", info="Line-noise notch (bandstop), applied before the filter bank")
-    notch.add_item("enabled", value=True, info="Apply the notch")
-    add_filter_leaves(notch, cutoff=[48.0, 52.0], order=4)       # band_type is always bandstop
+    notch.add_item("enabled", value=notch_enabled, info="Apply the notch")
+    # band_type is always bandstop
+    add_filter_leaves(notch, cutoff=list(notch_cutoff), order=notch_order)
 
     ff = settings.add_group("freq_filtering", info="Parallel filter-bank filtering")
     fb = ff.add_group_list(
         "filterbank",
         info="Parallel sub-band filters; one filter = a single band, several = a filter bank")
-    add_filter_leaves(fb.element, cutoff=[1.0, 70.0], order=5, band_type="bandpass")
-    fb.add_element()                                # default bank: one band-pass 1--70 Hz
+    add_filter_leaves(fb.element, cutoff=bands[0], order=order, band_type="bandpass")
+    for band in bands:
+        fb.add_element(values={"cutoff": band})
+    # add_element writes values, not defaults, so a bank of several bands would leave every
+    # element's default at the template's band. Re-baseline: each band IS its own default.
+    fb.set_defaults_from_values()
 
 
 # --------------------------------------------------------------------------- #

@@ -141,6 +141,11 @@ def _build_combobox(value, value_range, value_options):
         widget.addItem(str(option), option)
     if value in options:
         widget.setCurrentIndex(options.index(value))
+    else:
+        # No value yet (a required choice, or one outside the options): show an empty row
+        # rather than silently submitting the first option as if the user had picked it.
+        widget.insertItem(0, "", None)
+        widget.setCurrentIndex(0)
     return widget
 
 

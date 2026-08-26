@@ -12,7 +12,8 @@ from scipy.stats import pearsonr
 
 from medusa.pipelines.bci.vep_spellers import (
     bwr_command_scores, tm_command_scores, bwr_labels, CommandInfo)
-from medusa.pipelines.bci.vep_spellers.decoding.template_matching import _corr1d
+from medusa.pipelines.bci.vep_spellers.decoding.template_matching import (
+    _pearson_signed)
 
 
 # --------------------------------------------------------------------------- #
@@ -150,24 +151,69 @@ def _old_cosine(a, b):
 
 
 class TestCvepTemplateDivergence:
-    """Pin the new score and document how it differs from what ``_old`` computed."""
+    """Pin the new score and document how it differs from what ``_old`` computed.
 
-    def test_new_is_abs_pearson(self):
+    The new score is a **centred, signed** correlation. It keeps ``_old``'s sign (an
+    anti-correlated template must rank last, not first) and adds the mean subtraction that
+    ``_old``'s uncentered cosine lacked, so the two still disagree on the numbers.
+    """
+
+    def test_new_is_signed_pearson(self):
         a = np.array([1.0, 2.0, 3.0, 4.0])
         b = np.array([4.0, 3.0, 2.0, 1.0])
-        assert _corr1d(a, b) == pytest.approx(abs(pearsonr(a, b)[0]))     # == 1.0
+        assert _pearson_signed(a, b) == pytest.approx(pearsonr(a, b)[0])          # == -1.0
+        assert _pearson_signed(a, b) < 0
+
+    @pytest.mark.parametrize("n_samples", [4, 64, 134, 250])
+    def test_agrees_with_scipy_on_random_input(self, n_samples):
+        """scipy is the oracle; the hand-rolled version exists only to be fast.
+
+        ``_pearson_signed`` is two dot products instead of ``scipy.stats.pearsonr`` because it
+        runs thousands of times per decode (about a third of the wall clock) and scipy also
+        computes a p-value we never use. This pins that the shortcut costs no accuracy.
+        """
+        rng = np.random.default_rng(n_samples)
+        for _ in range(50):
+            a = rng.standard_normal(n_samples)
+            b = rng.standard_normal(n_samples)
+            assert _pearson_signed(a, b) == pytest.approx(pearsonr(a, b)[0], abs=1e-12)
+            # scaling and shifting either input must not move a correlation
+            assert _pearson_signed(3.0 * a + 7.0, b) == pytest.approx(
+                pearsonr(a, b)[0], abs=1e-12)
+
+    def test_constant_input_abstains_instead_of_returning_nan(self):
+        """Where scipy/numpy give nan (and warn), we return 0: that view simply abstains."""
+        constant = np.ones(64)
+        rng = np.random.default_rng(0)
+        assert _pearson_signed(constant, rng.standard_normal(64)) == 0.0
+        assert _pearson_signed(constant, constant) == 0.0
 
     def test_diverges_from_old_uncentered_cosine(self):
         """Same inputs, different numbers: the mean-subtraction changes the score."""
         a = np.array([1.0, 2.0, 3.0, 4.0])
         b = np.array([4.0, 3.0, 2.0, 1.0])
-        assert _corr1d(a, b) == pytest.approx(1.0)                        # |Pearson| = 1
-        assert _old_cosine(a, b) == pytest.approx(20.0 / 30.0)            # cosine = 0.667
-        assert not np.isclose(_corr1d(a, b), abs(_old_cosine(a, b)))
+        assert _pearson_signed(a, b) == pytest.approx(-1.0)                       # Pearson = -1
+        assert _old_cosine(a, b) == pytest.approx(20.0 / 30.0)            # cosine = +0.667
+        assert not np.isclose(_pearson_signed(a, b), _old_cosine(a, b))
 
-    def test_anti_correlated_template_behaviour_differs(self):
-        """An anti-correlated template: new |Pearson|=1 (ranks high), _old cosine=-1 (ranks low)."""
+    def test_anti_correlated_template_ranks_last(self):
+        """An inverted template is evidence AGAINST the command, so it must score below zero.
+
+        This is the whole reason the sign is kept: with ``|Pearson|`` the segment below scored
+        1.0 and outranked every honest match, which is how a wrong c-VEP lag could win.
+        """
         template = np.array([1.0, -1.0, 1.0, -1.0])
         segment = np.array([-1.0, 1.0, -1.0, 1.0])
-        assert _corr1d(template, segment) == pytest.approx(1.0)
-        assert _old_cosine(template, segment) == pytest.approx(-1.0)
+        assert _pearson_signed(template, segment) == pytest.approx(-1.0)
+        assert _old_cosine(template, segment) == pytest.approx(-1.0)      # _old agreed
+        # an unrelated segment carries no evidence, and must still beat an inverted one
+        unrelated = np.array([1.0, 1.0, -1.0, -1.0])
+        assert _pearson_signed(template, unrelated) > _pearson_signed(template, segment)
+
+    def test_sign_survives_the_spatial_filter_polarity(self):
+        """``w`` has an arbitrary sign, but it is applied to both sides, so the score is stable."""
+        rng = np.random.default_rng(0)
+        segment = rng.standard_normal((64, 4))
+        template = rng.standard_normal((64, 4))
+        w = rng.standard_normal(4)
+        assert _pearson_signed(segment @ w, template @ w) ==             pytest.approx(_pearson_signed(segment @ -w, template @ -w))

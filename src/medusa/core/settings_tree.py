@@ -469,6 +469,33 @@ class SettingsTree:
         for child in node.get("items", []):
             cls._snapshot_defaults_node(child)
 
+    def set_defaults_from_values(self) -> "SettingsTree":
+        """Make the current values the defaults of this subtree (deep). Returns ``self``.
+
+        :meth:`snapshot_defaults` only fills in a group-list baseline that is *missing*; this
+        **overwrites** every default with the value next to it. Call it at the end of a builder
+        that seeds a variant of a schema (a paradigm profile, say), so that the variant's own
+        choices count as defaults: :meth:`reset` then restores *that* configuration, and
+        :meth:`user_overrides` reports only what the user changed on top of it. Leaves that
+        have no value (a required choice) are left alone, so they stay required.
+        """
+        self._defaults_from_values(self.tree)
+        return self
+
+    @classmethod
+    def _defaults_from_values(cls, node: dict) -> None:
+        if "element_group" in node:                 # group-list: baseline the elements, then the list
+            for element in node.get("items", []):
+                cls._defaults_from_values(element)
+            node["default"] = copy.deepcopy(SettingsTree(node).to_dict())
+            return
+        if "items" in node:
+            for child in node["items"]:
+                cls._defaults_from_values(child)
+            return
+        if "value" in node:                         # deep-copy: a list value must not alias
+            node["default"] = copy.deepcopy(node["value"])
+
     @staticmethod
     def _build_node(key, value, info, input_format, value_range,
                     value_options, element_schema) -> dict:

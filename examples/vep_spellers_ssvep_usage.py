@@ -31,7 +31,8 @@ import matplotlib.pyplot as plt
 
 from medusa.core.data import BidsInfo, Recording, Signal, Events, ChannelSet
 from medusa.pipelines.bci.vep_spellers import (
-    generate_freq_codebook, TMCCAPipeline, VEPCommandDecoder, SpellerData,
+    generate_freq_codebook, TMCCAPipeline, zerocal_ssvep_settings,
+    VEPCommandDecoder, SpellerData,
     command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -100,11 +101,7 @@ print(f"Synthesised {n_trials} trials x {N_CYCLES} cycles of EEG "
 #    returns the cumulative (n_cycles, n_commands) canonical correlations; the decoder
 #    argmaxes them per cycle, just like the BWR pipelines.
 # --------------------------------------------------------------------------- #
-pipe = TMCCAPipeline(
-    channels=CHANNELS,
-    freq_filtering={"filterbank": [
-        {"filt_type": "iir", "band_type": "bandpass", "cutoff": [6.0, 40.0], "order": 5}]},
-    reference={"mode": "synthetic_harmonics", "n_harmonics": 3})
+pipe = TMCCAPipeline(settings=zerocal_ssvep_settings(), channels=CHANNELS)
 decoder = VEPCommandDecoder()
 
 result = decoder.decode(pipe.predict(rec), SpellerData.from_recording(rec), rec.events)

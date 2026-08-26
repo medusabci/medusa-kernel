@@ -22,8 +22,8 @@ import os
 from medusa.core.legacy.recording import Recording as LegacyRecording
 from medusa.core.legacy.convert import cvep_recording_to_v2
 from medusa.pipelines.base import DecodingPipeline
-from medusa.pipelines.bci.evoked import (
-    TMCCAPipeline, VEPCommandDecoder, SpellerData,
+from medusa.pipelines.bci.vep_spellers import (
+    TMCCAPipeline, cvep_settings, VEPCommandDecoder, SpellerData,
     command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,18 +37,7 @@ DATA = os.path.join(HERE, "data", "cvep")
 train = [cvep_recording_to_v2(LegacyRecording.load(p))
          for p in sorted(glob.glob(os.path.join(DATA, "cvep_train*.cvep.bson")))]
 channels = list(train[0].signals["eeg"].channel_set.labels)
-pipe = TMCCAPipeline(
-    channels=channels,
-    freq_filtering={
-        "filterbank": [
-            {
-                "filt_type": "iir",
-                "band_type": "bandpass",
-                "cutoff": [1.0, 70.0],
-                "order": 7}]},
-    reference={
-        "mode": "calibrated_template"}
-)
+pipe = TMCCAPipeline(settings=cvep_settings(), channels=channels)
 pipe.fit(train)
 print(f"Trained template TMCCAPipeline on {len(train)} calibration runs "
       f"(the attended command(s) pooled into {len(pipe.templates)} shift-family template(s)).")

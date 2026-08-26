@@ -41,6 +41,12 @@ from medusa.pipelines.bci.vep_spellers.encoding import (
     GOLD_CODES,
 )
 from medusa.pipelines.bci.vep_spellers.decoding import (
+    tm_cca_settings,
+    zerocal_ssvep_settings,
+    cal_ssvep_settings,
+    cvep_settings,
+    uniform_weights,
+    decaying_power_law_weights,
     BWRLDAPipeline,
     TMCCAPipeline,
     VEPCommandDecoder,
@@ -71,6 +77,12 @@ __all__ = [
     # decoding (L1 scoring pipelines + L2 command decoder)
     "BWRLDAPipeline",
     "TMCCAPipeline",
+    "tm_cca_settings",
+    "zerocal_ssvep_settings",
+    "cal_ssvep_settings",
+    "cvep_settings",
+    "uniform_weights",
+    "decaying_power_law_weights",
     "VEPCommandDecoder",
     "bwr_labels",
     "bwr_command_scores",

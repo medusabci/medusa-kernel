@@ -15,6 +15,8 @@ setting picks how the reference is built, named for *what the reference is made 
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -28,11 +30,15 @@ from medusa.pipelines.base import DecodingPipeline, harmonize_channels
 from medusa.pipelines.bci.vep_spellers.data import SpellerData, validate_speller_events
 from medusa.pipelines.bci._filtering import (
     add_notch_and_filterbank_settings, apply_notch_and_filterbank)
-from medusa.pipelines.bci.vep_spellers.decoding._common import (
-    _fbcca_weights, _cycle_arrays)
+from medusa.pipelines.bci.vep_spellers.decoding._common import _cycle_arrays
 from medusa.pipelines.bci.vep_spellers.decoding.scores import tm_command_scores
 
-__all__ = ["TMCCAPipeline"]
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+__all__ = ["TMCCAPipeline", "tm_cca_settings", "zerocal_ssvep_settings",
+           "cal_ssvep_settings", "cvep_settings",
+           "uniform_weights", "decaying_power_law_weights"]
 
 #: The ``reference.mode`` options, named for what the reference is made of. See the class
 #: docstring for the full description of each.
@@ -104,18 +110,26 @@ def _best_code_shift(code: NDArray, learned_code: NDArray) -> "tuple[int, float]
 _SHIFT_MATCH_TOL = 0.999
 
 
-def _corr1d(a: NDArray, b: NDArray) -> float:
-    """``|Pearson correlation|`` between two 1-D signals (``-inf`` if either is constant)."""
-    a = np.asarray(a, dtype=float)
-    a = a - a.mean()
-    b = np.asarray(b, dtype=float)
-    b = b - b.mean()
-    den = np.sqrt(np.dot(a, a) * np.dot(b, b))
-    return float(abs(np.dot(a, b) / den)) if den > 0 else -np.inf
-
-
 def _pearson_signed(a: NDArray, b: NDArray) -> float:
-    """Signed Pearson correlation between two 1-D signals (``0`` if either is constant)."""
+    """**Signed** Pearson correlation between two 1-D signals (``0`` if either is constant).
+
+    The one correlation both calibrated modes score with:
+    ``calibrated_template`` compares a segment with a command's 1-D template, and
+    :func:`_ecca_score` fuses four of these.
+
+    The sign is kept on purpose. A segment that is *anti*-correlated with a command's template
+    is evidence **against** that command, and taking the absolute value would turn it into
+    equally strong evidence for it -- which matters for c-VEP, where a wrong circular lag of
+    the right code often lines up inverted.
+
+    The sign is also well defined, even though the spatial filter ``w`` behind these 1-D
+    signals has an arbitrary polarity: the segment and the template are projected through the
+    *same* ``w``, so flipping it negates both and leaves the correlation unchanged.
+
+    A constant input scores ``0`` -- that view simply abstains, which ranks it below any real
+    match and above any anti-correlated one. (The "not scored at all" sentinel is ``-inf``, and
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.tm_command_scores` owns it.)
+    """
     a = np.asarray(a, dtype=float)
     a = a - a.mean()
     b = np.asarray(b, dtype=float)
@@ -172,6 +186,306 @@ def _ecca_score(segment: NDArray, harmonics: NDArray, template: NDArray) -> floa
     return float(sum(np.sign(r) * r * r for r in rs))
 
 
+# --------------------------------------------------------------------------- #
+# Filter-bank score weights
+# --------------------------------------------------------------------------- #
+# With a filter bank of several sub-bands, each sub-band is scored on its own and the score
+# matrices are added up, one weight per sub-band. That weight list is a plain setting
+# (``band_weights``): you compute it with one of the helpers below -- or write it yourself --
+# and pass it in. Nothing is chosen for you at run time.
+def uniform_weights(filterbank: "Sequence") -> "list[float]":
+    """Equal weight for every sub-band, summing to 1.
+
+    Parameters
+    ----------
+    filterbank : sequence
+        The filter bank: either the ``freq_filtering.filterbank`` config list or the
+        ``bands`` you pass to a settings builder. Only its length is used.
+
+    Returns
+    -------
+    list of float
+        One weight per sub-band, all the same, summing to 1.
+
+    Examples
+    --------
+    >>> uniform_weights([(6., 40.), (14., 40.), (22., 40.)])
+    [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+    """
+    n_bands = _n_bands(filterbank)
+    return (np.full(n_bands, 1.0 / n_bands)).tolist()
+
+
+def decaying_power_law_weights(filterbank: "Sequence", exponent: float = 1.25,
+                               offset: float = 0.25) -> "list[float]":
+    """Weights ``w_k = k**-exponent + offset``, normalised to sum to 1.
+
+    Sub-bands are weighted less and less, so the lower (usually stronger) ones count more.
+    The defaults are the standard filter-bank CCA weighting of Chen et al. (2015), known in
+    the literature as **FBCCA**.
+
+    Parameters
+    ----------
+    filterbank : sequence
+        The filter bank: either the ``freq_filtering.filterbank`` config list or the
+        ``bands`` you pass to a settings builder. Only its length is used.
+    exponent : float, optional
+        Decay exponent. Higher values make the first sub-bands dominate more.
+    offset : float, optional
+        Constant added to every weight before normalising, so the late sub-bands keep a
+        floor instead of falling to nothing.
+
+    Returns
+    -------
+    list of float
+        One weight per sub-band, decreasing, summing to 1.
+
+    Examples
+    --------
+    >>> [round(w, 4) for w in decaying_power_law_weights([1, 2, 3])]
+    [0.5157, 0.2766, 0.2076]
+    """
+    if exponent < 0 or offset < 0:
+        raise ValueError(
+            f"exponent and offset must be zero or positive, got exponent={exponent!r}, "
+            f"offset={offset!r}. A negative value makes some weights negative, which would "
+            f"subtract a sub-band's evidence instead of adding it.")
+    k = np.arange(1, _n_bands(filterbank) + 1, dtype=float)
+    weights = k ** -float(exponent) + float(offset)
+    return (weights / weights.sum()).tolist()
+
+
+def _n_bands(filterbank: "Sequence") -> int:
+    """Number of sub-bands in a filter-bank spec (raises if it is empty)."""
+    n_bands = len(filterbank)
+    if n_bands < 1:
+        raise ValueError("the filter bank is empty; it needs at least one sub-band.")
+    return n_bands
+
+
+#: How much each weight may drift before the sum is called wrong. The settings editor rounds
+#: every float to 6 decimals (``_FLOAT_DECIMALS`` in ``widgets.settings_tree.tree_viewer``), so
+#: a list that summed to exactly 1 comes back from the GUI off by up to 5e-7 per weight. The
+#: slack is granted per sub-band and still rejects every realistic mistake: the mildest one, a
+#: list left with the wrong number of decimal places, is off by about 1e-3.
+_WEIGHT_SUM_TOL_PER_BAND = 5e-7
+
+#: Written next to every ``band_weights`` complaint: the list is a plain setting, so the two
+#: places it can be written by hand are the settings tree and the GUI, and both leave it to you
+#: to keep the list in step with the filter bank.
+_BAND_WEIGHT_HINT = (
+    "band_weights is a plain list you can overwrite by hand, so it does not follow the filter "
+    "bank on its own: whenever you add, remove or edit a sub-band -- in code or in the settings "
+    "editor -- write a matching list back. Build one with uniform_weights(filterbank) or "
+    "decaying_power_law_weights(filterbank), passing the filter bank you actually configured.")
+
+
+def _check_band_weights(weights, n_bands: int) -> NDArray:
+    """Return ``weights`` as a validated array: one finite, non-negative entry per sub-band, summing to 1.
+
+    Raises :class:`ValueError`, naming the offending list, if any of that does not hold. The
+    returned array is what callers should use, so the values that were checked are the values
+    that get multiplied in.
+    """
+    w = np.asarray(weights, dtype=float).ravel()
+    if w.size != n_bands:
+        raise ValueError(
+            f"band_weights needs one weight per filter-bank sub-band: got {w.size} "
+            f"weight(s) for {n_bands} sub-band(s). {_BAND_WEIGHT_HINT}")
+    if not np.all(np.isfinite(w)):
+        raise ValueError(
+            f"band_weights must all be finite numbers, got {w.tolist()}. {_BAND_WEIGHT_HINT}")
+    if np.any(w < 0.0):
+        raise ValueError(
+            f"band_weights must all be zero or positive, got {w.tolist()}. A negative weight "
+            f"subtracts that sub-band's evidence instead of adding it, which takes the combined "
+            f"score off the 0-1 scale that VEPCommandDecoder's stop_corr threshold assumes. "
+            f"{_BAND_WEIGHT_HINT}")
+    total = float(w.sum())
+    tolerance = max(1e-9, _WEIGHT_SUM_TOL_PER_BAND * n_bands)
+    if abs(total - 1.0) > tolerance:
+        raise ValueError(
+            f"band_weights must sum to 1, but {w.tolist()} sums to {total!r} (off by "
+            f"{total - 1.0:+.3g}). Divide each weight by that sum to fix the list you have. "
+            f"{_BAND_WEIGHT_HINT}")
+    return w
+
+
+# --------------------------------------------------------------------------- #
+# Configuration profiles
+# --------------------------------------------------------------------------- #
+# A profile is a named function that returns a ready settings tree for one paradigm. The
+# values it picks become the tree's DEFAULTS (not user edits), so `reset()` returns to the
+# profile and `user_overrides()` reports only what you changed on top of it. The profile
+# records its name in the tree's `profile` leaf, which is PROVENANCE ONLY: no code reads it
+# -- `fit` and `predict` dispatch on `reference.mode`, never on the name.
+def tm_cca_settings(*, mode: "str | None", profile: "str | None" = None,
+                    bands: "Sequence[Sequence[float]]" = ((1.0, 70.0),),
+                    order: int = 5, n_harmonics: int = 3,
+                    band_weights: "Sequence[float] | None" = None) -> SettingsTree:
+    """Build a :class:`TMCCAPipeline` schema with the given reference and filter bank.
+
+    The general builder the paradigm profiles below are built from. Call it directly to
+    write a recipe of your own; the profiles are the three that ship ready-made.
+
+    Parameters
+    ----------
+    mode : str or None
+        The ``reference.mode`` value: one of ``'synthetic_harmonics'``,
+        ``'calibrated_template'`` or ``'mixed_harmonics_template'``. ``None`` leaves the
+        mode unset, so the resulting settings cannot construct a pipeline until one is
+        chosen (this is what :meth:`TMCCAPipeline.default_settings` returns).
+    profile : str or None, optional
+        Name recorded in the ``profile`` leaf, to say which recipe these settings came
+        from. Only the shipped profiles pass it; a hand-written recipe leaves it ``None``.
+        It is a label, never a switch -- see the ``profile`` leaf's own description.
+    bands : sequence of (low, high), optional
+        One band-pass cutoff pair per filter-bank sub-band. Several pairs make an FBCCA
+        filter bank.
+    order : int, optional
+        Filter order shared by every sub-band.
+    n_harmonics : int, optional
+        Sine/cosine harmonics per synthetic reference (used by the harmonic modes).
+    band_weights : sequence of float, optional
+        One weight per sub-band, summing to 1. Defaults to :func:`uniform_weights` over
+        ``bands``. Pass :func:`decaying_power_law_weights` (the FBCCA weighting) or your own
+        list to weight the sub-bands differently. The ready-made profiles do not offer this:
+        each pins the weighting its paradigm calls for, and this builder is where you go to
+        override that.
+
+    Returns
+    -------
+    SettingsTree
+        A fresh tree. Pass it as ``TMCCAPipeline(settings=...)``.
+    """
+    s = SettingsTree()
+    s.add_item("profile", value=profile,
+               info="Which profile these settings came from (provenance only -- no code "
+                    "reads it; several profiles can share one reference.mode). None means "
+                    "hand-written. Edit the settings below and this name no longer "
+                    "describes them: check settings.user_overrides() for the difference")
+    s.add_item("channels", value=[], info="Channels to decode (required)")
+    s.add_item("signal_key", value="eeg", info="Recording stream key to decode")
+    add_notch_and_filterbank_settings(s, bands=bands, order=order)
+    weights = uniform_weights(bands) if band_weights is None else [float(w) for w in band_weights]
+    s.add_item("band_weights", value=weights,
+               info="One weight per filter-bank sub-band, in the same order, zero or "
+                    "positive and summing to 1. The per-sub-band scores are added up with "
+                    "these weights (with a single sub-band the only valid list is [1.0]). "
+                    "Build it with uniform_weights(filterbank) or "
+                    "decaying_power_law_weights(filterbank), or write your own -- but it does "
+                    "not follow the filter bank on its own, so if you overwrite the bank by "
+                    "hand, write a matching list back too")
+    s.add_item("car", value=False,
+               info="Common-average reference before scoring (CCA already "
+                    "spatially filters; CAR makes the montage rank-deficient)")
+    ref = s.add_group("reference", info="Template-matching reference")
+    ref.add_item("mode", value=mode, value_options=list(_REFERENCE_MODES),
+                 info="Reference mode (REQUIRED): 'synthetic_harmonics' (calibration-free "
+                      "SSVEP), 'calibrated_template' (learned template; c-VEP + SSVEP, needs "
+                      "fit), or 'mixed_harmonics_template' (eCCA; calibrated SSVEP, needs fit)")
+    ref.add_item("n_harmonics", value=n_harmonics, value_range=[1, None],
+                 info="Sine/cosine harmonics per reference (harmonic modes)")
+    return s
+
+
+def zerocal_ssvep_settings(*, bands: "Sequence[Sequence[float]]" = ((6.0, 40.0),),
+                           order: int = 7, n_harmonics: int = 3) -> SettingsTree:
+    """Settings for **calibration-free SSVEP**: CCA against a synthetic harmonic bank.
+
+    Needs no training data -- construct the pipeline and call
+    :meth:`TMCCAPipeline.predict` straight away. Every command needs a stimulation
+    frequency in ``extra['stim_freq']``.
+
+    Pass several ``bands`` to turn the single band-pass into a filter bank. The sub-band
+    weighting then follows the decaying power law (the classic FBCCA rule): an SSVEP response
+    is strongest at the fundamental and weaker at every further harmonic, so the lower
+    sub-bands deserve to count more. That is a property of the paradigm, not a choice, so
+    this profile makes it for you -- use :func:`tm_cca_settings` if you want to weight the
+    sub-bands differently.
+
+    Parameters
+    ----------
+    bands : sequence of (low, high), optional
+        One band-pass cutoff pair per sub-band. Which bands make sense depends on the
+        stimulation frequencies you are using, so this stays yours to choose.
+    order : int, optional
+        Filter order shared by every sub-band.
+    n_harmonics : int, optional
+        Sine/cosine harmonics per reference. How many are worth including depends on the
+        stimulation frequencies too -- harmonics above the band's upper cutoff are filtered
+        out anyway.
+
+    Examples
+    --------
+    >>> pipe = TMCCAPipeline(settings=zerocal_ssvep_settings(), channels=channels)  # doctest: +SKIP
+    >>> scores = pipe.predict(recording)                                            # doctest: +SKIP
+    """
+    return tm_cca_settings(profile="zerocal_ssvep", mode=SYNTHETIC_HARMONICS, bands=bands,
+                           order=order, n_harmonics=n_harmonics,
+                           band_weights=decaying_power_law_weights(bands))
+
+
+def cal_ssvep_settings(*, bands: "Sequence[Sequence[float]]" = ((6.0, 40.0),),
+                       order: int = 7, n_harmonics: int = 3) -> SettingsTree:
+    """Settings for **calibrated SSVEP**: the extended-CCA (eCCA) score.
+
+    Fuses the synthetic harmonic view with a learned template, which is the accuracy sweet
+    spot for SSVEP. Needs :meth:`TMCCAPipeline.fit` on calibration recordings (for the
+    template) **and** a stimulation frequency per command (for the harmonics).
+
+    Sub-bands are weighted by the decaying power law, for the same reason as in
+    :func:`zerocal_ssvep_settings`.
+
+    Parameters
+    ----------
+    bands : sequence of (low, high), optional
+        One band-pass cutoff pair per sub-band, chosen to suit your stimulation frequencies.
+    order : int, optional
+        Filter order shared by every sub-band.
+    n_harmonics : int, optional
+        Sine/cosine harmonics per synthetic reference.
+
+    Examples
+    --------
+    >>> pipe = TMCCAPipeline(settings=cal_ssvep_settings(), channels=channels)   # doctest: +SKIP
+    >>> scores = pipe.fit(train).predict(recording)                              # doctest: +SKIP
+    """
+    return tm_cca_settings(profile="cal_ssvep", mode=MIXED_HARMONICS_TEMPLATE, bands=bands,
+                           order=order, n_harmonics=n_harmonics,
+                           band_weights=decaying_power_law_weights(bands))
+
+
+def cvep_settings(*, bands: "Sequence[Sequence[float]]" = ((1.0, 70.0),),
+                  order: int = 7) -> SettingsTree:
+    """Settings for **c-VEP**: a learned template per shift family, over a wide band.
+
+    c-VEP codes are broadband, so the band is wide (1--70 Hz by default). Needs
+    :meth:`TMCCAPipeline.fit` on calibration recordings. The same mode also serves calibrated
+    SSVEP -- use :func:`tm_cca_settings` with an SSVEP band for that.
+
+    Sub-bands are weighted **equally**. A c-VEP response has no fundamental to favour: the
+    code spreads its energy across the whole band, so there is no reason to make the lower
+    sub-bands count more (which is what the SSVEP profiles do). Use :func:`tm_cca_settings`
+    if you want to weight them yourself.
+
+    Parameters
+    ----------
+    bands : sequence of (low, high), optional
+        One band-pass cutoff pair per sub-band. The useful upper cutoff follows the
+        stimulation frame rate, so this stays yours to choose.
+    order : int, optional
+        Filter order shared by every sub-band.
+
+    Examples
+    --------
+    >>> pipe = TMCCAPipeline(settings=cvep_settings(), channels=channels)   # doctest: +SKIP
+    >>> scores = pipe.fit(train).predict(recording)                         # doctest: +SKIP
+    """
+    return tm_cca_settings(profile="cvep", mode=CALIBRATED_TEMPLATE, bands=bands,
+                           order=order, band_weights=uniform_weights(bands))
+
+
 class TMCCAPipeline(DecodingPipeline):
     """Template-matching speller pipeline based on canonical correlation analysis (CCA).
 
@@ -180,9 +494,11 @@ class TMCCAPipeline(DecodingPipeline):
     segments, so :meth:`predict` returns the cumulative ``(n_cycles, n_commands)`` matrix
     (:func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`) that the
     :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`
-    selects from. Configuration is levelled: ``freq_filtering`` (notch + filter bank) and
-    ``reference``. With a multi-sub-band filter bank, the per-band scores are combined with
-    FBCCA weights (:func:`~medusa.pipelines.bci.vep_spellers.decoding._common._fbcca_weights`).
+    selects from. Configuration is levelled: ``freq_filtering`` (notch + filter bank),
+    ``band_weights`` and ``reference``. With a multi-sub-band filter bank, each sub-band is
+    scored on its own and the score matrices are added up with ``band_weights``, a plain list
+    of one weight per sub-band that sums to 1 (see :func:`uniform_weights` and
+    :func:`decaying_power_law_weights`).
 
     The ``reference.mode`` setting is **required** (no default). Each mode is named for what
     the reference is made of:
@@ -195,7 +511,8 @@ class TMCCAPipeline(DecodingPipeline):
     * ``"calibrated_template"`` -- **calibrated**. :meth:`fit` learns, per shift-family and per
       sub-band, a coherent-average EEG template and a spatial filter (it needs ``spell_target``).
       Scoring projects both the template and the test segment to 1-D with that filter and
-      takes their ``|Pearson|``. A full multichannel template would let CCA align any command,
+      takes their **signed** Pearson correlation (an anti-correlated segment is evidence
+      against that command, so its score must stay negative). A full multichannel template would let CCA align any command,
       so the 1-D projection is what tells commands apart. Shift-coded commands (c-VEP) are
       built from one pooled base template by rolling it by the command's code lag. Distinct
       codes (Gold c-VEP, SSVEP) each keep their own template. One mode serves both
@@ -223,22 +540,45 @@ class TMCCAPipeline(DecodingPipeline):
     # ---- configuration schema (SettingsTree) ----
     @classmethod
     def default_settings(cls) -> SettingsTree:
-        """A GUI-editable, levelled schema; ``reference.mode`` is required (no default)."""
-        s = SettingsTree()
-        s.add_item("channels", value=[], info="Channels to decode (required)")
-        s.add_item("signal_key", value="eeg", info="Recording stream key to decode")
-        add_notch_and_filterbank_settings(s)
-        s.add_item("car", value=False,
-                   info="Common-average reference before scoring (CCA already "
-                        "spatially filters; CAR makes the montage rank-deficient)")
-        ref = s.add_group("reference", info="Template-matching reference")
-        ref.add_item("mode", value=None, value_options=list(_REFERENCE_MODES),
-                     info="Reference mode (REQUIRED): 'synthetic_harmonics' (calibration-free "
-                          "SSVEP), 'calibrated_template' (learned template; c-VEP + SSVEP, needs "
-                          "fit), or 'mixed_harmonics_template' (eCCA; calibrated SSVEP, needs fit)")
-        ref.add_item("n_harmonics", value=3, value_range=[1, None],
-                     info="Sine/cosine harmonics per reference (harmonic modes)")
-        return s
+        """The bare schema, with ``reference.mode`` left **required** (no default).
+
+        This pipeline has no one sensible configuration -- the three references serve three
+        different paradigms -- so the mode is deliberately unset and constructing without one
+        raises. Build the settings instead with a profile (:func:`zerocal_ssvep_settings`,
+        :func:`cal_ssvep_settings`, :func:`cvep_settings`) or with :func:`tm_cca_settings` for
+        a recipe of your own.
+        """
+        return tm_cca_settings(mode=None)
+
+    def _check_settings(self) -> None:
+        """Check the two things a plain ``SettingsTree`` validation cannot.
+
+        ``reference.mode`` must be set -- it has no default, so choosing a paradigm is always
+        a deliberate act -- and ``band_weights`` must hold one weight per filter-bank sub-band.
+
+        The order of the three steps matters. The mode check comes **before**
+        ``super()._check_settings()``: the generic validation already rejects an unset mode
+        (``None`` is not one of its ``value_options``), so letting it run first would shadow
+        the message below with ``"None not in options [...]"``, which tells a user nothing
+        about profiles. The ``band_weights`` check comes **after** it, because that one reads
+        the tree -- it needs the filter bank's length -- so it should only run once every leaf
+        is known to be valid.
+        """
+        cfg = self.cfg
+        if cfg["reference"]["mode"] is None:
+            raise ValueError(
+                "TMCCAPipeline has no default configuration: reference.mode is required, "
+                "because its three references serve three different paradigms. Build the "
+                "settings with a ready-made profile:\n"
+                "  zerocal_ssvep_settings()  calibration-free SSVEP (no fit)\n"
+                "  cal_ssvep_settings()      calibrated SSVEP, eCCA (needs fit + stim_freq)\n"
+                "  cvep_settings()           calibrated c-VEP (needs fit)\n"
+                "as in TMCCAPipeline(settings=cvep_settings(), channels=[...]); or write your "
+                "own recipe with tm_cca_settings function")
+        super()._check_settings()
+        # Checked here so a bank/weights mismatch is caught at construction rather than deep
+        # inside predict().
+        _check_band_weights(cfg["band_weights"], len(cfg["freq_filtering"]["filterbank"]))
 
     # ---- validation ----
     def check_consistency(self, recording: Recording) -> None:
@@ -304,7 +644,11 @@ class TMCCAPipeline(DecodingPipeline):
         return self
 
     def predict(self, recording: Recording) -> NDArray:
-        """Cumulative ``(n_cycles, n_commands)`` correlations (FBCCA-combined over sub-bands)."""
+        """Cumulative ``(n_cycles, n_commands)`` correlations, summed over the sub-bands.
+
+        Each filter-bank sub-band is scored on its own, then the per-band score matrices are
+        added up weighted by the ``band_weights`` group.
+        """
         cfg = self.cfg
         if cfg["reference"]["mode"] in _CALIBRATED_MODES and not self._fitted:
             raise RuntimeError(
@@ -317,7 +661,9 @@ class TMCCAPipeline(DecodingPipeline):
         band_segs = self._cycle_segments_per_band(
             recording.signals[cfg["signal_key"]],
             onsets, n_frames, sd.fps_resolution, cfg)
-        weights = _fbcca_weights(len(band_segs))
+        # Re-checked here (the bank may have been edited since construction) and used as the
+        # validated array, so the numbers checked are the numbers multiplied in.
+        weights = _check_band_weights(cfg["band_weights"], len(band_segs))
         combined = None                              # weighted sum of per-sub-band scores
         for b, segs in enumerate(band_segs):
             score_fn = self._build_score_fn(sd, segs.shape[1], n_frames, b)
@@ -366,7 +712,7 @@ class TMCCAPipeline(DecodingPipeline):
             )
             for i in range(len(sd.command_uids))
         ]
-        return lambda avg: np.array([_corr1d(avg @ w, t1d) for w, t1d in scorers])
+        return lambda avg: np.array([_pearson_signed(avg @ w, t1d) for w, t1d in scorers])
 
     def _mixed_score_fn(self, sd: SpellerData, n_samples: int, n_frames: int, band: int):
         """Calibrated SSVEP (eCCA): fuse the synthetic harmonics and the learned template.

@@ -1,9 +1,9 @@
 """Model-agnostic building blocks shared across the VEP-speller decoding pipelines.
 
 Private helpers used by every Layer-1 pipeline and the Layer-2 command decoder: the
-per-cycle / per-frame event arrays, the shared trial/cycle ordering, and the FBCCA sub-band
-score weighting. The frequency-filtering schema and its application are shared with every
-``bci`` paradigm and live in :mod:`medusa.pipelines.bci._filtering`
+per-cycle / per-frame event arrays and the shared trial/cycle ordering. The frequency-filtering
+schema and its application are shared with every ``bci`` paradigm and live in
+:mod:`medusa.pipelines.bci._filtering`
 (:func:`~medusa.pipelines.bci._filtering.add_notch_and_filterbank_settings` /
 :func:`~medusa.pipelines.bci._filtering.apply_notch_and_filterbank`).
 
@@ -15,7 +15,6 @@ code that cycle showed, ``0`` for single-code paradigms). The per-frame onsets c
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
 
 
 # --------------------------------------------------------------------------- #
@@ -57,19 +56,3 @@ def _trial_cycle_order(cycle_trial, cycle_idx):
     for t in np.unique(cycle_trial):
         m = np.where(cycle_trial == t)[0]
         yield int(t), m[np.argsort(cycle_idx[m], kind="stable")]
-
-
-# --------------------------------------------------------------------------- #
-# FBCCA sub-band score weighting
-# --------------------------------------------------------------------------- #
-def _fbcca_weights(n_bands: int) -> NDArray:
-    """Normalised filter-bank sub-band weights ``w_k ~ k**-1.25 + 0.25`` (they sum to 1).
-
-    The standard FBCCA weighting (Chen et al. 2015), normalised so that a single sub-band
-    gets weight 1 (then the combined score equals the plain single-band score). This is a
-    score-fusion weighting, not a filtering step, so it lives with the template-matching
-    pipeline rather than in :mod:`medusa.pipelines.bci._filtering`.
-    """
-    k = np.arange(1, n_bands + 1, dtype=float)
-    w = k ** -1.25 + 0.25
-    return w / w.sum()

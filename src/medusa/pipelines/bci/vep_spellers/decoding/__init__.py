@@ -20,7 +20,15 @@ helper modules:
     :class:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.TMCCAPipeline`:
     coherently average each command's cycle segments, then score against a synthetic
     harmonic bank (CCA, calibration-free SSVEP), a learned template (c-VEP / SSVEP), or the
-    two fused (``mixed_harmonics_template``, extended-CCA / eCCA).
+    two fused (``mixed_harmonics_template``, extended-CCA / eCCA). It has no single sensible
+    configuration, so it ships **profiles** -- one ready settings tree per paradigm:
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.zerocal_ssvep_settings`,
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.cal_ssvep_settings`
+    and
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.cvep_settings`
+    (or
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.tm_cca_settings`
+    to write your own).
 
 * **Layer 2** (:mod:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder`,
   :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`) is a
@@ -54,13 +62,29 @@ from medusa.pipelines.bci.vep_spellers.decoding.command_decoder import (
     command_decoding_accuracy_per_cycle,
 )
 from medusa.pipelines.bci.vep_spellers.decoding.bwr_lda import BWRLDAPipeline
-from medusa.pipelines.bci.vep_spellers.decoding.template_matching import TMCCAPipeline
+from medusa.pipelines.bci.vep_spellers.decoding.template_matching import (
+    TMCCAPipeline,
+    tm_cca_settings,
+    zerocal_ssvep_settings,
+    cal_ssvep_settings,
+    cvep_settings,
+    uniform_weights,
+    decaying_power_law_weights,
+)
 
 __all__ = [
     # Layer-1 scoring pipelines
     "BWRLDAPipeline",
     "TMCCAPipeline",
     "BWREEGInceptionPipeline",   # torch-gated; resolved lazily via __getattr__
+    # TMCCAPipeline configuration profiles (one paradigm each)
+    "tm_cca_settings",
+    "zerocal_ssvep_settings",
+    "cal_ssvep_settings",
+    "cvep_settings",
+    # filter-bank score weights (build the list, then pass it in)
+    "uniform_weights",
+    "decaying_power_law_weights",
     # Layer-2 command decoder
     "VEPCommandDecoder",
     # pure scoring functions + selectors + metrics

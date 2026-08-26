@@ -18,7 +18,9 @@ For each method we also compare two front-ends:
 
 * a **single band-pass** 1-70 Hz, and
 * a **filter bank** of three sub-bands (1-70, 10-70, 30-70 Hz), fused before the
-  classifier for BWR and combined with FBCCA weights for TM.
+  classifier for BWR, and for TM scored per sub-band and then added up with one weight per
+  sub-band. The c-VEP profile weights them **equally**: unlike an SSVEP response, a broadband
+  code has no fundamental that would justify favouring the lower sub-bands.
 
 That makes a 2x2 grid. On top of it, when PyTorch is installed, we add the **deep** BWR
 pipeline (:class:`~medusa.pipelines.bci.vep_spellers.BWREEGInceptionPipeline`) with **both**
@@ -44,8 +46,8 @@ import matplotlib.pyplot as plt
 from medusa.core.legacy.recording import Recording as LegacyRecording
 from medusa.core.legacy.convert import cvep_recording_to_v2
 from medusa.pipelines.bci.vep_spellers import (
-    BWRLDAPipeline, TMCCAPipeline, VEPCommandDecoder,
-    command_decoding_accuracy_per_cycle)
+    BWRLDAPipeline, TMCCAPipeline, cvep_settings,
+    VEPCommandDecoder, command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data", "cvep")
@@ -112,10 +114,11 @@ def make_pipeline(method, filterbank):
             freq_filtering={"filterbank": filterbank},
             epoching={"w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": 0.0})
     if method == "TM":
+        # cvep_settings builds the bank and its matching sub-band weights together: c-VEP
+        # weights the sub-bands equally, because a broadband code has no fundamental to favour.
         return TMCCAPipeline(
-            channels=channels,
-            freq_filtering={"filterbank": filterbank},
-            reference={"mode": "calibrated_template"})
+            settings=cvep_settings(bands=[spec["cutoff"] for spec in filterbank]),
+            channels=channels)
     if method == "BWR-EEGInc-v1" or method == "BWR-EEGInc-v2":
         # Deep BWR: same epoching as the shallow BWR (raw 256 Hz, 250 ms -> 64 samples), but the
         # epochs feed an EEG-Inception backbone. scales_ms suit the short frame window (-> ~32/16/8
