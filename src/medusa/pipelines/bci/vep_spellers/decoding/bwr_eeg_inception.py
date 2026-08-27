@@ -138,7 +138,7 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         s.add_item("car", value=True, info="Common-average reference before filtering")
         add_notch_and_filterbank_settings(s)
         ep = s.add_group("epoching", info="Per-frame epoch windowing + resampling")
-        ep.add_item("w_segment_t", value=[0.0, 800.0],
+        ep.add_item("w_segment_t", value=[0.0, 500.0],
                     info="Epoch window relative to each frame onset (ms)")
         ep.add_item("baseline_t", value=[-200.0, 0.0],
                     info="Baseline window (ms); empty to disable")

@@ -429,3 +429,92 @@ class TestGroupList:
             plain.add_element()
         with pytest.raises(TypeError):
             _ = plain.element
+
+
+# ---------------------------------------------------------------------------
+# console rendering (describe / print_tree / __str__)
+# ---------------------------------------------------------------------------
+class TestConsoleRendering:
+    def test_values_detail_lists_every_leaf(self, sample_tree):
+        out = sample_tree.describe()
+        assert out.splitlines()[0] == "SettingsTree"
+        assert "update_rate = 0.2" in out
+        assert "frequency_filter" in out and "type = 'highpass'" in out
+        # 'values' shows values only: no constraints, defaults or help text
+        assert "range:" not in out and "options:" not in out
+        assert "Update rate" not in out
+
+    def test_full_detail_adds_constraints_and_info(self, sample_tree):
+        out = sample_tree.describe(detail="full")
+        assert "[range: >= 0]" in out
+        assert "options: 'highpass', 'lowpass', 'bandpass'" in out
+        assert "# Update rate (s)" in out
+        assert "# IIR filter" in out                     # groups show their info too
+
+    def test_full_detail_shows_default_only_when_edited(self, sample_tree):
+        assert "default:" not in sample_tree.describe(detail="full")
+        sample_tree.set_value("frequency_filter", "order", value=7)
+        out = sample_tree.describe(detail="full")
+        assert "order = 7  [default: 5 | range: >= 1]" in out
+
+    def test_range_formats(self):
+        s = SettingsTree()
+        s.add_item("both", value=5, value_range=[1, 10])
+        s.add_item("upper", value=5, value_range=[None, 10])
+        out = s.describe(detail="full")
+        assert "[range: 1..10]" in out and "[range: <= 10]" in out
+
+    def test_unset_leaf(self):
+        s = SettingsTree()
+        s.add_item("montage")
+        assert "montage = <not set>" in s.describe()
+
+    def test_subtree_title_defaults_to_its_key(self, sample_tree):
+        out = sample_tree.get_item("frequency_filter").describe()
+        assert out.splitlines()[0] == "frequency_filter"
+        assert "update_rate" not in out                  # only this subtree
+
+    def test_explicit_title(self, sample_tree):
+        assert sample_tree.describe(title="My settings").startswith("My settings")
+
+    def test_group_list_shows_indexed_elements(self, filterbank_tree):
+        filterbank_tree.get_item("freq_filtering", "filterbank").add_element()
+        out = filterbank_tree.describe()
+        assert "filterbank  (group-list, 2 elements)" in out
+        assert "[0]" in out and "[1]" in out
+        assert out.count("filt_type = 'iir'") == 2
+
+    def test_empty_group_list_shows_template_in_full_detail(self):
+        s = SettingsTree()
+        s.add_group_list("bands").element.add_item("low", value=1.0)
+        assert "(group-list, 0 elements)" in s.describe()
+        assert "<template>" not in s.describe()          # values: elements only
+        full = s.describe(detail="full")
+        assert "<template>" in full and "low = 1.0" in full
+
+    def test_ascii_guides_and_no_ansi(self, sample_tree):
+        out = sample_tree.describe()
+        assert "\x1b[" not in out                        # no colour escapes
+        assert out.isascii()                             # printable on any console
+        assert "`-- " in out                             # ASCII tree guides
+
+    def test_markup_in_values_is_not_interpreted(self):
+        s = SettingsTree()
+        s.add_item("pattern", value="[bold red]x[/]", info="[i]")
+        out = s.describe(detail="full")
+        assert "'[bold red]x[/]'" in out and "# [i]" in out
+
+    def test_str_is_describe_with_defaults(self, sample_tree):
+        assert str(sample_tree) == sample_tree.describe()
+        assert not str(sample_tree).endswith("\n")
+
+    def test_repr_stays_terse(self, sample_tree):
+        assert "\n" not in repr(sample_tree)
+
+    def test_print_tree_writes_to_stdout(self, sample_tree, capsys):
+        sample_tree.print_tree()
+        assert "update_rate" in capsys.readouterr().out
+
+    def test_invalid_detail(self, sample_tree):
+        with pytest.raises(ValueError, match="'values' or 'full'"):
+            sample_tree.describe(detail="everything")

@@ -48,6 +48,13 @@ filterbank.add_element()                                       # a band-pass 1â€
 filterbank.add_element({"band_type": "bandpass", "cutoff": [8.0, 15.0], "order": 4})
 settings.snapshot_defaults()          # baseline the group-list default (as Configurable does)
 
+# A terminal view of the whole schema: 'values' is the plain configuration,
+# 'full' adds constraints, editor hints, help text and the edited defaults.
+settings.print_tree(title="Schema (values)")
+print()
+settings.print_tree(detail="full", title="Schema (full)")
+print()
+
 # The group-list projects to a plain list of dicts -- read like any list value.
 print("filterbank config (a list of dicts):")
 for spec in settings.to_dict()["filterbank"]:

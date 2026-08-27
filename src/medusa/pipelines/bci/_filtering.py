@@ -103,8 +103,8 @@ def add_band_filter_settings(settings: "SettingsTree", cutoff: list, order: int)
 
 def add_notch_and_filterbank_settings(
         settings: "SettingsTree", *,
-        bands: "Sequence[Sequence[float]]" = ((1.0, 70.0),), order: int = 5,
-        notch_cutoff: "Sequence[float]" = (48.0, 52.0), notch_order: int = 4,
+        bands: "Sequence[Sequence[float]]" = ((1.0, 60.0),), order: int = 7,
+        notch_cutoff: "Sequence[float]" = (49.0, 51.0), notch_order: int = 7,
         notch_enabled: bool = True) -> None:
     """Add the notch + parallel filter-bank schema (a ``notch_filtering`` and ``freq_filtering`` group).
 

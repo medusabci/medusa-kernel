@@ -18,7 +18,9 @@ loop:
 * render and edit it with ``medusa.widgets.settings_tree`` (the Qt half), then
   read the edited tree back with ``SettingsTreeWidget.get_settings()``,
 * consume the result as a plain nested ``{key: value}`` config with
-  :meth:`to_dict`.
+  :meth:`to_dict`,
+* and, at any point, look at it from a terminal with :meth:`print_tree`
+  (or just ``print(settings)``).
 
 This module imports no Qt and persists only to JSON (:meth:`to_json` /
 :meth:`from_json`).
@@ -40,6 +42,7 @@ Examples
 from __future__ import annotations
 
 import copy
+import io
 import json
 import warnings
 from abc import ABC, abstractmethod
@@ -216,6 +219,116 @@ def _warn_out_of_constraints(key: str, value: Any,
             warnings.warn(
                 f"value {value!r} for {key!r} is outside value_range "
                 f"{value_range}.", stacklevel=3)
+
+
+# ---------------------------------------------------------------------------
+# Console rendering helpers (the text half of SettingsTree.print_tree)
+# ---------------------------------------------------------------------------
+class _AsciiStringIO(io.StringIO):
+    """A capture buffer that declares an ASCII encoding.
+
+    ``rich`` picks its tree guides from the encoding its output file reports.
+    A plain :class:`io.StringIO` reports none, so ``rich`` assumes UTF-8 and
+    draws the guides with box-drawing characters (``|-- `` becomes ``├── ``),
+    which then crash on a console whose code page cannot encode them (a common
+    case on Windows).
+    Declaring ASCII keeps :meth:`SettingsTree.describe` printable everywhere
+    and identical on every platform.
+    """
+
+    encoding = "ascii"
+
+
+#: ``rich`` styles of the console rendering.
+_STYLE_KEY = "bold"
+_STYLE_VALUE = "cyan"
+_STYLE_EDITED = "bold yellow"       # a value that differs from its default
+_STYLE_META = "dim"
+_STYLE_INFO = "dim italic"
+
+
+def _format_range(value_range: list) -> str:
+    """Render a ``value_range`` as ``'1..10'``, ``'>= 0'`` or ``'<= 5'``."""
+    low, high = value_range
+    if low is not None and high is not None:
+        return f"{low}..{high}"
+    if low is not None:
+        return f">= {low}"
+    if high is not None:
+        return f"<= {high}"
+    return "any"
+
+
+def _node_meta(node: dict) -> list:
+    """The ``detail='full'`` annotations of a leaf, in display order.
+
+    The ``default`` is listed only when the current value differs from it, so a
+    reader sees at a glance which items were edited.
+    """
+    meta = []
+    value = node.get("value", node.get("default"))
+    if "default" in node and node["default"] != value:
+        meta.append(f"default: {node['default']!r}")
+    options = node.get("value_options")
+    if options is not None:
+        meta.append("options: " + ", ".join(repr(o) for o in options))
+    if node.get("value_range") is not None:
+        meta.append("range: " + _format_range(node["value_range"]))
+    if node.get("input_format") is not None:
+        meta.append(f"format: {node['input_format']}")
+    if node.get("element_schema") is not None:
+        meta.append(f"element_schema: {node['element_schema']}")
+    return meta
+
+
+def _leaf_parts(node: dict, detail: str) -> list:
+    """Build the ``(text, style)`` parts of a leaf line."""
+    value = node.get("value", node.get("default"))
+    edited = "default" in node and node["default"] != value
+    parts: list = [(str(node.get("key")), _STYLE_KEY), " = "]
+    if "value" not in node and "default" not in node:    # a required, unset item
+        parts.append(("<not set>", _STYLE_INFO))
+    else:
+        parts.append((repr(value), _STYLE_EDITED if edited else _STYLE_VALUE))
+    if detail == "full":
+        meta = _node_meta(node)
+        if meta:
+            parts.append(("  [" + " | ".join(meta) + "]", _STYLE_META))
+        if node.get("info"):
+            parts.append(("  # " + node["info"], _STYLE_INFO))
+    return parts
+
+
+def _branch_parts(node: dict, detail: str) -> list:
+    """Build the ``(text, style)`` parts of a group (or group-list) line."""
+    parts: list = [(str(node.get("key")), _STYLE_KEY)]
+    if "element_group" in node:
+        n = len(node.get("items", []))
+        parts.append((f"  (group-list, {n} element{'' if n == 1 else 's'})",
+                      _STYLE_META))
+    if detail == "full" and node.get("info"):
+        parts.append(("  # " + node["info"], _STYLE_INFO))
+    return parts
+
+
+def _add_nodes(branch, node: dict, detail: str) -> None:
+    """Add ``node``'s children to a ``rich`` tree branch (recursive)."""
+    from rich.text import Text
+    if "element_group" in node:                          # group-list
+        elements = node.get("items", [])
+        if detail == "full" and not elements:            # empty: show the schema
+            _add_nodes(branch.add(Text("<template>", style=_STYLE_INFO)),
+                       node["element_group"], detail)
+        for i, element in enumerate(elements):
+            _add_nodes(branch.add(Text(f"[{i}]", style=_STYLE_META)),
+                       element, detail)
+        return
+    for child in node.get("items", []):
+        if "items" in child:                             # group or group-list
+            _add_nodes(branch.add(Text.assemble(*_branch_parts(child, detail))),
+                       child, detail)
+        else:
+            branch.add(Text.assemble(*_leaf_parts(child, detail)))
 
 
 # ---------------------------------------------------------------------------
@@ -880,6 +993,89 @@ class SettingsTree:
         with open(path, "r", encoding=encoding) as f:
             return cls(json.load(f))
 
+    # -- console rendering --------------------------------------------------
+    def print_tree(self, detail: str = "values",
+                   title: Optional[str] = None) -> None:
+        """Print this subtree to the terminal as an indented, colored tree.
+
+        The quickest way to see what a configuration currently holds::
+
+            >>> settings.print_tree()
+            SettingsTree
+            ├── update_rate = 0.2
+            └── frequency_filter
+                ├── apply = True
+                └── order = 5
+
+        Values that differ from their default are highlighted. Use
+        ``detail='full'`` to also see where each value may move (its range or
+        options), what it was built with, and what it is for.
+
+        Parameters
+        ----------
+        detail : {'values', 'full'}, default 'values'
+            ``'values'`` prints only ``key = value``, i.e. the configuration as
+            :meth:`to_dict` projects it. ``'full'`` adds each item's
+            constraints (``value_range``, ``value_options``,
+            ``element_schema``), its editor hint (``input_format``), its help
+            text (``info``), and its ``default`` -- the default is shown only
+            when the current value differs from it, so it marks what has been
+            edited. An empty group-list also shows its element template.
+        title : str, optional
+            Text of the root line. Defaults to the node key, or
+            ``'SettingsTree'`` for the root.
+
+        Raises
+        ------
+        ValueError
+            If ``detail`` is not ``'values'`` or ``'full'``.
+
+        See Also
+        --------
+        describe : the same rendering, returned as a plain string.
+        """
+        from rich.console import Console
+        Console().print(self._rich_tree(detail, title))
+
+    def describe(self, detail: str = "values",
+                 title: Optional[str] = None) -> str:
+        """Return what :meth:`print_tree` prints, as plain text (no colors).
+
+        Use it to log a configuration, to embed one in a report, or to compare
+        two of them. ``str(settings)`` is this method with its defaults.
+
+        Parameters
+        ----------
+        detail : {'values', 'full'}, default 'values'
+            See :meth:`print_tree`.
+        title : str, optional
+            See :meth:`print_tree`.
+
+        Returns
+        -------
+        str
+            The tree, drawn with ASCII guides, wrapped at 100 columns and
+            without a trailing newline.
+        """
+        from rich.console import Console
+        console = Console(file=_AsciiStringIO(), width=100, no_color=True,
+                          legacy_windows=False)
+        console.print(self._rich_tree(detail, title))
+        return console.file.getvalue().rstrip("\n")
+
+    def _rich_tree(self, detail: str, title: Optional[str]):
+        """Build the ``rich.tree.Tree`` shared by print_tree/describe."""
+        from rich.text import Text
+        from rich.tree import Tree
+        if detail not in ("values", "full"):
+            raise ValueError("'detail' must be 'values' or 'full'; got "
+                             f"{detail!r}.")
+        if title is None:
+            title = "SettingsTree" if self.key is None else str(self.key)
+        tree = Tree(Text(title, style=_STYLE_KEY), guide_style=_STYLE_META)
+        _add_nodes(tree, self.tree, detail)
+        return tree
+
     # -- dunders ------------------------------------------------------------
     def __getitem__(self, key: str) -> "SettingsTree":
         return self.get_item(key)
@@ -892,6 +1088,9 @@ class SettingsTree:
 
     def __len__(self) -> int:
         return len(self._child_nodes())
+
+    def __str__(self) -> str:
+        return self.describe()
 
     def __repr__(self) -> str:
         if self.is_group_list:
