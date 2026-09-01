@@ -138,49 +138,71 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         s.add_item("car", value=True, info="Common-average reference before filtering")
         add_notch_and_filterbank_settings(s)
         seg = s.add_group("segmentation", info="Per-frame segment windowing + resampling")
-        seg.add_item("w_segment_t", value=[0.0, 500.0],
+        seg.add_item("w_segment_t",
+                     value=[0.0, 500.0],
                      info="Segment window relative to each frame onset (ms)")
-        seg.add_item("baseline_t", value=[-200.0, 0.0],
-                     info="Baseline window (ms); empty to disable")
-        seg.add_item("target_fs", value=128.0,
+        seg.add_item("baseline_t",
+                     value=[-200.0, 0.0],
                      optional=True,
+                     enabled=False,
+                     info="Baseline window (ms); empty to disable")
+        seg.add_item("target_fs",
+                     value=128.0,
+                     optional=True,
+                     enabled=True,
                      value_range=[1.0, None],
-                     info="Resample segments to this rate (Hz); switch it off to keep "
-                          "the native rate")
-        clf = s.add_group("classifier", info="EEG-Inception frame classifier")
-        clf.add_item("arch", value="eeg_inception_v1",
+                     info="Resample segments to this rate (Hz); "
+                          "switch it off to keep the native rate")
+        clf = s.add_group("classifier",
+                          info="EEG-Inception frame classifier")
+        clf.add_item("arch",
+                     value="eeg_inception_v1",
                      value_options=list(_ARCHITECTURES),
                      info="EEG-Inception architecture (v1 or v2)")
-        clf.add_item("scales_ms", value=[500.0, 250.0, 125.0],
+        clf.add_item("scales_ms",
+                     value=[100.0, 75.0, 50.0],
                      info="Temporal inception kernel scales (ms); converted to samples at "
                           "build time with target_fs, or the raw signal rate when it is off)")
-        clf.add_item("filters_per_branch", value=8, value_range=[1, None],
+        clf.add_item("filters_per_branch",
+                     value=8,
+                     value_range=[1, None],
                      info="Convolutional filters per inception branch")
-        clf.add_item("dropout_rate", value=0.25, value_range=[0, 1],
+        clf.add_item("dropout_rate",
+                     value=0.25,
+                     value_range=[0, 1],
                      info="Dropout probability")
-        clf.add_item("activation", value="elu",
-                     value_options=["elu", "relu", "leaky_relu"],
-                     info="Activation function (eeg_inception_v2 only)")
-        tr = clf.add_group("training", info="TorchClassifier training hyper-parameters")
-        tr.add_item("max_epochs", value=500, value_range=[1, None],
+        tr = clf.add_group("training",
+                           info="TorchClassifier training hyper-parameters")
+        tr.add_item("max_epochs",
+                    value=500,
+                    value_range=[1, None],
                     info="Maximum training epochs")
-        tr.add_item("batch_size", value=512, value_range=[1, None],
+        tr.add_item("batch_size",
+                    value=512,
+                    value_range=[1, None],
                     info="Mini-batch size")
-        tr.add_item("learning_rate", value=1e-3, value_range=[0, None],
+        tr.add_item("learning_rate",
+                    value=1e-3,
+                    value_range=[0, None],
                     info="Adam learning rate")
-        tr.add_item("val_split", value=0.2, optional=True, value_range=[0, 1],
+        tr.add_item("val_split",
+                    value=0.2,
+                    optional=True,
+                    value_range=[0, 1],
                     info="Validation fraction for early stopping; switch it off to "
                          "train without a validation split")
-        tr.add_item("patience", value=10, value_range=[1, None],
+        tr.add_item("patience",
+                    value=10,
+                    value_range=[1, None],
                     info="Early-stopping patience (epochs)")
-        tr.add_item("device", value="auto",
-                    info="Compute device ('auto', 'cpu', 'cuda', 'cuda:N', 'mps'); keep "
-                         "'auto' so a saved model reloads on any host (a fixed 'cuda' "
-                         "fails to load on a CPU-only machine)")
+        tr.add_item("device",
+                    value="auto",
+                    info="Compute device ('auto', 'cpu', 'cuda', "
+                         "'cuda:N', 'mps'); ")
         tr.add_item("verbose", value="epoch",
                     value_options=["silent", "epoch", "full"],
-                    info="Training log: 'silent' / 'epoch' (one line per epoch) / "
-                         "'full' (Lightning debug)")
+                    info="Training log: 'silent' / 'epoch' "
+                         "(one line per epoch) / 'full' (Lightning debug)")
         return s
 
     # ---- validation ----

@@ -59,8 +59,6 @@ class EEGInceptionV2(nn.Module):
         Dropout layer type. Default ``'Dropout'``.
     dropout_rate : float, optional
         Dropout probability. Default ``0.25``.
-    activation : {'elu', 'relu', 'leaky_relu'}, optional
-        Activation function. Default ``'elu'``.
 
     Attributes
     ----------
@@ -82,13 +80,16 @@ class EEGInceptionV2(nn.Module):
     input_layout = ('batch', 'feature', 'n_samples', 'n_channels')
 
     def __init__(self, input_samples: int, n_cha: int,
-                 n_temp_inc_blocks: int = 1, temp_filt_per_branch: int = 8,
+                 n_temp_inc_blocks: int = 1,
+                 temp_filt_per_branch: int = 8,
                  temp_scales_samples=(100, 75, 50),
                  dil_filt_per_branch: int = 8,
                  dil_branch_specs=((5, 1), (5, 5), (5, 10), (5, 15)),
-                 n_dil_inc_blocks: int = 1, n_spatial_filt_mult: int = 2,
-                 output_pooling_factor: int = 2, dropout_type: str = 'Dropout',
-                 dropout_rate: float = 0.25, activation: str = 'elu'):
+                 n_dil_inc_blocks: int = 1,
+                 n_spatial_filt_mult: int = 2,
+                 output_pooling_factor: int = 2,
+                 dropout_type: str = 'Dropout',
+                 dropout_rate: float = 0.25):
         super().__init__()
 
         # ---- validation ---- #
@@ -123,20 +124,12 @@ class EEGInceptionV2(nn.Module):
         self.output_pooling_factor = output_pooling_factor
         self.dropout_type = dropout_type
         self.dropout_rate = dropout_rate
-        self.activation = activation
 
         n_std_branches = len(self.temp_scales_samples)
         n_dil_branches = len(dil_branch_specs)
 
         # Select activation function.
-        if activation == 'elu':
-            act_fn = nn.ELU
-        elif activation == 'relu':
-            act_fn = nn.ReLU
-        elif activation == 'leaky_relu':
-            act_fn = nn.LeakyReLU
-        else:
-            raise ValueError(f"Unsupported activation: {activation}.")
+        act_fn = nn.ELU
 
         # Select dropout type.
         dropout_cls = (nn.Dropout2d if dropout_type == 'SpatialDropout2D'
@@ -351,5 +344,4 @@ class EEGInceptionV2(nn.Module):
             'output_pooling_factor': self.output_pooling_factor,
             'dropout_type': self.dropout_type,
             'dropout_rate': self.dropout_rate,
-            'activation': self.activation,
         }
