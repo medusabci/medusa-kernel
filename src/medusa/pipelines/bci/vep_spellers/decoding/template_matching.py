@@ -528,7 +528,7 @@ class TMCCAPipeline(DecodingPipeline):
     A *template-matching* sibling of
     :class:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_lda.BWRLDAPipeline`. Like it, it
     is a **direct** :class:`~medusa.pipelines.base.DecodingPipeline` (no shared template-matching
-    base): its feature path (one multichannel segment per *cycle*, no per-frame epoching) has
+    base): its feature path (one multichannel segment per *cycle*, no per-frame segmentation) has
     nothing in common with BWR's. TRCA (a different spatial-filter objective) will be a separate
     pipeline.
     """
@@ -776,7 +776,7 @@ class TMCCAPipeline(DecodingPipeline):
         learns its own template set (see :meth:`_pool_templates`).
         """
         cfg = self.cfg
-        band_epochs, codes, n_samples, n_frames = None, {}, None, None
+        band_segments, codes, n_samples, n_frames = None, {}, None, None
         for rec in recordings:
             self.check_consistency(rec)
             sd = SpellerData.from_recording(rec)
@@ -789,19 +789,19 @@ class TMCCAPipeline(DecodingPipeline):
                 rec.signals[cfg["signal_key"]],
                 onsets, sd.codes.shape[2],
                 sd.fps_resolution, cfg)
-            if band_epochs is None:
-                band_epochs = [{} for _ in band_segs]
+            if band_segments is None:
+                band_segments = [{} for _ in band_segs]
             n_samples, n_frames = band_segs[0].shape[1], sd.codes.shape[2]
             row = {u: i for i, u in enumerate(sd.command_uids)}
             for b, segs in enumerate(band_segs):
                 for i, t in enumerate(trial):
                     uid = str(sd.spell_target[int(t)])
-                    band_epochs[b].setdefault(uid, []).append(segs[i])
+                    band_segments[b].setdefault(uid, []).append(segs[i])
                     codes[uid] = np.asarray(sd.codes[row[uid], 0])
-        if band_epochs is None or not codes:
+        if band_segments is None or not codes:
             raise ValueError("no calibration segments found to learn templates.")
         self.templates = [self._pool_templates(eps, codes, n_samples, n_frames)
-                          for eps in band_epochs]
+                          for eps in band_segments]
 
     @staticmethod
     def _pool_templates(epochs: dict, codes: dict, n_samples: int, n_frames: int) -> dict:
@@ -825,7 +825,7 @@ class TMCCAPipeline(DecodingPipeline):
                 bases.append((codes[uid], list(eps)))
         templates = {}
         for k, (base_code, pool) in enumerate(bases):
-            eps = np.stack(pool)                         # (n_epochs, n_samples, n_channels)
+            eps = np.stack(pool)                         # (n_segments, n_samples, n_channels)
             template = eps.mean(axis=0)                  # (n_samples, n_channels)
             cca = CCA()                                  # spatial filter: epochs <-> template
             cca.fit(eps.reshape(-1, eps.shape[2]), np.tile(template, (len(eps), 1)))

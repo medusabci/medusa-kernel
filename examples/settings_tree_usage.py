@@ -27,16 +27,26 @@ _BAND_TYPES = ["bandpass", "bandstop", "lowpass", "highpass"]
 # A schema: a scalar, a single "notch" group, and a "filterbank" GROUP-LIST.
 # --------------------------------------------------------------------------- #
 settings = SettingsTree()
-settings.add_item("update_rate", value=0.2, info="Update rate (s)", value_range=[0, None])
+settings.add_item("update_rate",
+                  value=0.2,
+                  info="Update rate (s)",
+                  value_range=[0, None])
 
-notch = settings.add_group("notch", info="Line-noise notch (bandstop)")
+settings.add_item("target_fs",
+                  value=100,
+                  info="Resample signal to value (Hz)",
+                  value_range=[0, None],
+                  optional=True)
+
+notch = settings.add_group("notch", info=("Line-noise notch (bandstop)"))
 notch.add_item("enabled", value=True, info="Apply the notch")
 notch.add_item("cutoff", value=[48.0, 52.0], info="Bandstop edges (Hz)")
 notch.add_item("order", value=4, value_range=[1, None], info="Filter order")
 
 # The group-list: populate the element *template* once, then seed default elements.
 filterbank = settings.add_group_list(
-    "filterbank", info="Parallel sub-band filters — add/remove filters in the viewer")
+    "filterbank",
+    info="Parallel sub-band filters — add/remove filters in the viewer")
 element = filterbank.element
 element.add_item("filt_type", value="iir", value_options=["iir", "fir"],
                  info="Filter family")

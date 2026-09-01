@@ -267,8 +267,13 @@ def _node_meta(node: dict) -> list:
     """
     meta = []
     value = node.get("value", node.get("default"))
+    if node.get("optional"):
+        meta.append("optional")
     if "default" in node and node["default"] != value:
         meta.append(f"default: {node['default']!r}")
+    if node.get("optional") and \
+            bool(node.get("enabled", True)) != bool(node.get("default_enabled", True)):
+        meta.append(f"default: enabled={node.get('default_enabled', True)}")
     options = node.get("value_options")
     if options is not None:
         meta.append("options: " + ", ".join(repr(o) for o in options))
@@ -285,11 +290,18 @@ def _leaf_parts(node: dict, detail: str) -> list:
     """Build the ``(text, style)`` parts of a leaf line."""
     value = node.get("value", node.get("default"))
     edited = "default" in node and node["default"] != value
+    off = node.get("optional") and not node.get("enabled", True)
+    toggled = node.get("optional") and \
+        bool(node.get("enabled", True)) != bool(node.get("default_enabled", True))
     parts: list = [(str(node.get("key")), _STYLE_KEY), " = "]
-    if "value" not in node and "default" not in node:    # a required, unset item
+    if off:                                              # switched off; value remembered
+        parts.append(("<disabled>", _STYLE_EDITED if toggled else _STYLE_INFO))
+        # parts.append((f" (was {value!r})", _STYLE_META))
+    elif "value" not in node and "default" not in node:   # a required, unset item
         parts.append(("<not set>", _STYLE_INFO))
     else:
-        parts.append((repr(value), _STYLE_EDITED if edited else _STYLE_VALUE))
+        parts.append((repr(value),
+                      _STYLE_EDITED if (edited or toggled) else _STYLE_VALUE))
     if detail == "full":
         meta = _node_meta(node)
         if meta:
@@ -362,9 +374,16 @@ class SettingsTree:
             "value_range": [min, max], # optional numeric bounds (None = open)
             "value_options": [...],    # optional enum
             "element_schema": {...},   # optional template for list elements
+            "optional": bool,          # leaf carries an on/off toggle (see add_item)
+            "enabled": bool,           # optional only: is the toggle on?
+            "default_enabled": bool,   # optional only: build-time toggle state
             "element_group": {...},    # group-list only: the element (group) template
             "items": [ <node>, ... ],  # branch children, or (group-list) element instances
         }
+
+    An *optional* leaf always keeps a real ``value``/``default``; being switched
+    off is a separate boolean, not a magic value. Only the lossy value
+    projection (:meth:`to_dict`) collapses a switched-off leaf to ``None``.
     """
 
     def __init__(self, tree: Optional[dict] = None):
@@ -396,6 +415,25 @@ class SettingsTree:
         return self.tree.get("info")
 
     @property
+    def is_optional(self) -> bool:
+        """Whether the leaf carries an on/off toggle (see :meth:`add_item`)."""
+        return bool(self.tree.get("optional"))
+
+    @property
+    def enabled(self) -> bool:
+        """Whether the toggle is on. Always ``True`` for a plain (non-optional) item."""
+        return bool(self.tree.get("enabled", True))
+
+    @enabled.setter
+    def enabled(self, flag: bool) -> None:
+        self.edit_item(enabled=flag)
+
+    @property
+    def default_enabled(self) -> bool:
+        """The toggle's build-time state (what :meth:`reset` restores)."""
+        return bool(self.tree.get("default_enabled", True))
+
+    @property
     def is_group(self) -> bool:
         """Whether the node is a branch (has children)."""
         return "items" in self.tree
@@ -414,7 +452,9 @@ class SettingsTree:
                  input_format: Optional[str] = None,
                  value_range: Optional[list] = None,
                  value_options: Optional[list] = None,
-                 element_schema: Optional[dict] = None) -> "SettingsTree":
+                 element_schema: Optional[dict] = None,
+                 optional: bool = False,
+                 enabled: bool = True) -> "SettingsTree":
         """Add a leaf item under this node and return it (for chaining).
 
         Parameters
@@ -437,6 +477,16 @@ class SettingsTree:
         element_schema : dict, optional
             For a list ``value``, a template applied to every element, e.g.
             ``{'input_format': 'spinbox', 'value_range': [0, None]}``.
+        optional : bool, default False
+            Give the item an on/off toggle. Use it for a knob that can be
+            switched off, instead of a magic "off" value like ``0``. The item
+            keeps a real ``value`` while switched off (so switching it back on
+            restores the number); only :meth:`to_dict` reports it as ``None``.
+            The editor shows a checkbox next to the ordinary input widget.
+        enabled : bool, default True
+            The toggle's build-time state, and what :meth:`reset` restores.
+            Pass ``enabled=False`` for a knob that ships switched off but still
+            carries a sensible number for when the user switches it on.
 
         Returns
         -------
@@ -449,10 +499,26 @@ class SettingsTree:
             If ``key``/``value``/``info``/``element_schema`` have invalid types.
         ValueError
             If ``key`` duplicates a sibling, or ``input_format``/``value_range``/
-            ``value_options`` are invalid or inconsistent.
+            ``value_options`` are invalid or inconsistent; or if ``optional`` is
+            used without a ``value``, or on a boolean item (which is already a
+            switch).
+
+        Examples
+        --------
+        >>> s = SettingsTree()
+        >>> _ = s.add_item("target_fs", value=20.0, optional=True,
+        ...                value_range=[1.0, None],
+        ...                info="Resample to this rate (Hz); uncheck to keep the native rate")
+        >>> s.to_dict()
+        {'target_fs': 20.0}
+        >>> _ = s.set_value("target_fs", value=None)   # switch it off
+        >>> s.to_dict()
+        {'target_fs': None}
+        >>> s.get_item("target_fs").value             # the number is remembered
+        20.0
         """
         node = self._build_node(key, value, info, input_format, value_range,
-                                value_options, element_schema)
+                                value_options, element_schema, optional, enabled)
         self._append(node)
         return SettingsTree(node)
 
@@ -608,10 +674,13 @@ class SettingsTree:
             return
         if "value" in node:                         # deep-copy: a list value must not alias
             node["default"] = copy.deepcopy(node["value"])
+        if node.get("optional"):                    # the toggle re-baselines too
+            node["default_enabled"] = bool(node.get("enabled", True))
 
     @staticmethod
     def _build_node(key, value, info, input_format, value_range,
-                    value_options, element_schema) -> dict:
+                    value_options, element_schema,
+                    optional=False, enabled=True) -> dict:
         key = _validate_key(key)
         if value is not None:
             value = _validate_value(value)
@@ -637,6 +706,20 @@ class SettingsTree:
             node["value_options"] = value_options
         if element_schema is not None:
             node["element_schema"] = element_schema
+        if optional:
+            # An optional item is defined by having a real value to remember while
+            # switched off; without one there would be nothing to switch back on.
+            if value is None:
+                raise ValueError(
+                    f"optional item {key!r} needs a 'value' to remember while it is "
+                    f"switched off; got None.")
+            if isinstance(value, bool):
+                raise ValueError(
+                    f"optional item {key!r} is a boolean, which is already an on/off "
+                    f"switch; drop optional=True.")
+            node["optional"] = True
+            node["enabled"] = bool(enabled)
+            node["default_enabled"] = bool(enabled)
         return node
 
     def _reject_duplicate(self, key: str) -> None:
@@ -710,20 +793,39 @@ class SettingsTree:
                   input_format: Optional[str] = None,
                   value_range: Optional[list] = None,
                   value_options: Optional[list] = None,
-                  element_schema: Optional[dict] = None) -> "SettingsTree":
+                  element_schema: Optional[dict] = None,
+                  enabled: Optional[bool] = None) -> "SettingsTree":
         """Edit this node's fields in place (only the given ones change).
 
         Editing ``value`` changes the current value but not the ``default``
         (use :meth:`reset` to restore the default).
 
+        On an *optional* item (see :meth:`add_item`), writing a real ``value``
+        also switches the item **on**, so ``edit_item(value=30.0)`` means
+        "switch it on and set it to 30". Pass ``enabled=False`` to switch it off
+        without touching the remembered value.
+
         Returns
         -------
         SettingsTree
             ``self``.
+
+        Raises
+        ------
+        TypeError
+            If ``enabled`` is given for an item that is not optional.
         """
         node = self.tree
+        if enabled is not None:
+            if not node.get("optional"):
+                raise TypeError(
+                    f"item {node.get('key')!r} is not optional; it has no on/off "
+                    f"toggle to set.")
+            node["enabled"] = bool(enabled)
         if value is not None:
             node["value"] = _validate_value(value)
+            if node.get("optional"):        # writing a real value switches it on
+                node["enabled"] = True
         if info is not None:
             node["info"] = _validate_info(info)
         if value_range is not None:
@@ -740,14 +842,18 @@ class SettingsTree:
                 node.pop("input_format", None)
             else:
                 node["input_format"] = stored
-        _warn_out_of_constraints(node.get("key"),
-                                 node.get("value", node.get("default")),
-                                 node.get("value_range"),
-                                 node.get("value_options"))
+        if not (node.get("optional") and not node.get("enabled", True)):
+            _warn_out_of_constraints(node.get("key"),      # dormant values stay quiet
+                                     node.get("value", node.get("default")),
+                                     node.get("value_range"),
+                                     node.get("value_options"))
         return self
 
-    def set_value(self, *keys: str, value: Primitive) -> "SettingsTree":
+    def set_value(self, *keys: str, value: Optional[Primitive]) -> "SettingsTree":
         """Navigate to ``keys`` and set its value in one call.
+
+        On an *optional* item, ``value=None`` switches it **off** (keeping the
+        remembered number) and any real value switches it back **on**.
 
         Returns ``self`` for chaining.
 
@@ -756,7 +862,27 @@ class SettingsTree:
         KeyError
             If any key in the path is not found.
         """
-        self.get_item(*keys).edit_item(value=value)
+        item = self.get_item(*keys)
+        if value is None and item.is_optional:      # None switches an optional item off
+            item.edit_item(enabled=False)
+        else:
+            item.edit_item(value=value)
+        return self
+
+    def set_enabled(self, *keys: str, enabled: bool) -> "SettingsTree":
+        """Navigate to an *optional* item at ``keys`` and switch it on or off.
+
+        The remembered value is left untouched, so switching back on restores
+        it. Returns ``self`` for chaining.
+
+        Raises
+        ------
+        KeyError
+            If any key in the path is not found.
+        TypeError
+            If the item is not optional.
+        """
+        self.get_item(*keys).edit_item(enabled=enabled)
         return self
 
     def reset(self, *keys: str) -> "SettingsTree":
@@ -777,8 +903,11 @@ class SettingsTree:
         elif "items" in node:
             for child in node["items"]:
                 cls._reset_node(child)
-        elif "default" in node:
-            node["value"] = node["default"]
+        else:
+            if "default" in node:
+                node["value"] = node["default"]
+            if node.get("optional"):            # restore the toggle too
+                node["enabled"] = bool(node.get("default_enabled", True))
 
     # -- plain-dict bridge --------------------------------------------------
     def to_dict(self) -> dict:
@@ -787,6 +916,10 @@ class SettingsTree:
         Branches become nested dicts; leaves map to their current value. This
         is the lossy *values* projection consumers feed into pipelines (distinct
         from :meth:`to_serializable_obj`, the lossless schema).
+
+        An *optional* leaf that is switched off maps to ``None``; its remembered
+        value stays in the schema. So the node never holds ``None``, but this
+        projection does -- that is how a consumer reads "this knob is off".
 
         Raises
         ------
@@ -803,6 +936,8 @@ class SettingsTree:
                     f"duplicate key {key!r}: cannot project to a plain dict.")
             if "items" in child:                        # nested group or group-list (recurses)
                 config[key] = SettingsTree(child).to_dict()
+            elif child.get("optional") and not child.get("enabled", True):
+                config[key] = None                      # switched off (value is remembered)
             else:
                 config[key] = child.get("value", child.get("default"))
         return config
@@ -854,8 +989,9 @@ class SettingsTree:
     def update_from_dict(self, data: dict) -> "SettingsTree":
         """Bulk-set current values from a plain nested dict (schema preserved).
 
-        Keys absent from the schema are skipped with a warning. Returns
-        ``self``.
+        Keys absent from the schema are skipped with a warning. On an *optional*
+        item, ``None`` switches it off and a real value switches it on, so this
+        is the exact inverse of :meth:`to_dict`. Returns ``self``.
         """
         for key, value in data.items():
             try:
@@ -872,6 +1008,8 @@ class SettingsTree:
                 item.set_elements(value)
             elif isinstance(value, dict) and item.is_group:
                 item.update_from_dict(value)
+            elif value is None and item.is_optional:
+                item.edit_item(enabled=False)       # None switches an optional item off
             else:
                 item.edit_item(value=value)
         return self
@@ -890,6 +1028,15 @@ class SettingsTree:
                 nested = SettingsTree(child).user_overrides()
                 if nested:
                     overrides[key] = nested
+            elif child.get("optional"):
+                # Two dimensions (value + toggle), so compare what to_dict projects
+                # NOW against what it would project at the defaults.
+                on = child.get("enabled", True)
+                on_default = child.get("default_enabled", True)
+                now = child.get("value", child.get("default")) if on else None
+                base = child.get("default") if on_default else None
+                if now != base:
+                    overrides[key] = now
             elif "default" in child and \
                     child.get("value", child["default"]) != child["default"]:
                 overrides[key] = child.get("value")
@@ -915,6 +1062,12 @@ class SettingsTree:
         if "items" in node:
             for child in node["items"]:
                 cls._validate_node(child, path + [child.get("key")], out)
+            return
+        if node.get("optional") and not node.get("enabled", True):
+            # Switched off: the value is dormant and never reaches a consumer, so it
+            # cannot make the object invalid. (coerce() still repairs it, on purpose:
+            # its contract is that every value is legal afterwards, so switching the
+            # item back on always yields a legal number.)
             return
         value = node.get("value", node.get("default"))
         dotted = ".".join(str(p) for p in path)

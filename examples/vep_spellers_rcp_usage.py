@@ -85,7 +85,7 @@ pipe = BWRLDAPipeline(
     channels=channels,
     freq_filtering={"filterbank": [
         {"filt_type": "iir", "band_type": "bandpass", "cutoff": [0.5, 16.0], "order": 5}]},
-    epoching={"w_segment_t": [0.0, 800.0], "baseline_t": [-200.0, 0.0], "target_fs": 20.0},
+    segmentation={"w_segment_t": [0.0, 800.0], "baseline_t": [-200.0, 0.0], "target_fs": 20.0},
 )
 print(f"\nPipeline config: {pipe.cfg}")
 pipe.fit(train)
@@ -164,7 +164,7 @@ if HAS_TORCH:
         channels=channels,
         freq_filtering={"filterbank": [
             {"filt_type": "iir", "band_type": "bandpass", "cutoff": [0.5, 16.0], "order": 5}]},
-        epoching={"w_segment_t": [0.0, 800.0], "baseline_t": [-200.0, 0.0],
+        segmentation={"w_segment_t": [0.0, 800.0], "baseline_t": [-200.0, 0.0],
                   "target_fs": 128.0},
         classifier={"arch": "eeg_inception_v2",
                     "training": {"max_epochs": 25, "batch_size": 512,

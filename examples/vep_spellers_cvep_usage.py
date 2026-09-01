@@ -112,7 +112,7 @@ def make_pipeline(method, filterbank):
         return BWRLDAPipeline(
             channels=channels,
             freq_filtering={"filterbank": filterbank},
-            epoching={"w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": 0.0})
+            segmentation={"w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": None})
     if method == "TM":
         # cvep_settings builds the bank and its matching sub-band weights together: c-VEP
         # weights the sub-bands equally, because a broadband code has no fundamental to favour.
@@ -120,7 +120,7 @@ def make_pipeline(method, filterbank):
             settings=cvep_settings(bands=[spec["cutoff"] for spec in filterbank]),
             channels=channels)
     if method == "BWR-EEGInc-v1" or method == "BWR-EEGInc-v2":
-        # Deep BWR: same epoching as the shallow BWR (raw 256 Hz, 250 ms -> 64 samples), but the
+        # Deep BWR: same segmentation as the shallow BWR (raw 256 Hz, 250 ms -> 64 samples), but the
         # epochs feed an EEG-Inception backbone. scales_ms suit the short frame window (-> ~32/16/8
         # samples); training is kept brief with early stopping so the example runs quickly on CPU.
         from medusa.pipelines.bci.vep_spellers import \
@@ -132,8 +132,8 @@ def make_pipeline(method, filterbank):
             freq_filtering={
                 "filterbank": filterbank
             },
-            epoching={
-                "w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": 0.0
+            segmentation={
+                "w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": None
             },
             classifier={
                 "arch": architecture,

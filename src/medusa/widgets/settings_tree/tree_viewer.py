@@ -37,7 +37,7 @@ key* -- robust to row reordering, info rows and the list "Add" button.
 import copy
 
 import medusa_style
-from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -165,8 +165,54 @@ def _build_editor(input_format, value, value_range, value_options):
     return builder(value, value_range, value_options)
 
 
+class _OptionalEditor(QWidget):
+    """An ordinary editor plus an on/off checkbox, for an *optional* item.
+
+    Switching it off greys the editor but leaves the number on screen, so the
+    user can see what comes back when they switch it on again. Reads back as
+    ``None`` when off (matching ``SettingsTree.to_dict``) while
+    :meth:`raw_value` still reports the remembered value for the schema.
+    """
+
+    changed = Signal()
+
+    def __init__(self, editor, enabled=True, parent=None):
+        super().__init__(parent)
+        self.editor = editor
+        self.check = QCheckBox()
+        self.check.setChecked(bool(enabled))
+        self.check.setToolTip("Switch this setting on or off")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        # Editor first so it lines up with the plain editors of the other rows;
+        # the checkbox trails in its own column on the right.
+        layout.addWidget(editor, 1)
+        layout.addWidget(self.check, 0)
+        editor.setEnabled(self.check.isChecked())
+        self.check.toggled.connect(editor.setEnabled)
+        self.check.toggled.connect(lambda *_: self.changed.emit())
+        inner = _editor_change_signal(editor)
+        if inner is not None:
+            inner.connect(lambda *_: self.changed.emit())
+
+    def is_enabled(self):
+        """Whether the toggle is on."""
+        return self.check.isChecked()
+
+    def raw_value(self):
+        """The editor's value, whether or not the toggle is on."""
+        return _read_editor(self.editor)
+
+    def effective_value(self):
+        """The value as a consumer sees it: ``None`` when switched off."""
+        return self.raw_value() if self.is_enabled() else None
+
+
 def _read_editor(widget):
     """Read the current value out of an editor built by :func:`_build_editor`."""
+    if isinstance(widget, _OptionalEditor):   # before QCheckBox: it is a QWidget
+        return widget.effective_value()
     if isinstance(widget, QComboBox):
         return widget.currentData()           # typed option, not its label
     if isinstance(widget, QCheckBox):
@@ -180,6 +226,8 @@ def _read_editor(widget):
 
 def _editor_change_signal(widget):
     """The 'value changed' signal for an editor (for live override/summary)."""
+    if isinstance(widget, _OptionalEditor):   # fires on the toggle and the inner editor
+        return widget.changed
     if isinstance(widget, QComboBox):
         return widget.currentIndexChanged
     if isinstance(widget, QCheckBox):
@@ -540,6 +588,8 @@ class SettingsTreeWidget(QWidget):
                 or infer_input_format(value, node.get("value_options"))
             editor = _build_editor(fmt, value, node.get("value_range"),
                                    node.get("value_options"))
+            if node.get("optional"):
+                editor = _OptionalEditor(editor, node.get("enabled", True))
             tooltip = self._editor_tooltip(node)
             if tooltip:
                 editor.setToolTip(tooltip)
@@ -842,6 +892,8 @@ class SettingsTreeWidget(QWidget):
             or infer_input_format(default, node.get("value_options"))
         editor = _build_editor(fmt, default, node.get("value_range"),
                                node.get("value_options"))
+        if node.get("optional"):        # restore the toggle to its build-time state
+            editor = _OptionalEditor(editor, node.get("default_enabled", True))
         tooltip = self._editor_tooltip(node)
         if tooltip:
             editor.setToolTip(tooltip)
@@ -1103,7 +1155,12 @@ class SettingsTreeWidget(QWidget):
             node["value"] = self._read_list(item)
         elif kind == _KIND_LEAF:
             editor = self.tree_widget.itemWidget(item, 1)
-            if editor is not None:
+            if isinstance(editor, _OptionalEditor):
+                # Keep the remembered number in the node; the toggle carries the
+                # on/off state (writing None here would destroy both).
+                node["value"] = editor.raw_value()
+                node["enabled"] = editor.is_enabled()
+            elif editor is not None:
                 node["value"] = _read_editor(editor)
 
     def _read_list(self, list_item):

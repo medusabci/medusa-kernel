@@ -107,6 +107,19 @@ def _metric(trainer, name) -> float:
     return float(value) if value is not None else float('nan')
 
 
+def _n_observations(loader) -> int:
+    """Number of observations behind ``loader``.
+
+    A plain ``DataLoader`` exposes them through its dataset; a ``CombinedLoader``
+    (multi-task training) wraps one loader per task, so its observations are the
+    sum over the tasks.
+    """
+    flattened = getattr(loader, 'flattened', None)
+    if flattened is not None:
+        return sum(len(dl.dataset) for dl in flattened)
+    return len(loader.dataset)
+
+
 def _cpu_state_dict(module) -> dict:
     """``module.state_dict()`` with every tensor detached and on CPU.
 
@@ -266,11 +279,18 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                     num_sanity_val_steps=0)
                 if level == 1:
                     print_banner(
-                        console, estimator=type(self).__name__, device=self.device_,
+                        console,
+                        estimator=type(self).__name__,
+                        device=self.device_,
                         n_params=sum(p.numel() for p in task.parameters()
                                      if p.requires_grad),
-                        max_epochs=self.max_epochs, batch_size=self.batch_size,
-                        monitor=monitor, patience=self.patience)
+                        n_train=_n_observations(train_loader),
+                        n_val=(_n_observations(val_loader)
+                               if val_loader is not None else None),
+                        max_epochs=self.max_epochs,
+                        batch_size=self.batch_size,
+                        monitor=monitor,
+                        patience=self.patience)
                 trainer.fit(task, train_loader, val_loader)
             best_score = (float(checkpoint.best_model_score)
                           if checkpoint.best_model_score is not None else float('nan'))
@@ -295,9 +315,13 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
             'val_loss_curve': history.val_curve,
         }
         if level == 1:
-            print_summary(console, epochs=self.history_['epochs'],
-                          stopped_early=self.history_['stopped_early'], monitor=monitor,
-                          best_score=best_score, best_epoch=history.best_epoch)
+            print_summary(
+                console,
+                epochs=self.history_['epochs'],
+                stopped_early=self.history_['stopped_early'],
+                monitor=monitor,
+                best_score=best_score,
+                best_epoch=history.best_epoch)
         return task
 
     # ---- inference ---- #

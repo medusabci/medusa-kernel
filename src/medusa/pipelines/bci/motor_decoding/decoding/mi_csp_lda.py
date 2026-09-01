@@ -10,7 +10,7 @@ Deep motor decoders (EEG-Inception, EEGSym) are **separate** pipeline classes, n
 option -- the model choice changes the band, the epoch shape and the resampling rate, so each
 pipeline owns its whole chain. Only the model-agnostic parts are shared, as free functions in
 :mod:`~medusa.pipelines.bci.trial_events` (labels) and
-:mod:`~medusa.pipelines.bci.motor_decoding.decoding._common` (epochs, log-variance).
+:mod:`~medusa.pipelines.bci.motor_decoding.decoding._common` (segments, log-variance).
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from medusa.pipelines.bci.trial_events import (
     trial_arrays, trial_labels, validate_trial_events)
 from medusa.pipelines.bci._filtering import add_band_filter_settings
 from medusa.pipelines.bci.motor_decoding.decoding._common import (
-    trial_epochs, log_var)
+    trial_segments, log_var)
 
 __all__ = ["MICSPLDAPipeline"]
 
@@ -66,13 +66,15 @@ class MICSPLDAPipeline(DecodingPipeline):
         # eigensolve then fails). Turn it on only with a large, full-rank montage.
         s.add_item("car", value=False, info="Common-average reference before filtering")
         add_band_filter_settings(s, cutoff=[8.0, 30.0], order=5)
-        ep = s.add_group("epoching", info="Per-trial epoch windowing + resampling")
-        ep.add_item("w_segment_t", value=[0.0, 2000.0],
-                    info="Epoch window relative to each trial onset (ms)")
-        ep.add_item("baseline_t", value=[-1000.0, 0.0],
-                    info="Baseline window (ms); empty to disable")
-        ep.add_item("target_fs", value=60.0, value_range=[0, None],
-                    info="Resample epochs to this rate (Hz); 0 to disable")
+        seg = s.add_group("segmentation", info="Per-trial segment windowing + resampling")
+        seg.add_item("w_segment_t", value=[0.0, 2000.0],
+                     info="Segment window relative to each trial onset (ms)")
+        seg.add_item("baseline_t", value=[-1000.0, 0.0],
+                     info="Baseline window (ms); empty to disable")
+        seg.add_item("target_fs", value=60.0, optional=True,
+                     value_range=[1.0, None],
+                     info="Resample segments to this rate (Hz); switch it off to keep "
+                          "the native rate")
         csp = s.add_group("csp", info="Common Spatial Patterns")
         csp.add_item("n_filters", value=4, value_range=[1, None],
                      info="Number of CSP filters")
@@ -105,32 +107,32 @@ class MICSPLDAPipeline(DecodingPipeline):
         validate_trial_events(recording.events)
 
     # ---- feature path (shared by fit/predict) ----
-    def _epochs(self, recording: Recording, onsets: NDArray, cfg: dict) -> NDArray:
-        """Cut and preprocess the trial epochs of one recording: ``(n_trials, n_samples, n_channels)``."""
-        ep = cfg["epoching"]
-        return trial_epochs(
+    def _segments(self, recording: Recording, onsets: NDArray, cfg: dict) -> NDArray:
+        """Cut and preprocess the trial segments of one recording: ``(n_trials, n_samples, n_channels)``."""
+        seg_cfg = cfg["segmentation"]
+        return trial_segments(
             recording.signals[cfg["signal_key"]], onsets,
             channels=cfg["channels"], apply_car=cfg["car"], filter_spec=cfg["filter"],
-            window=tuple(ep["w_segment_t"]),
-            baseline=tuple(ep["baseline_t"]) if ep["baseline_t"] else None,
-            target_fs=ep["target_fs"])
+            window=tuple(seg_cfg["w_segment_t"]),
+            baseline=tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None,
+            target_fs=seg_cfg["target_fs"])
 
-    def _features(self, epochs: NDArray, cfg: dict) -> NDArray:
-        """Project the epochs through the fitted CSP and take log-variance features."""
-        return log_var(self.csp.project(epochs), cfg["csp"]["normalize_log_vars"])
+    def _features(self, segments: NDArray, cfg: dict) -> NDArray:
+        """Project the segments through the fitted CSP and take log-variance features."""
+        return log_var(self.csp.project(segments), cfg["csp"]["normalize_log_vars"])
 
     # ---- offline ----
     def fit(self, recordings) -> "MICSPLDAPipeline":
         """Fit the CSP and LDA on the trials of all recordings; return ``self``."""
         self._check_settings()          # re-validate (the live tree may have been edited)
         cfg = self.cfg
-        epochs, labels = [], []
+        segments, labels = [], []
         for rec in recordings:
             self.check_consistency(rec)
             onsets, _, _ = trial_arrays(rec.events)
-            epochs.append(self._epochs(rec, onsets, cfg))
+            segments.append(self._segments(rec, onsets, cfg))
             labels.append(trial_labels(rec))
-        X, y = np.concatenate(epochs), np.concatenate(labels)
+        X, y = np.concatenate(segments), np.concatenate(labels)
         self.csp = CSP(n_filters=cfg["csp"]["n_filters"],
                        selection=cfg["csp"]["selection"])
         self.csp.fit(X, y)
@@ -146,7 +148,7 @@ class MICSPLDAPipeline(DecodingPipeline):
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         onsets, _, _ = trial_arrays(recording.events)
-        return self.clf.predict_proba(self._features(self._epochs(recording, onsets, self.cfg),
+        return self.clf.predict_proba(self._features(self._segments(recording, onsets, self.cfg),
                                                       self.cfg))
 
     # ---- persistence (settings + fitted state) ----

@@ -24,6 +24,7 @@ Example
 import medusa_style
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -209,6 +210,17 @@ class SettingsTreeBuilder(QMainWindow):
         self.max_edit = QLineEdit()
         self.max_edit.setPlaceholderText("max (optional)")
 
+        self.optional_check = QCheckBox("can be switched off")
+        self.optional_check.setToolTip(
+            "Give the item an on/off checkbox, instead of a magic \"off\" value "
+            "like 0. It keeps its value while switched off.")
+        self.enabled_check = QCheckBox("starts switched on")
+        self.enabled_check.setToolTip(
+            "The toggle's starting state, and what Reset restores.")
+        self.enabled_check.setChecked(True)
+        self.optional_check.toggled.connect(self.enabled_check.setEnabled)
+        self.enabled_check.setEnabled(False)
+
         # name -> field widget (for show/hide + ordering)
         self._rows = [
             ("key", "Key", self.key_edit),
@@ -221,6 +233,8 @@ class SettingsTreeBuilder(QMainWindow):
             ("default", "Default", self.default_holder),
             ("min", "Min", self.min_edit),
             ("max", "Max", self.max_edit),
+            ("optional", "Optional", self.optional_check),
+            ("enabled", "", self.enabled_check),
         ]
         for _, label, field in self._rows:
             self._form.addRow(label, field)
@@ -406,6 +420,10 @@ class SettingsTreeBuilder(QMainWindow):
                 self.min_edit.setText("" if low is None else str(low))
                 self.max_edit.setText("" if high is None else str(high))
 
+            self.optional_check.setChecked(bool(node.get("optional")))
+            self.enabled_check.setChecked(bool(node.get("default_enabled", True)))
+            self.enabled_check.setEnabled(self.optional_check.isChecked())
+
             self._rebuild_default_editor(
                 type_name, node.get("value", node.get("default")), options)
             self._update_visibility(type_name)
@@ -454,12 +472,17 @@ class SettingsTreeBuilder(QMainWindow):
         shown = {
             "Group": {"key", "type", "info"},
             "Group list": {"key", "type", "info"},
+            # A Boolean is already an on/off switch, so it has no "Optional" row.
             "Boolean": {"key", "type", "info", "default"},
-            "Integer": {"key", "type", "info", "default", "min", "max"},
-            "Float": {"key", "type", "info", "default", "min", "max"},
-            "Text": {"key", "type", "info", "default"},
-            "Choice": {"key", "type", "info", "opt_type", "options", "default"},
-            "List": {"key", "type", "info", "elem_type", "list_values"},
+            "Integer": {"key", "type", "info", "default", "min", "max",
+                        "optional", "enabled"},
+            "Float": {"key", "type", "info", "default", "min", "max",
+                      "optional", "enabled"},
+            "Text": {"key", "type", "info", "default", "optional", "enabled"},
+            "Choice": {"key", "type", "info", "opt_type", "options", "default",
+                       "optional", "enabled"},
+            "List": {"key", "type", "info", "elem_type", "list_values",
+                     "optional", "enabled"},
         }[type_name]
         for name, _, field in self._rows:
             self._form.setRowVisible(field, name in shown)
@@ -542,6 +565,9 @@ class SettingsTreeBuilder(QMainWindow):
             high = self._parse_bound(self.max_edit.text(), type_name)
             if low is not None or high is not None:
                 kwargs["value_range"] = [low, high]
+        if type_name != "Boolean" and self.optional_check.isChecked():
+            kwargs["optional"] = True
+            kwargs["enabled"] = self.enabled_check.isChecked()
         # Validate by round-tripping through the canonical builder.
         child = SettingsTree().add_item(key, **kwargs)
         return child.to_serializable_obj()

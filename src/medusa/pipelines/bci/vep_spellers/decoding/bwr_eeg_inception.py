@@ -17,7 +17,7 @@ Why one pipeline serves **both** EEG-Inception v1 and v2
 --------------------------------------------------------
 The "one pipeline class per (strategy, classifier)" rule exists because the model choice
 cascades into the preprocessing: LDA wants a low ``target_fs`` and a flat feature vector, a
-conv net wants the raw ``(n_epochs, n_samples, n_channels)`` epoch. That cascade is real
+conv net wants the raw ``(n_segments, n_samples, n_channels)`` epoch. That cascade is real
 between *LDA* and *EEG-Inception*, so they are separate classes. It is **absent** between
 EEG-Inception *v1* (:class:`~medusa.ml.torch_models.backbones.eeg_inception.EEGInception`)
 and *v2* (:class:`~medusa.ml.torch_models.backbones.eeg_inception_v2.EEGInceptionV2`): both
@@ -101,8 +101,8 @@ class BWREEGInceptionPipeline(DecodingPipeline):
     exactly why deep BWR is a separate class):
 
     * **Raw epochs.** Features are the per-frame epochs kept as
-      ``(n_epochs, n_samples, n_channels)`` (not flattened), resampled to
-      ``epoching.target_fs`` (default 128 Hz, EEG-Inception's design rate).
+      ``(n_segments, n_samples, n_channels)`` (not flattened), resampled to
+      ``segmentation.target_fs`` (default 128 Hz, EEG-Inception's design rate).
     * **Single band.** A conv backbone consumes one multichannel epoch, so it cannot fuse a
       parallel filter bank the way the LDA pipeline concatenates sub-band features. The
       ``freq_filtering`` schema is kept for consistency, but the filter bank must hold exactly
@@ -128,7 +128,7 @@ class BWREEGInceptionPipeline(DecodingPipeline):
 
         Mirrors :meth:`BWRLDAPipeline.default_settings
         <medusa.pipelines.bci.vep_spellers.decoding.bwr_lda.BWRLDAPipeline.default_settings>`
-        (``channels``, ``signal_key``, ``car``, ``freq_filtering``, ``epoching``) and swaps
+        (``channels``, ``signal_key``, ``car``, ``freq_filtering``, ``segmentation``) and swaps
         the ``classifier`` group for the EEG-Inception configuration: the ``arch`` selector,
         the shared architecture knobs, and a ``training`` subgroup.
         """
@@ -137,20 +137,23 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         s.add_item("signal_key", value="eeg", info="Recording stream key to decode")
         s.add_item("car", value=True, info="Common-average reference before filtering")
         add_notch_and_filterbank_settings(s)
-        ep = s.add_group("epoching", info="Per-frame epoch windowing + resampling")
-        ep.add_item("w_segment_t", value=[0.0, 500.0],
-                    info="Epoch window relative to each frame onset (ms)")
-        ep.add_item("baseline_t", value=[-200.0, 0.0],
-                    info="Baseline window (ms); empty to disable")
-        ep.add_item("target_fs", value=128.0, value_range=[0, None],
-                    info="Resample epochs to this rate (Hz); 0 to disable")
+        seg = s.add_group("segmentation", info="Per-frame segment windowing + resampling")
+        seg.add_item("w_segment_t", value=[0.0, 500.0],
+                     info="Segment window relative to each frame onset (ms)")
+        seg.add_item("baseline_t", value=[-200.0, 0.0],
+                     info="Baseline window (ms); empty to disable")
+        seg.add_item("target_fs", value=128.0,
+                     optional=True,
+                     value_range=[1.0, None],
+                     info="Resample segments to this rate (Hz); switch it off to keep "
+                          "the native rate")
         clf = s.add_group("classifier", info="EEG-Inception frame classifier")
         clf.add_item("arch", value="eeg_inception_v1",
                      value_options=list(_ARCHITECTURES),
                      info="EEG-Inception architecture (v1 or v2)")
         clf.add_item("scales_ms", value=[500.0, 250.0, 125.0],
                      info="Temporal inception kernel scales (ms); converted to samples at "
-                          "build time with target_fs (or the raw signal fs if target_fs=0)")
+                          "build time with target_fs, or the raw signal rate when it is off)")
         clf.add_item("filters_per_branch", value=8, value_range=[1, None],
                      info="Convolutional filters per inception branch")
         clf.add_item("dropout_rate", value=0.25, value_range=[0, 1],
@@ -159,13 +162,15 @@ class BWREEGInceptionPipeline(DecodingPipeline):
                      value_options=["elu", "relu", "leaky_relu"],
                      info="Activation function (eeg_inception_v2 only)")
         tr = clf.add_group("training", info="TorchClassifier training hyper-parameters")
-        tr.add_item("max_epochs", value=100, value_range=[1, None],
+        tr.add_item("max_epochs", value=500, value_range=[1, None],
                     info="Maximum training epochs")
-        tr.add_item("batch_size", value=64, value_range=[1, None], info="Mini-batch size")
+        tr.add_item("batch_size", value=512, value_range=[1, None],
+                    info="Mini-batch size")
         tr.add_item("learning_rate", value=1e-3, value_range=[0, None],
                     info="Adam learning rate")
-        tr.add_item("val_split", value=0.2, value_range=[0, 1],
-                    info="Validation fraction for early stopping (0 to disable)")
+        tr.add_item("val_split", value=0.2, optional=True, value_range=[0, 1],
+                    info="Validation fraction for early stopping; switch it off to "
+                         "train without a validation split")
         tr.add_item("patience", value=10, value_range=[1, None],
                     info="Early-stopping patience (epochs)")
         tr.add_item("device", value="auto",
@@ -218,7 +223,7 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         c = cfg["classifier"]
         if not c["scales_ms"]:
             raise ValueError("classifier.scales_ms must list at least one temporal scale.")
-        rate = cfg["epoching"]["target_fs"] or self.fs
+        rate = cfg["segmentation"]["target_fs"] or self.fs
         scales = tuple(max(1, round(ms / 1000.0 * rate)) for ms in c["scales_ms"])
         arch = c["arch"]
         if arch == "eeg_inception_v1":
@@ -250,13 +255,13 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         if n_samples < _V1_MIN_SAMPLES:
             problems.append(
                 f"epoch has {n_samples} samples but v1 pools the time axis by 2 five times "
-                f"(needs >= {_V1_MIN_SAMPLES}); widen 'epoching.w_segment_t' or raise "
-                f"'epoching.target_fs'")
+                f"(needs >= {_V1_MIN_SAMPLES}); widen 'segmentation.w_segment_t' or raise "
+                f"'segmentation.target_fs'")
         if min(scales) < _V1_MIN_SCALE:
             problems.append(
                 f"smallest temporal scale is {min(scales)} samples but block 3 uses a "
                 f"scale//4 kernel (needs every scale >= {_V1_MIN_SCALE}); raise "
-                f"'classifier.scales_ms' or 'epoching.target_fs'")
+                f"'classifier.scales_ms' or 'segmentation.target_fs'")
         if filters_per_branch * len(scales) < _V1_MIN_BRANCH_UNITS:
             problems.append(
                 f"filters_per_branch ({filters_per_branch}) * n_scales ({len(scales)}) = "
@@ -280,9 +285,9 @@ class BWREEGInceptionPipeline(DecodingPipeline):
     # ---- feature path (shared by fit/predict) ----
     def _features(self, signal: Signal, cycle_onsets: NDArray,
                   n_frames: int, fps: float, cfg: dict) -> NDArray:
-        """Per-frame epochs kept as ``(n_epochs, n_samples, n_channels)`` (cycle-major).
+        """Per-frame segments kept as ``(n_segments, n_samples, n_channels)`` (cycle-major).
 
-        The same CAR + band-pass + per-frame epoching + resampling as
+        The same CAR + band-pass + per-frame segmentation + resampling as
         :meth:`BWRLDAPipeline._features`, but the epochs are **not** flattened (the conv
         backbone consumes them raw), and only the single configured band is used.
         """
@@ -292,14 +297,14 @@ class BWREEGInceptionPipeline(DecodingPipeline):
         xf = apply_notch_and_filterbank(raw, x.fs, cfg["notch_filtering"],
                                         cfg["freq_filtering"]["filterbank"])[0]
         onsets = _bit_onsets(cycle_onsets, n_frames, fps)
-        ep = cfg["epoching"]
-        window = tuple(ep["w_segment_t"])
-        baseline = tuple(ep["baseline_t"]) if ep["baseline_t"] else None
+        seg_cfg = cfg["segmentation"]
+        window = tuple(seg_cfg["w_segment_t"])
+        baseline = tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None
         seg = segment_signal_around_events(
             x.times, xf, onsets, x.fs, window, baseline,
             norm="dc" if baseline is not None else None)
-        if ep["target_fs"]:
-            seg = resample_segments(seg, window, ep["target_fs"])
+        if seg_cfg["target_fs"]:
+            seg = resample_segments(seg, window, seg_cfg["target_fs"])
         return seg
 
     def _frame_scores(self, recording: Recording, cfg: dict) -> NDArray:

@@ -42,7 +42,7 @@ from medusa.signal.frequency_filtering import IIRFilter
 from medusa.signal.metrics.discriminability import signed_r2
 
 from medusa.pipelines.bci.trial_events import trial_arrays, validate_trial_events
-from medusa.pipelines.bci.motor_decoding.decoding._common import trial_epochs
+from medusa.pipelines.bci.motor_decoding.decoding._common import trial_segments
 
 __all__ = [
     "motor_trials",
@@ -81,8 +81,8 @@ def motor_trials(recording: Recording, *, channels: list[str], signal_key: str =
     """Cut labelled motor trials from a recording: ``(epochs, labels, fs)``.
 
     A thin convenience over the shared trial contract
-    (:func:`~medusa.pipelines.bci.trial_events.trial_arrays`) and the motor epoching primitive
-    (:func:`~medusa.pipelines.bci.motor_decoding.decoding._common.trial_epochs`). It picks and
+    (:func:`~medusa.pipelines.bci.trial_events.trial_arrays`) and the motor segmentation primitive
+    (:func:`~medusa.pipelines.bci.motor_decoding.decoding._common.trial_segments`). It picks and
     reorders the channels, optionally applies a common-average reference, band-passes to a
     **broadband** range (so a spectrogram can resolve several frequencies), and segments each
     trial around its onset. No baseline normalization is applied at cut time: the ERD/ERS
@@ -126,7 +126,7 @@ def motor_trials(recording: Recording, *, channels: list[str], signal_key: str =
     filter_spec = {"filt_type": "iir", "band_type": "bandpass",
                    "cutoff": list(band), "order": int(filt_order)}
     window_ms = (window[0] * 1000.0, window[1] * 1000.0)
-    epochs = trial_epochs(signal, onsets, channels=channels, apply_car=car,
+    epochs = trial_segments(signal, onsets, channels=channels, apply_car=car,
                           filter_spec=filter_spec, window=window_ms, baseline=None,
                           target_fs=target_fs)
     fs = float(target_fs) if target_fs else float(signal.fs)

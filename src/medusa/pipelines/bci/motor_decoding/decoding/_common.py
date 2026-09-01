@@ -23,15 +23,15 @@ from medusa.pipelines.base import harmonize_channels
 from medusa.pipelines.bci._filtering import make_filter
 
 
-def trial_epochs(signal: Signal, onsets: NDArray, *, channels: list, apply_car: bool,
-                 filter_spec: dict, window: tuple, baseline: "tuple | None",
-                 target_fs: float) -> NDArray:
-    """Cut labelled-trial epochs: pick channels, CAR, band-pass, segment, resample.
+def trial_segments(signal: Signal, onsets: NDArray, *, channels: list, apply_car: bool,
+                   filter_spec: dict, window: tuple, baseline: "tuple | None",
+                   target_fs: float) -> NDArray:
+    """Cut labelled-trial segments: pick channels, CAR, band-pass, segment, resample.
 
     Returns a ``(n_trials, n_samples, n_channels)`` array. Every motor pipeline shares this:
-    CSP learns spatial filters from the epochs; a deep model consumes them directly. ``window``
+    CSP learns spatial filters from the segments; a deep model consumes them directly. ``window``
     and ``baseline`` are ``(start, end)`` in milliseconds relative to each onset (``baseline``
-    is ``None`` to disable DC baseline correction); ``target_fs`` of ``0`` keeps the native rate.
+    is ``None`` to disable DC baseline correction); ``target_fs`` of ``None`` keeps the native rate.
     """
     x = harmonize_channels(signal, channels)
     raw = car(x.signal) if apply_car else x.signal
@@ -69,8 +69,9 @@ def add_training_settings(clf_group: SettingsTree) -> None:
     tr.add_item("max_epochs", value=100, value_range=[1, None], info="Maximum training epochs")
     tr.add_item("batch_size", value=64, value_range=[1, None], info="Mini-batch size")
     tr.add_item("learning_rate", value=1e-3, value_range=[0, None], info="Adam learning rate")
-    tr.add_item("val_split", value=0.2, value_range=[0, 1],
-                info="Validation fraction for early stopping (0 to disable)")
+    tr.add_item("val_split", value=0.2, optional=True, value_range=[0, 1],
+                info="Validation fraction for early stopping; switch it off to train "
+                     "without a validation split")
     tr.add_item("patience", value=10, value_range=[1, None],
                 info="Early-stopping patience (epochs)")
     tr.add_item("device", value="auto",

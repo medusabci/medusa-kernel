@@ -54,7 +54,7 @@ def test_bwr_decodes_random_codes(random_cvep_train_test):
     train, test, channels = random_cvep_train_test
     pipe = BWRLDAPipeline(
         channels=channels, freq_filtering=BANDPASS,
-        epoching={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": 0.0}).fit([train])
+        segmentation={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": None}).fit([train])
     curve = _accuracy_curve(pipe, test)
     assert curve[0] >= 90.0                       # already strong after one cycle
     assert curve[-1] == 100.0                     # perfect by the final cycle
@@ -74,7 +74,7 @@ def test_predict_shape_matches_cycles(random_cvep_train_test):
     train, test, channels = random_cvep_train_test
     pipe = BWRLDAPipeline(
         channels=channels, freq_filtering=BANDPASS,
-        epoching={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": 0.0}).fit([train])
+        segmentation={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": None}).fit([train])
     scores = pipe.predict(test)
     n_cycle_rows = test.events.df["cycle_idx"].notna().sum()
     assert scores.shape == (n_cycle_rows, N_CMDS)
@@ -85,7 +85,7 @@ def test_bwr_random_persistence_round_trip(random_cvep_train_test, tmp_path):
     train, test, channels = random_cvep_train_test
     pipe = BWRLDAPipeline(
         channels=channels, freq_filtering=BANDPASS,
-        epoching={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": 0.0}).fit([train])
+        segmentation={"w_segment_t": [0.0, 80.0], "baseline_t": [], "target_fs": None}).fit([train])
     before = pipe.predict(test)
 
     path = tmp_path / "bwr_random.pkl"

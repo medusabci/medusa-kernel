@@ -197,11 +197,16 @@ def quiet_lightning(enabled: bool):
 
 
 def print_banner(console: Console, *, estimator: str, device, n_params: int,
-                 max_epochs: int, batch_size: int, monitor: str, patience: int) -> None:
-    """One-line-ish banner before training: what is being trained, where, and how."""
+                 n_train: int, n_val: "int | None", max_epochs: int, batch_size: int,
+                 monitor: str, patience: int) -> None:
+    """One-line-ish banner before training: what is being trained, on what data, and how."""
     console.print(
         f"[bold]Training {estimator}[/] on [cyan]{device}[/] "
         f"([magenta]{n_params:,}[/] trainable params)")
+    data = (f"[magenta]{n_train:,}[/] training observations, "
+            f"[magenta]{n_val:,}[/] for validation" if n_val is not None
+            else f"[magenta]{n_train:,}[/] training observations (no validation set)")
+    console.print(f"  {data}")
     console.print(
         f"  up to {max_epochs} epochs, batch size {batch_size}, "
         f"early stop on [green]{monitor}[/] (patience {patience})")

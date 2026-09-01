@@ -518,3 +518,190 @@ class TestConsoleRendering:
     def test_invalid_detail(self, sample_tree):
         with pytest.raises(ValueError, match="'values' or 'full'"):
             sample_tree.describe(detail="everything")
+
+
+# ---------------------------------------------------------------------------
+# optional items (an on/off toggle instead of a magic "off" value)
+# ---------------------------------------------------------------------------
+def _optional_schema():
+    """A schema with one knob that ships on and one that ships off."""
+    s = SettingsTree()
+    ep = s.add_group("epoching")
+    ep.add_item("target_fs", value=20.0, optional=True, value_range=[1.0, None],
+                info="Resample epochs to this rate (Hz)")
+    ep.add_item("w_segment_t", value=[0.0, 500.0])
+    s.add_item("stop_corr", value=0.9, optional=True, enabled=False,
+               value_range=[-1.0, 1.0])
+    return s
+
+
+@pytest.fixture
+def optional_tree():
+    return _optional_schema()
+
+
+class TestOptionalDeclaration:
+    def test_node_keeps_a_real_value_and_default(self, optional_tree):
+        node = optional_tree.get_item("epoching", "target_fs").tree
+        assert node["value"] == 20.0 and node["default"] == 20.0
+        assert node["optional"] is True
+        assert node["enabled"] is True and node["default_enabled"] is True
+
+    def test_ships_switched_off(self, optional_tree):
+        item = optional_tree.get_item("stop_corr")
+        assert item.enabled is False and item.default_enabled is False
+        assert item.value == 0.9                     # still remembers a number
+
+    def test_plain_item_is_untouched(self, optional_tree):
+        item = optional_tree.get_item("epoching", "w_segment_t")
+        assert not {"optional", "enabled", "default_enabled"} & set(item.tree)
+        assert item.is_optional is False
+        assert item.enabled is True                  # a plain item is always "on"
+
+    def test_needs_a_value(self):
+        with pytest.raises(ValueError, match="needs a 'value' to remember"):
+            SettingsTree().add_item("x", value=None, optional=True)
+
+    def test_rejected_on_a_bool(self):
+        with pytest.raises(ValueError, match="already an on/off switch"):
+            SettingsTree().add_item("x", value=True, optional=True)
+
+    def test_enabled_setter_rejects_a_plain_item(self, optional_tree):
+        with pytest.raises(TypeError, match="not optional"):
+            optional_tree.get_item("epoching", "w_segment_t").enabled = False
+
+
+class TestOptionalProjection:
+    def test_on_projects_the_value(self, optional_tree):
+        assert optional_tree.to_dict()["epoching"]["target_fs"] == 20.0
+
+    def test_off_projects_none(self, optional_tree):
+        assert optional_tree.to_dict()["stop_corr"] is None
+
+    def test_key_is_always_present(self, optional_tree):
+        # Configurable._reject_unknown uses to_dict()'s key set as its kwarg set,
+        # so a switched-off knob must still be settable from the constructor.
+        assert "stop_corr" in optional_tree.to_dict()
+
+    def test_none_switches_off_and_remembers(self, optional_tree):
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        assert optional_tree.to_dict()["epoching"]["target_fs"] is None
+        assert optional_tree.get_item("epoching", "target_fs").value == 20.0
+
+    def test_a_real_value_switches_back_on(self, optional_tree):
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        optional_tree.set_value("epoching", "target_fs", value=64.0)
+        assert optional_tree.to_dict()["epoching"]["target_fs"] == 64.0
+
+    def test_set_enabled_leaves_the_value_alone(self, optional_tree):
+        optional_tree.set_enabled("stop_corr", enabled=True)
+        assert optional_tree.to_dict()["stop_corr"] == 0.9
+
+
+class TestOptionalResetAndOverrides:
+    def test_no_overrides_at_defaults(self, optional_tree):
+        assert optional_tree.user_overrides() == {}
+
+    @pytest.mark.parametrize("keys, value, expected", [
+        (("epoching", "target_fs"), None, {"epoching": {"target_fs": None}}),
+        (("epoching", "target_fs"), 64.0, {"epoching": {"target_fs": 64.0}}),
+        (("stop_corr",), 0.5, {"stop_corr": 0.5}),
+    ])
+    def test_overrides_report_the_projection(self, optional_tree, keys, value,
+                                             expected):
+        optional_tree.set_value(*keys, value=value)
+        assert optional_tree.user_overrides() == expected
+
+    def test_switching_a_shipped_off_knob_on_is_an_override(self, optional_tree):
+        optional_tree.set_enabled("stop_corr", enabled=True)
+        assert optional_tree.user_overrides() == {"stop_corr": 0.9}
+
+    def test_value_edited_while_off_is_not_an_override(self, optional_tree):
+        # Both states project None, so nothing changed for a consumer.
+        optional_tree.get_item("stop_corr").edit_item(value=0.5)
+        optional_tree.set_enabled("stop_corr", enabled=False)
+        assert optional_tree.user_overrides() == {}
+
+    def test_reset_restores_value_and_toggle(self, optional_tree):
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        optional_tree.set_enabled("stop_corr", enabled=True)
+        optional_tree.reset()
+        assert optional_tree.to_dict() == {
+            "epoching": {"target_fs": 20.0, "w_segment_t": [0.0, 500.0]},
+            "stop_corr": None}
+        assert optional_tree.user_overrides() == {}
+
+    def test_set_defaults_from_values_rebaselines_the_toggle(self, optional_tree):
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        optional_tree.set_defaults_from_values()
+        assert optional_tree.user_overrides() == {}      # "off" is the new default
+        optional_tree.set_value("epoching", "target_fs", value=20.0)
+        optional_tree.reset()
+        assert optional_tree.to_dict()["epoching"]["target_fs"] is None
+
+
+class TestOptionalRoundTrips:
+    @pytest.fixture
+    def edited(self, optional_tree):
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        optional_tree.set_enabled("stop_corr", enabled=True)
+        return optional_tree
+
+    def test_to_dict_update_from_dict_is_an_identity(self, edited):
+        target = _optional_schema()
+        target.update_from_dict(edited.to_dict())
+        assert target.to_dict() == edited.to_dict()
+
+    def test_user_overrides_replay_is_an_identity(self, edited):
+        target = _optional_schema()
+        target.update_from_dict(edited.user_overrides())
+        assert target.to_dict() == edited.to_dict()
+
+    def test_json_round_trip_keeps_the_toggle(self, edited, tmp_path):
+        path = str(tmp_path / "s.json")
+        edited.to_json(path)
+        reloaded = SettingsTree.from_json(path)
+        assert reloaded.to_dict() == edited.to_dict()
+        assert reloaded.get_item("epoching", "target_fs").value == 20.0
+
+
+class TestOptionalValidation:
+    def test_dormant_value_out_of_range_is_not_a_violation(self, optional_tree):
+        optional_tree.get_item("epoching", "target_fs").edit_item(
+            value_range=[50.0, None])
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        assert optional_tree.validate() == []
+
+    def test_live_value_out_of_range_is_still_a_violation(self, optional_tree):
+        optional_tree.get_item("epoching", "target_fs").edit_item(
+            value_range=[50.0, None])
+        assert optional_tree.validate() == [
+            ("epoching.target_fs", "20.0 < min 50.0")]
+
+    def test_switching_off_does_not_warn(self, optional_tree):
+        optional_tree.get_item("epoching", "target_fs").edit_item(
+            value_range=[50.0, None])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            optional_tree.set_value("epoching", "target_fs", value=None)
+
+    def test_coerce_still_repairs_a_dormant_value(self, optional_tree):
+        item = optional_tree.get_item("epoching", "target_fs")
+        item.edit_item(value_range=[50.0, None])
+        optional_tree.set_value("epoching", "target_fs", value=None)
+        optional_tree.coerce()
+        assert item.value == 50.0                     # legal once switched on
+        assert optional_tree.to_dict()["epoching"]["target_fs"] is None
+
+
+class TestOptionalRendering:
+    def test_off_reads_as_off_with_the_remembered_value(self, optional_tree):
+        assert "stop_corr = <off> (was 0.9)" in optional_tree.describe()
+
+    def test_off_is_distinct_from_required_unset(self, optional_tree):
+        optional_tree.add_item("mode", value=None, value_options=["a", "b"])
+        out = optional_tree.describe()
+        assert "<off>" in out and "mode = <not set>" in out
+
+    def test_full_detail_marks_it_optional(self, optional_tree):
+        assert "optional" in optional_tree.describe(detail="full")

@@ -162,8 +162,10 @@ class VEPCommandDecoder(Configurable):
     def default_settings(cls) -> SettingsTree:
         """The configuration schema: a single ``stop_corr`` early-stopping threshold."""
         s = SettingsTree()
-        s.add_item("stop_corr", value=0.0,
-                   info="Early-stopping score threshold (0 = off)")
+        s.add_item("stop_corr", value=0.9, optional=True, enabled=False,
+                   value_range=[-1.0, 1.0],
+                   info="Early-stopping score threshold; switch it off to never stop "
+                        "early")
         return s
 
     # ---- offline ----
@@ -198,5 +200,6 @@ class VEPCommandDecoder(Configurable):
         corr = np.asarray(cycle_scores_row, dtype=float)[avail_cols]
         best = int(np.argmax(corr))
         threshold = self.cfg["stop_corr"]
-        stop = (threshold > 0 and np.isfinite(corr[best]) and corr[best] >= threshold)
+        stop = (threshold is not None and np.isfinite(corr[best])
+                and corr[best] >= threshold)
         return {"selected": avail[best], "scores": corr, "stop": bool(stop)}

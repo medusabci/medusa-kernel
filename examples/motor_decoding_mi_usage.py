@@ -55,7 +55,7 @@ def make_pipeline():
     return MICSPLDAPipeline(
         channels=CHANNELS,
         filter={"cutoff": [8.0, 30.0], "order": 5},
-        epoching={"w_segment_t": [500.0, 2500.0], "baseline_t": [], "target_fs": 64.0},
+        segmentation={"w_segment_t": [500.0, 2500.0], "baseline_t": [], "target_fs": 64.0},
         csp={"n_filters": 4, "selection": "extremes"})
 
 

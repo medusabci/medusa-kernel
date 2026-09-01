@@ -56,9 +56,9 @@ class BWRLDAPipeline(DecodingPipeline):
 
     Configure it through the live :attr:`~medusa.core.settings_tree.Configurable.settings`
     tree (see :meth:`default_settings`). It has ``freq_filtering`` (notch + filter bank),
-    ``epoching`` and ``classifier`` levels. You can also configure it with construction
+    ``segmentation`` and ``classifier`` levels. You can also configure it with construction
     kwargs, which may be nested, for example ``BWRLDAPipeline(channels=["Fz", "Cz", "Pz",
-    "Oz"], epoching={"target_fs": 20.0})``. With a multi-filter bank, the per-sub-band
+    "Oz"], segmentation={"target_fs": 20.0})``. With a multi-filter bank, the per-sub-band
     epoch features are concatenated before the LDA (filter-bank feature fusion).
     """
 
@@ -74,13 +74,15 @@ class BWRLDAPipeline(DecodingPipeline):
         s.add_item("signal_key", value="eeg", info="Recording stream key to decode")
         s.add_item("car", value=True, info="Common-average reference before filtering")
         add_notch_and_filterbank_settings(s)
-        ep = s.add_group("epoching", info="Per-frame epoch windowing + resampling")
-        ep.add_item("w_segment_t", value=[0.0, 500.0],
-                    info="Epoch window relative to each frame onset (ms)")
-        ep.add_item("baseline_t", value=[-200.0, 0.0],
-                    info="Baseline window (ms); empty to disable")
-        ep.add_item("target_fs", value=0, value_range=[0, None],
-                    info="Resample epochs to this rate (Hz); 0 to disable")
+        seg = s.add_group("segmentation", info="Per-frame segment windowing + resampling")
+        seg.add_item("w_segment_t", value=[0.0, 500.0],
+                     info="Segment window relative to each frame onset (ms)")
+        seg.add_item("baseline_t", value=[-200.0, 0.0],
+                     info="Baseline window (ms); empty to disable")
+        seg.add_item("target_fs", value=20.0, optional=True, enabled=False,
+                     value_range=[1.0, None],
+                     info="Resample segments to this rate (Hz); switch it off to keep "
+                          "the native rate")
         clf = s.add_group("classifier", info="Regularised-LDA classifier")
         clf.add_item("shrinkage", value="auto", info="LDA shrinkage ('auto' or a float)")
         return s
@@ -113,17 +115,17 @@ class BWRLDAPipeline(DecodingPipeline):
         bands = apply_notch_and_filterbank(raw, x.fs, cfg["notch_filtering"],
                                            cfg["freq_filtering"]["filterbank"])
         onsets = _bit_onsets(cycle_onsets, n_frames, fps)
-        ep = cfg["epoching"]
-        window = tuple(ep["w_segment_t"])
-        baseline = tuple(ep["baseline_t"]) if ep["baseline_t"] else None
+        seg_cfg = cfg["segmentation"]
+        window = tuple(seg_cfg["w_segment_t"])
+        baseline = tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None
         # Filter-bank feature fusion: flatten each sub-band's epochs, concatenate.
         feats = []
         for xf in bands:
             seg = segment_signal_around_events(
                 x.times, xf, onsets, x.fs, window, baseline,
                 norm="dc" if baseline is not None else None)
-            if ep["target_fs"]:
-                seg = resample_segments(seg, window, ep["target_fs"])
+            if seg_cfg["target_fs"]:
+                seg = resample_segments(seg, window, seg_cfg["target_fs"])
             feats.append(seg.reshape(len(seg), -1))
         return np.concatenate(feats, axis=1)
 
