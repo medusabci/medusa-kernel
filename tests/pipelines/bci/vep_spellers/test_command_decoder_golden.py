@@ -1,19 +1,21 @@
-"""Golden tests for the Layer-2 command decoder (pure selector) and metrics.
+"""Golden tests for the Layer-2 command selector (a pure function) and its metrics.
 
-``VEPCommandDecoder`` does no fitting: it argmaxes the cumulative score row over a trial's
-*available* commands, with optional early stopping. These lock the selection rule, the
-per-trial availability restriction, the accuracy metrics, and the online ``step``.
+``select_commands`` does no fitting: it argmaxes the cumulative score row over a trial's
+*available* commands. These lock the selection rule, the per-trial availability
+restriction, the accuracy metrics, and the ``cycle_arrays`` seam that reads a recording's
+events into the per-cycle indices the selector takes.
 """
 import numpy as np
+import pandas as pd
 import pytest
 
 from medusa.pipelines.bci.vep_spellers import (
     select_commands, command_decoding_accuracy, command_decoding_accuracy_per_cycle,
-    VEPCommandDecoder, SpellerData, CommandInfo)
+    cycle_arrays, SpellerData, CommandInfo)
 
 
 def _speller_data(uids, trial_available_cmmds=None, spell_target=None):
-    """A minimal SpellerData with 1-frame dummy codes, for the selector/decoder tests."""
+    """A minimal SpellerData with 1-frame dummy codes, for the selector tests."""
     cmds = {u: CommandInfo(uid=u, code=[[1, 0]]) for u in uids}
     return SpellerData(mode="test", paradigm_conf={}, commands_info=cmds,
                        fps_resolution=60.0, trial_available_cmmds=trial_available_cmmds,
@@ -77,10 +79,10 @@ def test_accuracy_per_cycle():
 
 
 # --------------------------------------------------------------------------- #
-# VEPCommandDecoder
+# cycle_arrays -- the events -> per-cycle arrays seam Layer 2 is driven from
 # --------------------------------------------------------------------------- #
-def test_decoder_decode_matches_select_commands(cvep_recording_factory):
-    """`decode` is `select_commands` wired to a recording's events + SpellerData."""
+def test_cycle_arrays_feeds_select_commands(cvep_recording_factory):
+    """`cycle_arrays` reads the events into exactly the indices `select_commands` takes."""
     cmds = {"0": CommandInfo(uid="0", code=[[1, 0, 1, 0]]),
             "1": CommandInfo(uid="1", code=[[0, 1, 0, 1]])}
     rec = cvep_recording_factory(cmds, ["0", "1"], n_cycles=2, resp_amp=0.0, seed=0)
@@ -88,34 +90,31 @@ def test_decoder_decode_matches_select_commands(cvep_recording_factory):
     rng = np.random.default_rng(0)
     cycle_scores = rng.standard_normal((n_cycle_rows, 2))
 
-    out = VEPCommandDecoder().decode(cycle_scores, rec.experiment, rec.events)
+    onsets, trial, cycle, code_idx = cycle_arrays(rec.events)
 
-    trial = rec.events.df["trial_idx"].to_numpy(int)
-    cycle = rec.events.df["cycle_idx"].to_numpy(int)
-    selected, per_cycle, _ = select_commands(cycle_scores, ["0", "1"], trial, cycle)
-    assert out["selected_commands"] == selected
-    assert out["selected_commands_per_cycle"] == per_cycle
+    # one entry per cycle row, lined up with the Layer-1 score matrix
+    assert onsets.shape == trial.shape == cycle.shape == code_idx.shape == (n_cycle_rows,)
+    np.testing.assert_array_equal(trial, rec.events.df["trial_idx"].to_numpy(int))
+    np.testing.assert_array_equal(cycle, rec.events.df["cycle_idx"].to_numpy(int))
 
-
-def test_decoder_step_early_stopping():
-    sd = _speller_data(["A", "B"])
-    decoder = VEPCommandDecoder(stop_corr=0.5)
-    out = decoder.step(np.array([0.2, 0.9]), sd)
-    assert out["selected"] == "B"
-    assert out["stop"] is True                                   # 0.9 >= 0.5
-
-    decoder_high = VEPCommandDecoder(stop_corr=0.95)
-    assert decoder_high.step(np.array([0.2, 0.9]), sd)["stop"] is False
+    sd = rec.experiment
+    selected, per_cycle, _ = select_commands(
+        cycle_scores, sd.command_uids, trial, cycle, sd.trial_available_cmmds)
+    assert set(selected) == set(per_cycle) == set(trial.tolist())
 
 
-def test_decoder_step_off_by_default():
-    sd = _speller_data(["A", "B"])
-    out = VEPCommandDecoder().step(np.array([0.2, 0.9]), sd)     # stop_corr default 0 -> off
-    assert out["selected"] == "B"
-    assert out["stop"] is False
+def test_cycle_arrays_ignores_non_cycle_rows(cvep_recording_factory):
+    """Rows with a null `cycle_idx` are dropped, so a mixed timeline works as it is."""
+    cmds = {"0": CommandInfo(uid="0", code=[[1, 0, 1, 0]]),
+            "1": CommandInfo(uid="1", code=[[0, 1, 0, 1]])}
+    rec = cvep_recording_factory(cmds, ["0", "1"], n_cycles=2, resp_amp=0.0, seed=0)
+    n_cycle_rows = int(rec.events.df["cycle_idx"].notna().sum())
 
+    extra = rec.events.df.iloc[-1].to_dict()         # a non-stimulation row, last
+    extra["onset"] = float(extra["onset"]) + 1.0     # keep the timeline ordered
+    extra["cycle_idx"] = pd.NA
+    rec.events.append(extra)
+    assert len(rec.events) == n_cycle_rows + 1
 
-def test_decoder_step_respects_availability():
-    sd = _speller_data(["A", "B"], trial_available_cmmds=[["A"]])
-    out = VEPCommandDecoder().step(np.array([0.1, 0.9]), sd, trial=0)
-    assert out["selected"] == "A"                                # B unavailable
+    onsets, _, _, _ = cycle_arrays(rec.events)
+    assert onsets.shape == (n_cycle_rows,)

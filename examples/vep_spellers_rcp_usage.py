@@ -46,7 +46,7 @@ from medusa.core.legacy.recording import Recording as LegacyRecording
 from medusa.core.legacy.convert import rcp_recording_to_v2
 from medusa.pipelines.base import DecodingPipeline
 from medusa.pipelines.bci.vep_spellers import (
-    BWRLDAPipeline, VEPCommandDecoder, SpellerData,
+    BWRLDAPipeline, cycle_arrays, select_commands, SpellerData,
     command_decoding_accuracy_per_cycle)
 
 # Deep BWR (EEG-Inception) is torch-gated: import it only if PyTorch + Lightning are
@@ -105,7 +105,6 @@ print(f"Saved + reloaded the pipeline ({type(pipe).__name__}).")
 #    (pooled over runs). The number of cycles is the standard speller performance axis.
 #    The decode + pool step is model-agnostic, so we reuse it for both classifiers.
 # --------------------------------------------------------------------------- #
-decoder = VEPCommandDecoder()
 test_paths = sorted(glob.glob(os.path.join(DATA, "S1_TEST_*.rcp.bson")))
 test = [rcp_recording_to_v2(LegacyRecording.load(p)) for p in test_paths]
 
@@ -122,8 +121,9 @@ def pooled_per_cycle(pipe, verbose=False):
         sd = SpellerData.from_recording(rec)
         n_trials = len(sd.spell_target)
         tgt = {t: sd.spell_target[t] for t in range(n_trials)}
-        pc = decoder.decode(pipe.predict(rec), sd,
-                            rec.events)["selected_commands_per_cycle"]
+        _, trial, cycle, _ = cycle_arrays(rec.events)
+        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+                                   sd.trial_available_cmmds)
         if verbose:
             n_cyc = int(rec.events.df["cycle_idx"].max()) + 1
             tgt_text = "".join(sd.commands_info[u].content for u in sd.spell_target)

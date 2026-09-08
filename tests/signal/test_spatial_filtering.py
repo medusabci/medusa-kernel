@@ -38,6 +38,36 @@ def test_csp_project_requires_3d_signal():
         csp.project(signal=rng.standard_normal((200, 4)))
 
 
+@pytest.mark.parametrize("n_filters", [5, 0, -1])
+def test_csp_rejects_a_filter_count_it_cannot_honour(n_filters):
+    """CSP builds one filter per channel: asking for more used to die deep inside the
+    'extremes' selection loop with ``IndexError: pop from empty list``, and to silently
+    return fewer filters with 'eigenvalues'."""
+    rng = np.random.default_rng(0)
+    csp = sf.CSP(n_filters=n_filters)
+    with pytest.raises(ValueError, match="n_filters must be between 1"):
+        csp.fit(signal=rng.standard_normal((20, 200, 4)),
+                labels=np.array([0, 1] * 10))
+
+
+def test_csp_accepts_one_filter_per_channel():
+    rng = np.random.default_rng(0)
+    csp = sf.CSP(n_filters=4)
+    csp.fit(signal=rng.standard_normal((20, 200, 4)), labels=np.array([0, 1] * 10))
+    assert csp.project(signal=rng.standard_normal((20, 200, 4))).shape == (20, 200, 4)
+
+
+def test_csp_handles_more_than_two_classes():
+    """The multiclass branch (joint diagonalization + mutual information ranking)."""
+    rng = np.random.default_rng(0)
+    signal, labels = rng.standard_normal((30, 200, 4)), np.array([0, 1, 2] * 10)
+    csp = sf.CSP(n_filters=2, selection="eigenvalues")
+    csp.fit(signal=signal, labels=labels)
+
+    assert csp.project(signal=signal).shape == (30, 200, 2)
+    assert csp.filters.shape == (4, 4) and csp.patterns.shape == (4, 4)
+
+
 # --------------------------------------------------------------------------- #
 # CCA: fit uses `signal`/`reference`; project/canoncorr use `signal`.
 # --------------------------------------------------------------------------- #

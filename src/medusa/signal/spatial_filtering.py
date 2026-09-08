@@ -328,7 +328,8 @@ class CSP:
         Parameters
         ----------
         n_filters : int or None
-            Number of filters to select. Use None to return all filters
+            Number of filters to select, between 1 and the number of channels
+            (CSP builds one filter per channel). Use None to return all filters
             (default: 4).
         selection : basestring
             Selection method:
@@ -388,7 +389,8 @@ class CSP:
         ------
         ValueError
             If ``selection='extremes'`` is requested with more than two
-            classes, or if fewer than two classes are present.
+            classes, if fewer than two classes are present, or if
+            ``n_filters`` is outside ``1..n_channels``.
 
         References
         ----------
@@ -408,6 +410,14 @@ class CSP:
             raise ValueError("Cannot use 'extremes' selection if the data has "
                              f"more than 2 classes ({len(n_classes)} classes "
                              "found)!")
+        n_channels = signal.shape[-1]
+        if self.n_filters is not None and not 1 <= self.n_filters <= n_channels:
+            raise ValueError(
+                f"n_filters must be between 1 and the number of channels "
+                f"({n_channels}), got {self.n_filters}. CSP builds one spatial "
+                f"filter per channel, so it cannot select more than that: lower "
+                f"n_filters, decode more channels, or pass n_filters=None to keep "
+                f"every filter.")
 
         # Covariance matrices
         cov = []
@@ -466,6 +476,9 @@ class CSP:
                     b += prob_class[i] * (temp ** 2 - 1)
                 mutual_info = - (patterns + (3.0 / 16) * (b ** 2))
                 self.eigenvalues.append(mutual_info)
+            # Same role as the 2-class eigenvectors: one filter per column, so the
+            # assembly below (filters/patterns) is shared by both branches.
+            eigenvectors = filters
 
             # Indexes for sorting eigenvalues (w)
             if self.selection == "eigenvalues":

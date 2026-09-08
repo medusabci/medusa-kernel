@@ -36,7 +36,7 @@ clf = TorchClassifier(
 
 # Train.
 clf.fit(X_tr, y_tr)
-print(f"train history : {clf.history_}")
+print(f"train history : {clf.history_[-1]}")
 
 # Test.
 print(f"test accuracy : {clf.score(X_te, y_te):.3f}")
@@ -68,7 +68,7 @@ mt_clf = TorchMultiTaskClassifier(
 
 # Train both heads jointly on the same X.
 mt_clf.fit(X_tr, {'task_a': y_a_tr, 'task_b': y_b_tr})
-print(f"multitask history : {mt_clf.history_}")
+print(f"multitask history : {mt_clf.history_[-1]}")
 
 # Per-task inference: name the task explicitly.
 scores = mt_clf.score(X_te, {'task_a': y_a_te, 'task_b': y_b_te})
@@ -102,6 +102,6 @@ erp_clf = TorchMultiTaskClassifier(
 # X is a dict here — one array per experiment, aligned with the y dict keys.
 erp_clf.fit({'exp1': X, 'exp2': X_exp2},
             {'exp1': y_exp1, 'exp2': y_exp2})
-print(f"cross-experiment history : {erp_clf.history_}")
+print(f"cross-experiment history : {erp_clf.history_[-1]}")
 print(f"exp1 classes : {erp_clf.classes_['exp1']}  "
       f"exp2 classes : {erp_clf.classes_['exp2']}")

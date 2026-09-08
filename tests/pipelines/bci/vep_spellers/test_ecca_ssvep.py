@@ -12,7 +12,8 @@ import pytest
 
 from medusa.pipelines.base import DecodingPipeline
 from medusa.pipelines.bci.vep_spellers import (
-    generate_freq_codebook, generate_random_codebook, TMCCAPipeline, VEPCommandDecoder,
+    generate_freq_codebook, generate_random_codebook, TMCCAPipeline, cycle_arrays,
+    select_commands,
     command_decoding_accuracy_per_cycle)
 from medusa.pipelines.bci.vep_spellers.decoding.template_matching import (
     _ecca_score, _cca_reference)
@@ -40,10 +41,11 @@ def ssvep_train_test(ssvep_recording_factory):
 
 def _curve(pipe, test):
     sd = test.experiment
-    result = VEPCommandDecoder().decode(pipe.predict(test), sd, test.events)
+    _, trial, cycle, _ = cycle_arrays(test.events)
+    _, per_cycle, _ = select_commands(pipe.predict(test), sd.command_uids, trial, cycle,
+                                      sd.trial_available_cmmds)
     target = {t: sd.spell_target[t] for t in range(len(sd.spell_target))}
-    return 100.0 * command_decoding_accuracy_per_cycle(
-        result["selected_commands_per_cycle"], target)
+    return 100.0 * command_decoding_accuracy_per_cycle(per_cycle, target)
 
 
 def _pipe(channels, mode):

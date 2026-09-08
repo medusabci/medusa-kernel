@@ -13,7 +13,8 @@ import pytest
 
 from medusa.pipelines.base import DecodingPipeline
 from medusa.pipelines.bci.vep_spellers import (
-    generate_random_codebook, BWRLDAPipeline, TMCCAPipeline, VEPCommandDecoder,
+    generate_random_codebook, BWRLDAPipeline, TMCCAPipeline, cycle_arrays,
+    select_commands,
     command_decoding_accuracy_per_cycle)
 
 # Locked synthesis parameters (see conftest): 6 random codes of 126 frames decode cleanly.
@@ -43,10 +44,11 @@ def random_cvep_train_test(cvep_recording_factory, cvep_channels):
 def _accuracy_curve(pipe, test):
     """Per-cycle decoding accuracy (%) of ``pipe`` on one test recording."""
     sd = test.experiment
-    result = VEPCommandDecoder().decode(pipe.predict(test), sd, test.events)
+    _, trial, cycle, _ = cycle_arrays(test.events)
+    _, per_cycle, _ = select_commands(pipe.predict(test), sd.command_uids, trial, cycle,
+                                      sd.trial_available_cmmds)
     target = {t: sd.spell_target[t] for t in range(len(sd.spell_target))}
-    return 100.0 * command_decoding_accuracy_per_cycle(
-        result["selected_commands_per_cycle"], target)
+    return 100.0 * command_decoding_accuracy_per_cycle(per_cycle, target)
 
 
 def test_bwr_decodes_random_codes(random_cvep_train_test):

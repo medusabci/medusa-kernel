@@ -13,7 +13,7 @@ m-sequence -- and every other command's code is a circular shift of it. So:
    each command's code lag and correlating it with the (1-D projected) EEG -- the classic
    c-VEP circular-shifting decoder;
 3. ``TMCCAPipeline.predict`` returns the cumulative ``(n_cycles, n_commands)`` correlations and
-   the paradigm-agnostic ``VEPCommandDecoder`` selects the command per cycle -- exactly as for
+   the paradigm-agnostic ``select_commands`` picks the command per cycle -- exactly as for
    the BWR pipelines.
 """
 import glob
@@ -23,7 +23,7 @@ from medusa.core.legacy.recording import Recording as LegacyRecording
 from medusa.core.legacy.convert import cvep_recording_to_v2
 from medusa.pipelines.base import DecodingPipeline
 from medusa.pipelines.bci.vep_spellers import (
-    TMCCAPipeline, cvep_settings, VEPCommandDecoder, SpellerData,
+    TMCCAPipeline, cvep_settings, cycle_arrays, select_commands, SpellerData,
     command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -54,7 +54,6 @@ print(f"Saved + reloaded the pipeline ({type(pipe).__name__}).\n")
 # 3) Decode the test runs (16 commands = circular shifts of the trained base).
 # --------------------------------------------------------------------------- #
 labels = open(os.path.join(DATA, "cvep_labels.txt")).read().strip()
-decoder = VEPCommandDecoder()
 cursor = 0
 for path in sorted(glob.glob(os.path.join(DATA, "cvep_test*.cvep.bson"))):
     rec = cvep_recording_to_v2(LegacyRecording.load(path))
@@ -67,8 +66,9 @@ for path in sorted(glob.glob(os.path.join(DATA, "cvep_test*.cvep.bson"))):
     target = {t: sd.spell_target[t] for t in range(n_trials)}
 
     # cumulative (n_cycles, n_commands) correlations (Layer 1) -> command selection (Layer 2)
-    result = decoder.decode(pipe.predict(rec), sd, rec.events)
-    per_cycle = result["selected_commands_per_cycle"]
+    _, trial, cycle, _ = cycle_arrays(rec.events)
+    _, per_cycle, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+                                      sd.trial_available_cmmds)
     n_cycles = int(rec.events.df["cycle_idx"].max()) + 1
     acc_per_cycle = command_decoding_accuracy_per_cycle(per_cycle, target)
 

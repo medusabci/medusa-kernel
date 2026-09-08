@@ -47,7 +47,7 @@ from medusa.core.legacy.recording import Recording as LegacyRecording
 from medusa.core.legacy.convert import cvep_recording_to_v2
 from medusa.pipelines.bci.vep_spellers import (
     BWRLDAPipeline, TMCCAPipeline, cvep_settings,
-    VEPCommandDecoder, command_decoding_accuracy_per_cycle)
+    cycle_arrays, select_commands, command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data", "cvep")
@@ -123,25 +123,26 @@ def make_pipeline(method, filterbank):
         # Deep BWR: same segmentation as the shallow BWR (raw 256 Hz, 250 ms -> 64 samples), but the
         # epochs feed an EEG-Inception backbone. scales_ms suit the short frame window (-> ~32/16/8
         # samples); training is kept brief with early stopping so the example runs quickly on CPU.
-        from medusa.pipelines.bci.vep_spellers import \
-            BWREEGInceptionPipeline
+        # The settings builder is the tidy way in: it picks the architecture and writes the
+        # millisecond scales into every architecture's own hyper-parameter group for us.
+        from medusa.pipelines.bci.vep_spellers import (
+            BWREEGInceptionPipeline, bwr_eeg_inception_settings)
         architecture = "eeg_inception_v1" if method == "BWR-EEGInc-v1" \
             else "eeg_inception_v2"
         return BWREEGInceptionPipeline(
+            settings=bwr_eeg_inception_settings(
+                arch=architecture,
+                band=filterbank[0]["cutoff"], order=filterbank[0]["order"],
+                w_segment_t=(0.0, 250.0), target_fs=None,
+                scales_ms=(125.0, 62.5, 31.25)),
             channels=channels,
-            freq_filtering={
-                "filterbank": filterbank
-            },
-            segmentation={
-                "w_segment_t": [0.0, 250.0], "baseline_t": [], "target_fs": None
-            },
             classifier={
-                "arch": architecture,
-                "scales_ms": [125.0, 62.5, 31.25],
                 "training": {
-                    "max_epochs": 50, "batch_size": 256,
-                    "val_split": 0.2, "patience": 8,
-                    "verbose": "epoch"   # one clean line per epoch ('silent'/'epoch'/'full')
+                    "max_epochs": 50,
+                    "batch_size": 256,
+                    "val_split": 0.2,
+                    "patience": 8,
+                    "verbose": "epoch"
                 }})
 
 
@@ -152,12 +153,12 @@ def accuracy_curve(pipe):
     trials, and returns ``command_decoding_accuracy_per_cycle`` in percent (entry ``k`` is
     the accuracy after ``k + 1`` cycles).
     """
-    decoder = VEPCommandDecoder()
     per_cycle, target, base = {}, {}, 0
     for rec in test:
         sd = rec.experiment
-        pc = decoder.decode(pipe.predict(rec), sd,
-                            rec.events)["selected_commands_per_cycle"]
+        _, trial, cycle, _ = cycle_arrays(rec.events)
+        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+                                   sd.trial_available_cmmds)
         for t in pc:                                    # re-key trials globally
             per_cycle[base + t] = pc[t]
             target[base + t] = sd.spell_target[t]
@@ -179,26 +180,16 @@ for method in METHODS:
             continue
         pipe = make_pipeline(method, fb).fit(train)
         results[(method, fname)] = accuracy_curve(pipe)
-        # Deep (torch) pipelines record a training summary in clf.history_ (the engine runs
-        # with logger=False, so this dict -- not a metrics file -- is the training record).
-        # Shallow LDA/CCA pipelines fit in one shot and have no history.
-        hist = getattr(getattr(pipe, "clf", None), "history_", None)
+        # Deep (torch) pipelines record a training summary per fit in clf.history_ (the
+        # engine runs with logger=False, so this list -- not a metrics file -- is the
+        # training record). Shallow LDA/CCA pipelines fit in one shot and have none.
+        history = getattr(getattr(pipe, "clf", None), "history_", None)
+        hist = history[-1] if history else None
         summary = ("" if hist is None else
                    f"  [{hist['epochs']} epochs, train_loss={hist['train_loss']:.3f}, "
                    f"val_loss={hist['val_loss']:.3f}"
                    f"{', early-stopped' if hist['stopped_early'] else ''}]")
         print(f"  done: {method:13s} | {fname:<26}{summary}")
-#
-# # Deep BWR (EEG-Inception v1 & v2): single band only -- a conv net takes one multichannel
-# # epoch and cannot fuse a parallel filter bank. Skipped cleanly when torch is unavailable.
-# if DEEP_METHODS:
-#     print("Training the deep BWR pipelines (EEG-Inception; CPU, may take a minute) ...")
-#     for method in DEEP_METHODS:
-#         pipe = make_pipeline(method, FILTERINGS[SINGLE_BAND]).fit(train)
-#         results[(method, SINGLE_BAND)] = accuracy_curve(pipe)
-#         print(f"  done: {method} | {SINGLE_BAND}")
-# else:
-#     print("Skipping deep BWR (EEG-Inception): PyTorch / Lightning not installed.")
 
 # --------------------------------------------------------------------------- #
 # 3) Report: a compact summary table, the full per-cycle curves, and a figure.

@@ -330,7 +330,7 @@ class EEGInceptionV2(nn.Module):
         return self.drop_out(out)
 
     def get_config(self) -> dict:
-        """Constructor kwargs needed to rebuild this module (for ML6)."""
+        """Constructor kwargs needed to rebuild this module"""
         return {
             'input_samples': self.input_samples,
             'n_cha': self.n_cha,

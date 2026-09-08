@@ -67,12 +67,22 @@ def test_level0_is_silent_but_records_history():
     clf, out = _train_capture("silent")
     assert out.strip() == ""
     # history_ is still populated (EpochHistory runs at every level).
-    assert len(clf.history_["train_loss_curve"]) == clf.history_["epochs"]
+    assert len(clf.history_[-1]["train_loss_curve"]) == clf.history_[-1]["epochs"]
+
+
+def test_history_is_one_entry_per_fit():
+    """``history_`` is a list, so a multi-phase run keeps every phase's curves."""
+    clf, _ = _train_capture(0)
+    assert len(clf.history_) == 1
+
+    rng = np.random.RandomState(1)
+    clf.fit(rng.randn(64, 64, 8).astype("float32"), np.array([0, 1] * 32))
+    assert len(clf.history_) == 2
 
 
 def test_history_has_curves_and_best():
     clf, _ = _train_capture(0)
-    h = clf.history_
+    h = clf.history_[-1]
     for key in ("monitor", "best_score", "best_epoch",
                 "train_loss_curve", "val_loss_curve"):
         assert key in h

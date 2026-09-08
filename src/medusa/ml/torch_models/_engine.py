@@ -7,8 +7,10 @@ best-checkpoint restore). Nothing in this module is public API.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import tempfile
+import warnings
 
 from . import require_lightning
 
@@ -20,7 +22,8 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from rich.console import Console
 from sklearn.base import BaseEstimator
-from torch.utils.data import DataLoader, random_split
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Subset, random_split
 
 from medusa.core.serialization import PickleableComponent
 from ._progress import (
@@ -42,6 +45,33 @@ def _trainer_target(dev: torch.device):
     if dev.type == 'mps':
         return 'mps', 1
     return 'cpu', 1
+
+
+@contextlib.contextmanager
+def seeded_rng(seed, device=None):
+    """Run the block with torch's RNG seeded, and put the RNG back afterwards.
+
+    ``seed=None`` yields straight away: nothing is seeded and nothing is
+    touched. With a seed, the CPU generator (and every CUDA generator, when the
+    run is on GPU) is forked with :func:`torch.random.fork_rng`, seeded, and
+    restored on exit. The fork is the point: seeding globally would make a
+    reproducible ``fit`` silently reset the random numbers the calling script
+    draws afterwards.
+
+    Used by :meth:`_BaseTorchEstimator._rng_scope` around a whole ``fit``, and
+    by the deep pipelines around the construction of the backbone, whose initial
+    weights are drawn before any estimator exists.
+    """
+    if seed is None:
+        yield
+        return
+    if _resolve_device(device).type == 'cuda':
+        devices, device_type = range(torch.cuda.device_count()), 'cuda'
+    else:
+        devices, device_type = [], 'cpu'
+    with torch.random.fork_rng(devices=devices, device_type=device_type):
+        torch.manual_seed(int(seed))
+        yield
 
 
 def _input_layout(backbone) -> tuple:
@@ -102,6 +132,28 @@ def encode_labels(y):
     return classes, y_idx.astype(np.int64)
 
 
+def _stratified_split_indices(n: int, n_val: int, labels, random_state=None):
+    """``(train_idx, val_idx)`` keeping each class's share, or ``None``.
+
+    ``None`` means the split cannot be stratified — fewer validation slots than
+    classes, fewer training slots than classes, or a class with a single member
+    — and the caller falls back to a random split. ``random_state`` fixes which
+    observations land on each side, so the same data give the same split.
+    """
+    labels = np.asarray(labels).reshape(-1)
+    if len(labels) != n:
+        return None
+    counts = np.unique(labels, return_counts=True)[1]
+    n_classes = len(counts)
+    if (n_classes < 2 or counts.min() < 2
+            or n_val < n_classes or n - n_val < n_classes):
+        return None
+    train_idx, val_idx = train_test_split(
+        np.arange(n), test_size=n_val, stratify=labels,
+        random_state=random_state)
+    return train_idx.tolist(), val_idx.tolist()
+
+
 def _metric(trainer, name) -> float:
     value = trainer.callback_metrics.get(name)
     return float(value) if value is not None else float('nan')
@@ -154,6 +206,11 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
     defined here, ``save`` is overridden below (tensor-efficient protocol) and
     ``load`` is inherited.
 
+    ``fit`` **continues from the model the estimator already holds**: the backbone
+    is held by reference and trained in place, and a second ``fit`` keeps training
+    the same head as well. :meth:`reset_head` is the explicit cold start for the
+    part the estimator owns; the backbone belongs to whoever built it.
+
     Subclasses build a task (``pl.LightningModule``) and its dataloaders in
     ``fit`` and hand them to :meth:`_run_training`; they own all predict
     semantics. A model is saved as a portable ``config + state_dict`` bundle —
@@ -174,6 +231,12 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
     val_split : float or None
         Fraction in (0, 1) held out for validation-based early stopping and
         best-checkpoint restore. ``None`` monitors training loss instead.
+    val_split_stratify : bool, default True
+        Keep each class's share of the data in that validation split, instead of
+        drawing it at random. It only applies when the estimator hands labels to
+        the splitter (the classifiers do) and ``val_split`` is set; when a class
+        is too small to appear on both sides, the split falls back to the random
+        one and warns.
     device : {'auto', 'cpu', 'cuda', 'cuda:N', 'mps'}
         Resolved once at ``fit`` time and reused for inference.
     verbose : int | str, default 1
@@ -182,29 +245,52 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         ``0`` / ``'silent'`` -- no output; ``1`` / ``'epoch'`` (default) -- one clean line
         per epoch (live progress + losses) with a banner and summary; ``2`` / ``'full'`` --
         Lightning's full stock output (model summary, validation bars) for debugging.
+    random_state : int or None, default None
+        Seed that makes a fit repeatable. ``None`` (the default) leaves training
+        stochastic: every call draws its own validation split, batch order and
+        dropout masks, so two runs of the same experiment give slightly
+        different models — noise that blurs a comparison between two
+        configurations. An integer fixes all of them, so the same data and the
+        same settings give the same model. The seed is applied inside
+        :func:`torch.random.fork_rng`, so it never disturbs the random numbers
+        the calling script draws after ``fit``.
+
+        Two things stay outside it. The weights ``backbone`` already carries were
+        drawn when that module was built, before the estimator existed, so seed
+        that too (:func:`seeded_rng` around its construction, as the deep
+        pipelines do). And CUDA kernels are not deterministic by default: on GPU
+        two seeded runs come out very close but not bit-identical, unless you
+        also set ``torch.use_deterministic_algorithms(True)``, which costs
+        speed.
     """
 
     def __init__(self, backbone, *, lr=1e-3, max_epochs=100, batch_size=64,
-                 val_split=None, patience=10, device='auto', verbose=1):
+                 val_split=None, val_split_stratify=True, patience=10,
+                 device='auto', verbose=1, random_state=None):
         self.backbone = backbone
         self.lr = lr
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.val_split = val_split
+        self.val_split_stratify = val_split_stratify
         self.patience = patience
         self.device = device
         self.verbose = verbose
+        self.random_state = random_state
 
-    # ---- backbone utilities ---- #
+    # ---- model utilities ---- #
 
-    def freeze_backbone(self):
-        for p in self.backbone.parameters():
-            p.requires_grad = False
-        return self
+    def reset_head(self):
+        """Drop the fitted head(s) and ``classes_``, keeping the trained backbone.
 
-    def unfreeze_backbone(self):
-        for p in self.backbone.parameters():
-            p.requires_grad = True
+        The next ``fit`` builds a fresh head on the features learned so far — the
+        transfer move: keep what the backbone knows, train a new classifier for a
+        new subject or a new set of labels. Nothing happens if the estimator was
+        never fitted.
+        """
+        for name in (self._FITTED_ATTR, 'classes_'):
+            if name is not None and hasattr(self, name):
+                delattr(self, name)
         return self
 
     def _prepare(self, X) -> torch.Tensor:
@@ -231,21 +317,55 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
 
     # ---- training ---- #
 
-    def _loaders_from_dataset(self, dataset):
-        """Split one dataset into ``(train_loader, val_loader)`` per ``val_split``."""
-        if self.val_split:
-            n_val = max(1, int(len(dataset) * self.val_split))
+    def _rng_scope(self):
+        """``random_state`` applied to one fit; a no-op when it is ``None``.
+
+        Every ``fit`` runs its whole body inside this scope — building the task
+        (the head's initial weights), splitting off the validation fold, and the
+        training run itself — so a single seed covers the split, the batch order
+        and the dropout masks.
+        """
+        return seeded_rng(self.random_state, self.device)
+
+    def _loaders_from_dataset(self, dataset, labels=None):
+        """Split one dataset into ``(train_loader, val_loader)`` per ``val_split``.
+
+        With ``val_split_stratify`` on (the default) and ``labels`` given, the
+        validation fold keeps each class's share of the data instead of being
+        drawn at random. That matters as soon as the classes are unbalanced: a random
+        split of, say, a 3 %-target set can leave the fold with almost no
+        targets, and then the validation loss that early stopping watches says
+        very little about the model. When the split cannot keep every class on
+        both sides, it falls back to the random split and warns.
+        """
+        if not self.val_split:
+            return DataLoader(dataset, batch_size=self.batch_size,
+                              shuffle=True), None
+        n_val = max(1, int(len(dataset) * self.val_split))
+        split = (_stratified_split_indices(len(dataset), n_val, labels,
+                                           random_state=self.random_state)
+                 if self.val_split_stratify and labels is not None else None)
+        if split is None:
+            if self.val_split_stratify and labels is not None:
+                warnings.warn(
+                    f"cannot stratify a {n_val}-observation validation split of "
+                    f"{len(dataset)} observations (a class is too small, or there "
+                    f"are fewer slots than classes); splitting at random instead.",
+                    UserWarning, stacklevel=3)
             train_ds, val_ds = random_split(
                 dataset, [len(dataset) - n_val, n_val])
-            val_loader = DataLoader(val_ds, batch_size=self.batch_size)
         else:
-            train_ds, val_loader = dataset, None
-        train_loader = DataLoader(train_ds, batch_size=self.batch_size,
-                                  shuffle=True)
-        return train_loader, val_loader
+            train_idx, val_idx = split
+            train_ds, val_ds = Subset(dataset, train_idx), Subset(dataset, val_idx)
+        return (DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
+                DataLoader(val_ds, batch_size=self.batch_size))
 
     def _run_training(self, task: pl.LightningModule, train_loader, val_loader):
-        """Train ``task``; restore best weights, stash ``history_``.
+        """Train ``task``; restore best weights, append to ``history_``.
+
+        ``history_`` is a list with one entry per ``fit`` — a multi-phase run
+        (pretrain, then finetune) keeps every phase's curves, and ``history_[-1]``
+        is the phase that just ran.
 
         Output verbosity follows ``self.verbose`` (see
         :func:`~medusa.ml.torch_models._progress.normalize_verbose`): level 1 (default) shows
@@ -287,6 +407,8 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                         n_train=_n_observations(train_loader),
                         n_val=(_n_observations(val_loader)
                                if val_loader is not None else None),
+                        phase=len(getattr(self, 'history_', [])) + 1,
+                        continuing=bool(getattr(self, 'history_', [])),
                         max_epochs=self.max_epochs,
                         batch_size=self.batch_size,
                         monitor=monitor,
@@ -302,7 +424,7 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                 task.load_state_dict(state)
 
         self.backbone.to(self.device_)
-        self.history_ = {
+        phase = {
             'epochs': int(trainer.current_epoch),
             'train_loss': _metric(trainer, 'train_loss'),
             'val_loss': (_metric(trainer, 'val_loss')
@@ -314,11 +436,12 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
             'train_loss_curve': history.train_curve,
             'val_loss_curve': history.val_curve,
         }
+        self.history_ = getattr(self, 'history_', []) + [phase]
         if level == 1:
             print_summary(
                 console,
-                epochs=self.history_['epochs'],
-                stopped_early=self.history_['stopped_early'],
+                epochs=phase['epochs'],
+                stopped_early=phase['stopped_early'],
                 monitor=monitor,
                 best_score=best_score,
                 best_epoch=history.best_epoch)
@@ -384,7 +507,7 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                          'config': backbone.get_config(),
                          'state_dict': _cpu_state_dict(backbone)},
             'fitted': self._is_fitted(),
-            'history': getattr(self, 'history_', None),
+            'history': getattr(self, 'history_', []),
         }
         if obj['fitted']:
             obj['fitted_state'] = self._capture_fitted_state()
@@ -400,7 +523,7 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         est_cls = _import_class(obj['estimator']['module'],
                                 obj['estimator']['qualname'])
         est = est_cls(backbone, **obj['params'])
-        est.history_ = obj.get('history')
+        est.history_ = obj.get('history') or []
         if obj['fitted']:
             est._restore_fitted_state(obj['fitted_state'])
         return est

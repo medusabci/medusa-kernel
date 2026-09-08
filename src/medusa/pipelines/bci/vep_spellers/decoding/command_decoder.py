@@ -4,12 +4,16 @@ A Layer-1 pipeline's :meth:`predict` returns a *cumulative* ``(n_cycles, n_comma
 matrix -- row ``i`` is the decision score for every command after cycle event ``i``,
 accumulated the family's natural way (concatenate-then-correlate for BWR, coherent averaging
 + CCA for template matching). This module only **selects**: for each trial, after each cycle,
-it takes the argmax of the cumulative score row over that trial's *available* commands (with
-optional early stopping). It is paradigm-agnostic -- no codes, no per-family logic -- because
+:func:`select_commands` takes the argmax of the cumulative score row over that trial's
+*available* commands. It is paradigm-agnostic -- no codes, no per-family logic -- because
 Layer 1 already did the family-specific accumulation.
 
-:func:`select_commands` is the free-function core; :class:`VEPCommandDecoder` wraps it with a
-configurable early-stopping threshold and adds an online :meth:`~VEPCommandDecoder.step`.
+Layer 2 is stateless and does no fitting, so it is a plain function, not an object: pair
+:func:`select_commands` with
+:func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`, which reads the per-cycle
+trial and repetition indices out of a recording's events. :func:`command_decoding_accuracy`
+and :func:`command_decoding_accuracy_per_cycle` score the result; the per-cycle curve is
+also what a dynamic-stopping rule is designed and tuned against.
 """
 
 from __future__ import annotations
@@ -17,13 +21,9 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from medusa.core.settings_tree import Configurable, SettingsTree
-from medusa.pipelines.bci.vep_spellers.data import SpellerData
-from medusa.pipelines.bci.vep_spellers.decoding._common import (
-    _cycle_arrays, _trial_cycle_order)
+from medusa.pipelines.bci.vep_spellers.decoding._common import _trial_cycle_order
 
 __all__ = [
-    "VEPCommandDecoder",
     "select_commands",
     "command_decoding_accuracy",
     "command_decoding_accuracy_per_cycle",
@@ -42,7 +42,7 @@ def _available(trial_available_cmmds, command_uids, trial: int) -> "list[str]":
 
 
 def select_commands(cycle_scores: NDArray, command_uids: list[str],
-                    cycle_trial: NDArray, cycle_idx: NDArray,
+                    trial_idx: NDArray, cycle_idx: NDArray,
                     trial_available_cmmds: list[list[str]] | None = None):
     """Select the decoded command per trial from a cumulative score matrix.
 
@@ -61,8 +61,8 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
     command_uids :
         Length ``n_commands``. Command ``uid``\\ s in score-column order
         (``SpellerData.command_uids``).
-    cycle_trial, cycle_idx :
-        ``(n_cycles,)`` each. Per-cycle trial index and repetition index (one row per
+    trial_idx, cycle_idx :
+        ``(n_cycles,)`` each. Per-cycle trial index and cycle index (one row per
         cycle, from the events).
     trial_available_cmmds :
         Per-trial list of available command ``uid``\\ s
@@ -70,13 +70,21 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
 
     Returns
     -------
-    selected : dict
+    sel_cmd : dict
         ``{trial_idx: command_uid}``. The final selection (all cycles).
-    per_cycle : dict
+    sel_cmd_per_cycle : dict
         ``{trial_idx: {n_cycles: command_uid}}``. The cumulative selection after each
         cycle (for dynamic stopping or accuracy-vs-cycles).
     scores : dict
         ``{trial_idx: {n_cycles: ndarray[n_available]}}``. Per-available-command score.
+
+    Raises
+    ------
+    ValueError
+        If ``trial_available_cmmds`` is given but has fewer entries than the largest
+        ``trial_idx`` in ``cycle_trial`` (it is indexed by trial index, not by position).
+    KeyError
+        If a command ``uid`` listed in ``trial_available_cmmds`` is not in ``command_uids``.
 
     Examples
     --------
@@ -85,9 +93,20 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
     >>> cycle_scores = np.array([[0.1, 0.9], [0.8, 0.2]])    # 2 cycles, 2 commands
     >>> selected, per_cycle, scores = select_commands(
     ...     cycle_scores, command_uids=["A", "B"],
-    ...     cycle_trial=np.array([0, 0]), cycle_idx=np.array([0, 1]))
+    ...     trial_idx=np.array([0, 0]), cycle_idx=np.array([0, 1]))
     >>> selected[0]                     # the last cycle (idx 1) picks command "A"
     'A'
+
+    On a real recording, the per-cycle arrays come from its events:
+
+    >>> from medusa.pipelines.bci.vep_spellers import (
+    ...     SpellerData, cycle_arrays, select_commands)
+    >>> sd = SpellerData.from_recording(recording)
+    >>> onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(
+    recording.events)
+    >>> selected, per_cycle, scores = select_commands(
+    ...     pipeline.predict(recording), sd.command_uids, trial, cycle,
+    ...     sd.trial_available_cmmds)
     """
     cycle_scores = np.asarray(cycle_scores, dtype=float)
     command_uids = list(command_uids)
@@ -95,7 +114,7 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
     row = {uid: i for i, uid in enumerate(command_uids)}
 
     selected, per_cycle, scores = {}, {}, {}
-    for t, order in _trial_cycle_order(cycle_trial, cycle_idx):
+    for t, order in _trial_cycle_order(trial_idx, cycle_idx):
         avail = _available(trial_available_cmmds, command_uids, t)
         avail_cols = [row[u] for u in avail]
         per_cycle[t], scores[t] = {}, {}
@@ -108,98 +127,93 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
     return selected, per_cycle, scores
 
 
-def command_decoding_accuracy(selected: dict, target: dict) -> float:
+def command_decoding_accuracy(sel_cmd: dict, target: dict) -> float:
     """Fraction of trials whose final selected command equals the target.
 
-    ``selected`` and ``target`` are both ``{trial_idx: command_uid}``. Trials that are not
-    in ``target`` are ignored.
+    The end-of-trial accuracy: every trial is counted once, using all of its cycles. Use
+    :func:`command_decoding_accuracy_per_cycle` to see how that accuracy grows with the
+    number of cycles.
+
+    Parameters
+    ----------
+    sel_cmd :
+        ``{trial_idx: command_uid}``. The final selection per trial: the first output
+        of :func:`select_commands`.
+    target :
+        ``{trial_idx: command_uid}``. The command the user was asked to spell in each
+        trial. Trials that are not in ``target`` are ignored, so a recording may mix
+        labelled and unlabelled trials.
+
+    Returns
+    -------
+    float
+        Accuracy in ``[0, 1]``, or ``nan`` when no trial of ``selected`` appears in
+        ``target`` (nothing could be scored).
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import command_decoding_accuracy
+    >>> selected = {0: "A", 1: "B", 2: "C"}
+    >>> command_decoding_accuracy(selected, target={0: "A", 1: "B", 2: "D"})
+    0.6666666666666666
     """
-    keys = [t for t in selected if t in target]
+    keys = [t for t in sel_cmd if t in target]
     if not keys:
         return float("nan")
-    correct = sum(str(selected[t]) == str(target[t]) for t in keys)
+    correct = sum(str(sel_cmd[t]) == str(target[t]) for t in keys)
     return correct / len(keys)
 
 
-def command_decoding_accuracy_per_cycle(per_cycle: dict, target: dict) -> NDArray:
+def command_decoding_accuracy_per_cycle(sel_cmd_per_cycle: dict, target: dict) -> NDArray:
     """Accuracy as a function of the number of cycles used.
 
-    Returns an array indexed by the 0-based cycle index (the same ``cycle_idx`` as the
-    events). Entry ``n`` is the accuracy after cycle ``n``, i.e. after ``n + 1`` cycles,
-    counted over the trials that reached that many cycles. So entry ``0`` is the accuracy
-    after the first cycle and the last entry is the final accuracy.
+    The accuracy-vs-cycles curve of a speller: how well the decoder does when it is only
+    allowed to see the first cycle, the first two, and so on. It is the usual way to read
+    the speed/accuracy trade-off of a paradigm, and the curve early stopping is tuned on.
+
+    Parameters
+    ----------
+    sel_cmd_per_cycle :
+        ``{trial_idx: {cycle_idx: command_uid}}``. The cumulative selection after each
+        cycle: the second output of :func:`select_commands`.
+    target :
+        ``{trial_idx: command_uid}``. The command the user was asked to spell in each
+        trial. Trials that are not in ``target`` are ignored, so a recording may mix
+        labelled and unlabelled trials.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(max_cycle_idx + 1,)``. Accuracy in ``[0, 1]`` indexed by the 0-based cycle
+        index (the same ``cycle_idx`` as the events): entry ``n`` is the accuracy after
+        cycle ``n``, that is after ``n + 1`` cycles. So entry ``0`` is the accuracy from a
+        single cycle and the last entry is the final accuracy, the value
+        :func:`command_decoding_accuracy` returns. Each entry is counted only over the
+        trials that reached that many cycles, and is ``nan`` where no trial did. Trials
+        may therefore have different lengths (for example when early stopping cut them
+        short). An empty array is returned when no trial of ``per_cycle`` appears in
+        ``target``.
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import (
+    ...     command_decoding_accuracy_per_cycle)
+    >>> per_cycle = {0: {0: "B", 1: "A"},        # trial 0 is right from cycle 1 on
+    ...              1: {0: "B", 1: "B"}}        # trial 1 is right from the start
+    >>> command_decoding_accuracy_per_cycle(per_cycle, target={0: "A", 1: "B"}).tolist()
+    [0.5, 1.0]
     """
-    keys = [t for t in per_cycle if t in target]
+    keys = [t for t in sel_cmd_per_cycle if t in target]
     if not keys:
         return np.array([])
-    max_cyc = max(max(per_cycle[t]) for t in keys)
+    max_cyc = max(max(sel_cmd_per_cycle[t]) for t in keys)
     acc = np.full(max_cyc + 1, np.nan)
     for nc in range(max_cyc + 1):
         hits, total = 0, 0
         for t in keys:
-            if nc in per_cycle[t]:
+            if nc in sel_cmd_per_cycle[t]:
                 total += 1
-                hits += str(per_cycle[t][nc]) == str(target[t])
+                hits += str(sel_cmd_per_cycle[t][nc]) == str(target[t])
         if total:
             acc[nc] = hits / total
     return acc
-
-
-class VEPCommandDecoder(Configurable):
-    """Layer-2 command decoder: cumulative per-cycle command scores -> selected commands.
-
-    Paradigm-agnostic and rule-based (no fitting). A Layer-1 pipeline's :meth:`predict`
-    returns a cumulative ``(n_cycles, n_commands)`` score matrix, accumulated the family's
-    natural way (concatenate-then-correlate for BWR, coherent averaging + CCA for template
-    matching). This decoder only **selects**. Offline, :meth:`decode` returns the per-trial
-    selection, the per-cycle trajectory, and the scores. Online, :meth:`step` takes the
-    current cumulative score row and returns the current best command (and whether the
-    early-stopping threshold on the top score fired). Configure it through its
-    :attr:`~medusa.core.settings_tree.Configurable.settings` (``stop_corr``).
-    """
-
-    @classmethod
-    def default_settings(cls) -> SettingsTree:
-        """The configuration schema: a single ``stop_corr`` early-stopping threshold."""
-        s = SettingsTree()
-        s.add_item("stop_corr", value=0.9, optional=True, enabled=False,
-                   value_range=[-1.0, 1.0],
-                   info="Early-stopping score threshold; switch it off to never stop "
-                        "early")
-        return s
-
-    # ---- offline ----
-    def decode(self, cycle_scores: NDArray, speller_data: SpellerData, events) -> dict:
-        """Decode every trial in a recording's events; return the selections and scores.
-
-        ``cycle_scores`` is a Layer-1 pipeline's cumulative ``(n_cycles, n_commands)`` output
-        for this recording (its rows line up with the cycle events).
-        """
-        _, trial, cycle, _ = _cycle_arrays(events)
-        selected, per_cycle, scores = select_commands(
-            cycle_scores, speller_data.command_uids, trial, cycle,
-            speller_data.trial_available_cmmds)
-        return {"selected_commands": selected,
-                "selected_commands_per_cycle": per_cycle,
-                "scores": scores}
-
-    # ---- online ----
-    def step(self, cycle_scores_row: NDArray, speller_data: SpellerData,
-             trial: int = 0) -> dict:
-        """Select the current best command from one cumulative score row.
-
-        ``cycle_scores_row`` has one cumulative score per command (length ``n_commands``).
-        It is a single row of a Layer-1 pipeline's cumulative output (the Layer-1 pipeline
-        does the cross-cycle accumulation). Returns
-        ``{'selected': uid, 'scores': ndarray[n_available], 'stop': bool}``.
-        """
-        avail = _available(speller_data.trial_available_cmmds,
-                           speller_data.command_uids, int(trial))
-        row = {uid: i for i, uid in enumerate(speller_data.command_uids)}
-        avail_cols = [row[u] for u in avail]
-        corr = np.asarray(cycle_scores_row, dtype=float)[avail_cols]
-        best = int(np.argmax(corr))
-        threshold = self.cfg["stop_corr"]
-        stop = (threshold is not None and np.isfinite(corr[best])
-                and corr[best] >= threshold)
-        return {"selected": avail[best], "scores": corr, "stop": bool(stop)}

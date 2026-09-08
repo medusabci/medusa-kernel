@@ -95,6 +95,11 @@ class PowerNFTPipeline(DecodingPipeline):
         trace = feature_trace(recording, self.cfg, self._window_feature)
         return apply_reference(trace, self.baseline, self.cfg["reference"])
 
+    def restart(self) -> "PowerNFTPipeline":
+        """Forget the calibration baseline; the next ``fit`` starts over."""
+        self.baseline = None
+        return super().restart()
+
     def to_pickleable_obj(self) -> dict:
         """Bundle the settings, the fitted flag, ``fs`` and the calibration baseline."""
         return {"settings": self.settings.to_dict(), "fitted": self._fitted, "fs": self.fs,

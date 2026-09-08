@@ -26,6 +26,7 @@ flash order each cycle) stores one code per order and picks it per cycle with
 from dataclasses import dataclass, field, asdict
 
 import numpy as np
+from numpy.typing import NDArray
 
 from medusa.core.serialization import SerializableComponent, ensure_list
 from medusa.core.data.recording import Recording
@@ -36,6 +37,7 @@ __all__ = [
     "SpellerData",
     "SPELLER_EVENT_COLUMNS",
     "validate_speller_events",
+    "cycle_arrays",
 ]
 
 #: The required ``Events`` columns for VEP spellers, as pandas nullable ``Int64``.
@@ -308,3 +310,55 @@ def validate_speller_events(events: Events) -> None:
             f"{list(SPELLER_EVENT_COLUMNS)}.")
     if not events.df["cycle_idx"].notna().any():
         raise ValueError("events contain no stimulation cycles (all cycle_idx are n/a).")
+
+
+def cycle_arrays(events: Events) -> "tuple[NDArray, NDArray, NDArray, NDArray]":
+    """Read a speller event timeline into the four per-cycle arrays the decoding uses.
+
+    This is the seam between a recording and the decoding functions. The events hold
+    **one row per stimulation cycle**; this reads them into four parallel arrays, one
+    entry per cycle, that every decoding step consumes: the Layer-1 accumulators
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`,
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`) and the
+    Layer-2 selector
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.select_commands`).
+
+    Rows whose ``cycle_idx`` is null are dropped, so a mixed timeline (one that also
+    holds non-stimulation events) can be passed as it is. The rows that remain keep the
+    order they have in the events, which is the order a Layer-1 pipeline's cumulative
+    score matrix is in, so the arrays line up with its rows one-to-one.
+
+    Parameters
+    ----------
+    events :
+        The recording's stimulation timeline. It needs the
+        :data:`SPELLER_EVENT_COLUMNS` (``trial_idx``, ``cycle_idx``, ``code_idx``);
+        check it first with :func:`validate_speller_events`.
+
+    Returns
+    -------
+    onsets : numpy.ndarray
+        ``(n_cycles,)`` float. Start time of each cycle, in seconds. Frame ``f`` of a
+        cycle is at ``onset + f / fps_resolution``.
+    trial_idx : numpy.ndarray
+        ``(n_cycles,)`` int. Which trial each cycle belongs to.
+    cycle_idx : numpy.ndarray
+        ``(n_cycles,)`` int. The 0-based repetition index of the cycle within its trial.
+    code_idx : numpy.ndarray
+        ``(n_cycles,)`` int. Which row of each command's ``(n_codes, n_frames)`` code
+        that cycle showed. Always ``0`` for single-code paradigms (c-VEP, SSVEP).
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers import cycle_arrays, select_commands
+    >>> onsets, trial, cycle, code_idx = cycle_arrays(recording.events)   # doctest: +SKIP
+    >>> selected, per_cycle, scores = select_commands(                    # doctest: +SKIP
+    ...     cycle_scores, speller_data.command_uids, trial, cycle,
+    ...     speller_data.trial_available_cmmds)
+    """
+    df = events.df
+    df = df[df["cycle_idx"].notna()]
+    return (df["onset"].to_numpy(dtype=float),
+            df["trial_idx"].to_numpy(dtype=int),
+            df["cycle_idx"].to_numpy(dtype=int),
+            df["code_idx"].to_numpy(dtype=int))

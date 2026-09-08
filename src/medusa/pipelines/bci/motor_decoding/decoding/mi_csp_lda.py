@@ -151,6 +151,11 @@ class MICSPLDAPipeline(DecodingPipeline):
         return self.clf.predict_proba(self._features(self._segments(recording, onsets, self.cfg),
                                                       self.cfg))
 
+    def restart(self) -> "MICSPLDAPipeline":
+        """Forget the fitted CSP and LDA; the next ``fit`` starts over."""
+        self.csp = self.clf = None
+        return super().restart()
+
     # ---- persistence (settings + fitted state) ----
     def to_pickleable_obj(self) -> dict:
         """Bundle the settings, the fitted flag, ``fs``, and the packed CSP + LDA for saving."""

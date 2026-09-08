@@ -88,8 +88,15 @@ class DecodingPipeline(Configurable, PickleableComponent):
       disk (a class tag, ``dill.HIGHEST_PROTOCOL``, and a polymorphic :meth:`load`). The
       subclass only decides *what* goes in the bundle.
 
-    The **online** methods (:meth:`fit_online`, :meth:`predict_online`) and :meth:`reset`
-    have safe defaults. Override them when the pipeline supports streaming.
+    A pipeline is **stateful**: it keeps its fitted model until you tell it otherwise.
+    :meth:`fit` trains from whatever the pipeline already holds, and :meth:`restart`
+    puts it back to untrained. Reuse one pipeline for a sequence of training phases;
+    build a new one (or call :meth:`restart`) for an independent run, such as each fold
+    of a cross-validation.
+
+    The **online** methods (:meth:`fit_online`, :meth:`predict_online`) and
+    :meth:`reset_online` have safe defaults. Override them when the pipeline supports
+    streaming.
 
     Output
     ------
@@ -98,6 +105,12 @@ class DecodingPipeline(Configurable, PickleableComponent):
     paradigms, the scores are the final output. Store the output's degrees of freedom and
     its ``discrete`` / ``continuous`` meaning as pipeline metadata, not as a type.
     """
+
+    #: Sampling rate adopted at the first :meth:`check_consistency` and kept for the
+    #: rest of the pipeline's life (a model is tied to the rate it was trained at).
+    #: :meth:`restart` clears it. Concrete pipelines redeclare it next to their own
+    #: fitted attributes.
+    fs = None
 
     def __init__(self, settings: "SettingsTree | dict | None" = None,
                  **overrides) -> None:
@@ -110,6 +123,14 @@ class DecodingPipeline(Configurable, PickleableComponent):
     @abstractmethod
     def fit(self, recordings: Iterable[Recording]) -> Self:
         """Train on an iterable of recordings and return ``self`` (sets ``self._fitted``).
+
+        Training starts from whatever this pipeline already holds. A model that can
+        carry on -- a torch pipeline, see
+        :class:`~medusa.pipelines.torch_base.TorchPipeline` -- keeps training the model
+        it has, which is what makes pretrain-then-finetune a plain sequence of ``fit``
+        calls. A model that cannot (LDA, CCA, CSP, a calibration baseline) has nothing
+        to continue from and simply replaces it. Either way, :meth:`restart` is how a
+        pipeline goes back to untrained.
 
         Call :meth:`check_consistency` on each recording before you use it. Iterate
         lazily, so only one raw recording sits in memory at a time (see
@@ -146,8 +167,26 @@ class DecodingPipeline(Configurable, PickleableComponent):
             f"{type(self).__name__} does not implement online prediction "
             "(predict_online).")
 
-    def reset(self) -> None:
+    def reset_online(self) -> None:
         """Clear temporary online state, such as a causal filter. Does nothing by default."""
+
+    # ------------------------------------------------------------------
+    # Fitted state
+    # ------------------------------------------------------------------
+    def restart(self) -> Self:
+        """Forget the fitted model, keep the configuration, and return ``self``.
+
+        The counterpart of the stateful :meth:`fit`: after this the pipeline is
+        untrained, so the next ``fit`` starts over. ``fs`` is cleared too, so the
+        pipeline can adopt a corpus recorded at a different sampling rate.
+
+        The settings are left untouched -- ``settings.reset()`` is the separate call
+        that puts the *configuration* back to its defaults. Subclasses override this to
+        drop their own fitted attributes and then call ``super().restart()``.
+        """
+        self._fitted = False
+        self.fs = None
+        return self
 
     # ------------------------------------------------------------------
     # Persistence: portable single-file bundle, class-tagged for polymorphic load

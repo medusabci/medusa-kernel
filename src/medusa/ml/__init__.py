@@ -12,7 +12,7 @@ To keep ``import medusa.ml`` (and a headless DSP / server install) free of a
 PyTorch requirement, the torch backends are **not** imported here — pull them in
 on demand::
 
-    from medusa.ml.torch_models.backbones import EEGNet
+    from medusa.ml.torch_models.backbones import EEGInceptionV2
     from medusa.ml.torch_models.classification import TorchClassifier
 
 There is nothing torch-free to re-export at this top level yet, so the package

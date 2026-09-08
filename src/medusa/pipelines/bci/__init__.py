@@ -5,7 +5,7 @@ is, and holds thin, ready-to-use pipelines with sensible defaults (the reusable 
 live below, in :mod:`medusa.signal` / :mod:`medusa.ml`):
 
 - :mod:`~medusa.pipelines.bci.vep_spellers` -- visual-evoked-potential spellers (c-VEP,
-  SSVEP, ERP/P300): a stimulation codebook plus the Layer-2 ``VEPCommandDecoder``.
+  SSVEP, ERP/P300): a stimulation codebook plus the Layer-2 ``select_commands``.
 - :mod:`~medusa.pipelines.bci.motor_decoding` -- motor imagery and motor execution: Layer-1
   trial-classification pipelines (the scores are the output; no command decoder).
 - :mod:`~medusa.pipelines.bci.neurofeedback` -- continuous, baseline-referenced feature feedback

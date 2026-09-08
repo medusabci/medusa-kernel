@@ -12,7 +12,8 @@ These are the model-agnostic, family-level pure functions the Layer-1 pipelines 
 Each accumulator owns only the family-level cumulation, not the scoring *method* -- the method
 (LDA frame classifier, CCA canonical correlation, a learned template, ...) lives in the
 pipeline that calls it. Both emit the cumulative ``(n_cycles, n_commands)`` matrix the
-paradigm-agnostic :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`
+paradigm-agnostic
+:func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`
 selects from.
 """
 
@@ -24,9 +25,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from medusa.core.data.recording import Recording
-from medusa.pipelines.bci.vep_spellers.data import SpellerData
-from medusa.pipelines.bci.vep_spellers.decoding._common import (
-    _cycle_arrays, _trial_cycle_order)
+from medusa.pipelines.bci.vep_spellers.data import SpellerData, cycle_arrays
+from medusa.pipelines.bci.vep_spellers.decoding._common import _trial_cycle_order
 
 __all__ = [
     "bwr_labels",
@@ -43,15 +43,37 @@ def bwr_labels(recording: Recording) -> NDArray:
     labels are ``codes[k][c]``: 1 on the frames that light the target, 0 elsewhere. The
     labels are in cycle-major order, to match the per-frame scores.
 
+    Parameters
+    ----------
+    recording :
+        A calibration recording: a :class:`~medusa.pipelines.bci.vep_spellers.data.SpellerData`
+        experiment (for the codes and the ``spell_target``) plus one event row per
+        stimulation cycle (for the trial and code index of each cycle).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(n_cycles * n_frames,)``. Integer labels, ``1`` on the frames that light the
+        trial's target command and ``0`` elsewhere, in cycle-major order. They line up
+        one-to-one with the per-frame features a BWR pipeline builds from the same
+        recording, so they can be passed straight to a frame classifier's ``fit``.
+
     Raises
     ------
     ValueError
         If the recording has no ``spell_target`` (labels cannot be derived).
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import bwr_labels
+    >>> y = bwr_labels(recording)               # doctest: +SKIP
+    >>> y[:8]                                   # doctest: +SKIP
+    array([1, 1, 0, 1, 0, 0, 1, 0])
     """
     sd = SpellerData.from_recording(recording)
     if sd.spell_target is None:
         raise ValueError("recording has no spell_target; cannot derive BWR labels.")
-    _, trial, _, code_idx = _cycle_arrays(recording.events)
+    _, trial, _, code_idx = cycle_arrays(recording.events)
     codes = sd.codes
     row = {uid: i for i, uid in enumerate(sd.command_uids)}
     target = list(sd.spell_target)

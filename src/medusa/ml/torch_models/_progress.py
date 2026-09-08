@@ -198,11 +198,22 @@ def quiet_lightning(enabled: bool):
 
 def print_banner(console: Console, *, estimator: str, device, n_params: int,
                  n_train: int, n_val: "int | None", max_epochs: int, batch_size: int,
-                 monitor: str, patience: int) -> None:
-    """One-line-ish banner before training: what is being trained, on what data, and how."""
+                 monitor: str, patience: int, phase: int = 1,
+                 continuing: bool = False) -> None:
+    """One-line-ish banner before training: what is being trained, on what data, and how.
+
+    ``continuing`` marks a fit that starts from a model this estimator has already
+    trained, rather than a fresh one. It is printed because it is otherwise invisible:
+    reusing one estimator (or pipeline) across a loop keeps adding training to the same
+    model, which quietly invalidates a comparison between configurations.
+    """
     console.print(
         f"[bold]Training {estimator}[/] on [cyan]{device}[/] "
         f"([magenta]{n_params:,}[/] trainable params)")
+    if continuing:
+        console.print(
+            f"  [yellow]phase {phase}[/] -- continuing an already-trained model "
+            f"(restart() to start over)")
     data = (f"[magenta]{n_train:,}[/] training observations, "
             f"[magenta]{n_val:,}[/] for validation" if n_val is not None
             else f"[magenta]{n_train:,}[/] training observations (no validation set)")

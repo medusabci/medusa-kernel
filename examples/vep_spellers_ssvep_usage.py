@@ -14,7 +14,7 @@ data here; we just:
 2. synthesise an EEG recording whose occipital channels carry the attended command's flicker
    (fundamental + 2nd harmonic) buried in noise, several trials per command;
 3. decode it with :class:`~medusa.pipelines.bci.vep_spellers.TMCCAPipeline` (no ``fit``) plus
-   the paradigm-agnostic :class:`~medusa.pipelines.bci.vep_spellers.VEPCommandDecoder`, and
+   the paradigm-agnostic :func:`~medusa.pipelines.bci.vep_spellers.select_commands`, and
    report accuracy as a function of the number of cycles (table + figure).
 
 **Only the calibration-free TM harmonics reference is shown**, since it is the SSVEP idiom:
@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from medusa.core.data import BidsInfo, Recording, Signal, Events, ChannelSet
 from medusa.pipelines.bci.vep_spellers import (
     generate_freq_codebook, TMCCAPipeline, zerocal_ssvep_settings,
-    VEPCommandDecoder, SpellerData,
+    SpellerData, cycle_arrays, select_commands,
     command_decoding_accuracy_per_cycle)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -98,14 +98,15 @@ print(f"Synthesised {n_trials} trials x {N_CYCLES} cycles of EEG "
 
 # --------------------------------------------------------------------------- #
 # 3) Decode -- calibration-free: construct and predict, no fit(). TMCCAPipeline.predict
-#    returns the cumulative (n_cycles, n_commands) canonical correlations; the decoder
-#    argmaxes them per cycle, just like the BWR pipelines.
+#    returns the cumulative (n_cycles, n_commands) canonical correlations (Layer 1);
+#    select_commands argmaxes them per cycle (Layer 2), just like the BWR pipelines.
 # --------------------------------------------------------------------------- #
 pipe = TMCCAPipeline(settings=zerocal_ssvep_settings(), channels=CHANNELS)
-decoder = VEPCommandDecoder()
 
-result = decoder.decode(pipe.predict(rec), SpellerData.from_recording(rec), rec.events)
-per_cycle = result["selected_commands_per_cycle"]          # {trial: {cycle: uid}}
+sd = SpellerData.from_recording(rec)
+_, trial, cycle, _ = cycle_arrays(rec.events)              # per-cycle indices
+_, per_cycle, _ = select_commands(                         # {trial: {cycle: uid}}
+    pipe.predict(rec), sd.command_uids, trial, cycle, sd.trial_available_cmmds)
 target = {t: spell_target[t] for t in range(n_trials)}
 curve = 100.0 * command_decoding_accuracy_per_cycle(per_cycle, target)
 

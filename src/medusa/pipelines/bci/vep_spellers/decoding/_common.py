@@ -1,9 +1,11 @@
 """Model-agnostic building blocks shared across the VEP-speller decoding pipelines.
 
-Private helpers used by every Layer-1 pipeline and the Layer-2 command decoder: the
-per-cycle / per-frame event arrays and the shared trial/cycle ordering. The frequency-filtering
-schema and its application are shared with every ``bci`` paradigm and live in
-:mod:`medusa.pipelines.bci._filtering`
+Private helpers used by every Layer-1 pipeline and by the Layer-2 selector: the per-frame
+onsets and the shared trial/cycle ordering. Reading a recording's events into the four
+per-cycle arrays is the public seam, so it lives with the rest of the speller events
+contract in :func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`. The
+frequency-filtering schema and its application are shared with every ``bci`` paradigm and
+live in :mod:`medusa.pipelines.bci._filtering`
 (:func:`~medusa.pipelines.bci._filtering.add_notch_and_filterbank_settings` /
 :func:`~medusa.pipelines.bci._filtering.apply_notch_and_filterbank`).
 
@@ -18,23 +20,8 @@ import numpy as np
 
 
 # --------------------------------------------------------------------------- #
-# Events -> per-cycle / per-frame arrays
+# Per-cycle arrays -> per-frame onsets / shared cycle ordering
 # --------------------------------------------------------------------------- #
-def _cycle_arrays(events):
-    """Per-cycle ``(onsets, trial_idx, cycle_idx, code_idx)`` from the stimulation events.
-
-    One row per stimulation *cycle* (``onset`` = cycle start); rows with a null
-    ``cycle_idx`` are ignored. ``code_idx`` (which code that cycle presented) is mandatory
-    -- ``0`` for single-code paradigms (c-VEP / SSVEP).
-    """
-    df = events.df
-    df = df[df["cycle_idx"].notna()]
-    return (df["onset"].to_numpy(dtype=float),
-            df["trial_idx"].to_numpy(dtype=int),
-            df["cycle_idx"].to_numpy(dtype=int),
-            df["code_idx"].to_numpy(dtype=int))
-
-
 def _bit_onsets(cycle_onsets, n_frames, fps):
     """Expand cycle onsets to per-frame bit onsets ``cycle_onset + frame / fps``.
 

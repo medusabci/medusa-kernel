@@ -14,7 +14,6 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from medusa.core.settings_tree import SettingsTree
 from medusa.core.data.signal import Signal
 from medusa.signal.spatial_filtering import car
 from medusa.signal.segmentation import segment_signal_around_events, resample_segments
@@ -56,37 +55,3 @@ def log_var(projection: NDArray, normalize: bool = False) -> NDArray:
     if normalize:
         v = v / v.sum(axis=1, keepdims=True)
     return np.log(v)
-
-
-def add_training_settings(clf_group: SettingsTree) -> None:
-    """Add a ``training`` subgroup of :class:`~medusa.ml.torch_models.classification.TorchClassifier`
-    hyper-parameters to a classifier settings group (shared by the deep motor pipelines).
-
-    Torch-free: it only builds the settings schema. Keep ``device='auto'`` so a saved model
-    reloads on any host (a fixed ``'cuda'`` fails to load on a CPU-only machine).
-    """
-    tr = clf_group.add_group("training", info="TorchClassifier training hyper-parameters")
-    tr.add_item("max_epochs", value=100, value_range=[1, None], info="Maximum training epochs")
-    tr.add_item("batch_size", value=64, value_range=[1, None], info="Mini-batch size")
-    tr.add_item("learning_rate", value=1e-3, value_range=[0, None], info="Adam learning rate")
-    tr.add_item("val_split", value=0.2, optional=True, value_range=[0, 1],
-                info="Validation fraction for early stopping; switch it off to train "
-                     "without a validation split")
-    tr.add_item("patience", value=10, value_range=[1, None],
-                info="Early-stopping patience (epochs)")
-    tr.add_item("device", value="auto",
-                info="Compute device ('auto', 'cpu', 'cuda', 'cuda:N', 'mps'); keep 'auto' "
-                     "so a saved model reloads on any host")
-    tr.add_item("verbose", value="epoch",
-                value_options=["silent", "epoch", "full"],
-                info="Training log: 'silent' / 'epoch' (one line per epoch) / "
-                     "'full' (Lightning debug)")
-
-
-def training_kwargs(cfg_training: dict) -> dict:
-    """Map a ``classifier.training`` config dict to
-    :class:`~medusa.ml.torch_models.classification.TorchClassifier` keyword arguments."""
-    t = cfg_training
-    return dict(lr=float(t["learning_rate"]), max_epochs=int(t["max_epochs"]),
-                batch_size=int(t["batch_size"]), val_split=t["val_split"] or None,
-                patience=int(t["patience"]), device=t["device"], verbose=t["verbose"])

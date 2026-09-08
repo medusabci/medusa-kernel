@@ -27,10 +27,10 @@ from medusa.signal.spatial_filtering import car, CCA
 from medusa.signal.segmentation import segment_signal_around_events
 
 from medusa.pipelines.base import DecodingPipeline, harmonize_channels
-from medusa.pipelines.bci.vep_spellers.data import SpellerData, validate_speller_events
+from medusa.pipelines.bci.vep_spellers.data import (
+    SpellerData, validate_speller_events, cycle_arrays)
 from medusa.pipelines.bci._filtering import (
     add_notch_and_filterbank_settings, apply_notch_and_filterbank)
-from medusa.pipelines.bci.vep_spellers.decoding._common import _cycle_arrays
 from medusa.pipelines.bci.vep_spellers.decoding.scores import tm_command_scores
 
 if TYPE_CHECKING:
@@ -198,7 +198,7 @@ def uniform_weights(filterbank: "Sequence") -> "list[float]":
 
     Parameters
     ----------
-    filterbank : sequence
+    filterbank :
         The filter bank: either the ``freq_filtering.filterbank`` config list or the
         ``bands`` you pass to a settings builder. Only its length is used.
 
@@ -207,8 +207,14 @@ def uniform_weights(filterbank: "Sequence") -> "list[float]":
     list of float
         One weight per sub-band, all the same, summing to 1.
 
+    Raises
+    ------
+    ValueError
+        If ``filterbank`` is empty (a filter bank needs at least one sub-band).
+
     Examples
     --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import uniform_weights
     >>> uniform_weights([(6., 40.), (14., 40.), (22., 40.)])
     [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
     """
@@ -226,12 +232,12 @@ def decaying_power_law_weights(filterbank: "Sequence", exponent: float = 1.25,
 
     Parameters
     ----------
-    filterbank : sequence
+    filterbank :
         The filter bank: either the ``freq_filtering.filterbank`` config list or the
         ``bands`` you pass to a settings builder. Only its length is used.
-    exponent : float, optional
+    exponent :
         Decay exponent. Higher values make the first sub-bands dominate more.
-    offset : float, optional
+    offset :
         Constant added to every weight before normalising, so the late sub-bands keep a
         floor instead of falling to nothing.
 
@@ -240,8 +246,22 @@ def decaying_power_law_weights(filterbank: "Sequence", exponent: float = 1.25,
     list of float
         One weight per sub-band, decreasing, summing to 1.
 
+    Raises
+    ------
+    ValueError
+        If ``exponent`` or ``offset`` is negative (that would make some weights negative,
+        which subtracts a sub-band's evidence instead of adding it), or if ``filterbank``
+        is empty.
+
+    References
+    ----------
+    .. [1] Chen, X., Wang, Y., Gao, S., Jung, T.-P., & Gao, X. (2015). Filter bank
+           canonical correlation analysis for implementing a high-speed SSVEP-based
+           brain-computer interface. Journal of Neural Engineering, 12(4), 046008.
+
     Examples
     --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import decaying_power_law_weights
     >>> [round(w, 4) for w in decaying_power_law_weights([1, 2, 3])]
     [0.5157, 0.2766, 0.2076]
     """
@@ -298,8 +318,8 @@ def _check_band_weights(weights, n_bands: int) -> NDArray:
     if np.any(w < 0.0):
         raise ValueError(
             f"band_weights must all be zero or positive, got {w.tolist()}. A negative weight "
-            f"subtracts that sub-band's evidence instead of adding it, which takes the combined "
-            f"score off the 0-1 scale that VEPCommandDecoder's stop_corr threshold assumes. "
+            f"subtracts that sub-band's evidence from the combined score instead of adding "
+            f"it, so a command the sub-band supports is ranked lower for it. "
             f"{_BAND_WEIGHT_HINT}")
     total = float(w.sum())
     tolerance = max(1e-9, _WEIGHT_SUM_TOL_PER_BAND * n_bands)
@@ -330,23 +350,23 @@ def tm_cca_settings(*, mode: "str | None", profile: "str | None" = None,
 
     Parameters
     ----------
-    mode : str or None
+    mode :
         The ``reference.mode`` value: one of ``'synthetic_harmonics'``,
         ``'calibrated_template'`` or ``'mixed_harmonics_template'``. ``None`` leaves the
         mode unset, so the resulting settings cannot construct a pipeline until one is
         chosen (this is what :meth:`TMCCAPipeline.default_settings` returns).
-    profile : str or None, optional
+    profile :
         Name recorded in the ``profile`` leaf, to say which recipe these settings came
         from. Only the shipped profiles pass it; a hand-written recipe leaves it ``None``.
         It is a label, never a switch -- see the ``profile`` leaf's own description.
-    bands : sequence of (low, high), optional
-        One band-pass cutoff pair per filter-bank sub-band. Several pairs make an FBCCA
-        filter bank.
-    order : int, optional
+    bands :
+        One band-pass cutoff pair ``(low, high)`` in Hz per filter-bank sub-band. Several
+        pairs make an FBCCA filter bank.
+    order :
         Filter order shared by every sub-band.
-    n_harmonics : int, optional
+    n_harmonics :
         Sine/cosine harmonics per synthetic reference (used by the harmonic modes).
-    band_weights : sequence of float, optional
+    band_weights :
         One weight per sub-band, summing to 1. Defaults to :func:`uniform_weights` over
         ``bands``. Pass :func:`decaying_power_law_weights` (the FBCCA weighting) or your own
         list to weight the sub-bands differently. The ready-made profiles do not offer this:
@@ -357,6 +377,23 @@ def tm_cca_settings(*, mode: "str | None", profile: "str | None" = None,
     -------
     SettingsTree
         A fresh tree. Pass it as ``TMCCAPipeline(settings=...)``.
+
+    Raises
+    ------
+    ValueError
+        If ``bands`` is empty, or if ``band_weights`` is given with a length other than
+        the number of sub-bands.
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import (
+    ...     TMCCAPipeline, tm_cca_settings, decaying_power_law_weights)
+    >>> bands = [(6.0, 40.0), (14.0, 40.0)]         # a two-sub-band FBCCA bank
+    >>> s = tm_cca_settings(mode="calibrated_template", bands=bands,
+    ...                     band_weights=decaying_power_law_weights(bands))
+    >>> s.to_dict()["reference"]["mode"]
+    'calibrated_template'
+    >>> pipe = TMCCAPipeline(settings=s, channels=["O1", "Oz", "O2"])    # doctest: +SKIP
     """
     s = SettingsTree()
     s.add_item("profile", value=profile,
@@ -406,20 +443,36 @@ def zerocal_ssvep_settings(*, bands: "Sequence[Sequence[float]]" = ((6.0, 40.0),
 
     Parameters
     ----------
-    bands : sequence of (low, high), optional
-        One band-pass cutoff pair per sub-band. Which bands make sense depends on the
-        stimulation frequencies you are using, so this stays yours to choose.
-    order : int, optional
+    bands :
+        One band-pass cutoff pair ``(low, high)`` in Hz per sub-band. Which bands make
+        sense depends on the stimulation frequencies you are using, so this stays yours
+        to choose.
+    order :
         Filter order shared by every sub-band.
-    n_harmonics : int, optional
+    n_harmonics :
         Sine/cosine harmonics per reference. How many are worth including depends on the
         stimulation frequencies too -- harmonics above the band's upper cutoff are filtered
         out anyway.
 
+    Returns
+    -------
+    SettingsTree
+        A fresh tree. Pass it as ``TMCCAPipeline(settings=...)``.
+
+    Raises
+    ------
+    ValueError
+        If ``bands`` is empty.
+
     Examples
     --------
-    >>> pipe = TMCCAPipeline(settings=zerocal_ssvep_settings(), channels=channels)  # doctest: +SKIP
-    >>> scores = pipe.predict(recording)                                            # doctest: +SKIP
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import (
+    ...     TMCCAPipeline, zerocal_ssvep_settings)
+    >>> s = zerocal_ssvep_settings()
+    >>> s.to_dict()["reference"]["mode"]
+    'synthetic_harmonics'
+    >>> pipe = TMCCAPipeline(settings=s, channels=channels)     # doctest: +SKIP
+    >>> scores = pipe.predict(recording)                        # doctest: +SKIP
     """
     return tm_cca_settings(profile="zerocal_ssvep", mode=SYNTHETIC_HARMONICS, bands=bands,
                            order=order, n_harmonics=n_harmonics,
@@ -439,17 +492,33 @@ def cal_ssvep_settings(*, bands: "Sequence[Sequence[float]]" = ((6.0, 40.0),),
 
     Parameters
     ----------
-    bands : sequence of (low, high), optional
-        One band-pass cutoff pair per sub-band, chosen to suit your stimulation frequencies.
-    order : int, optional
+    bands :
+        One band-pass cutoff pair ``(low, high)`` in Hz per sub-band, chosen to suit your
+        stimulation frequencies.
+    order :
         Filter order shared by every sub-band.
-    n_harmonics : int, optional
+    n_harmonics :
         Sine/cosine harmonics per synthetic reference.
+
+    Returns
+    -------
+    SettingsTree
+        A fresh tree. Pass it as ``TMCCAPipeline(settings=...)``.
+
+    Raises
+    ------
+    ValueError
+        If ``bands`` is empty.
 
     Examples
     --------
-    >>> pipe = TMCCAPipeline(settings=cal_ssvep_settings(), channels=channels)   # doctest: +SKIP
-    >>> scores = pipe.fit(train).predict(recording)                              # doctest: +SKIP
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import (
+    ...     TMCCAPipeline, cal_ssvep_settings)
+    >>> s = cal_ssvep_settings()
+    >>> s.to_dict()["reference"]["mode"]
+    'mixed_harmonics_template'
+    >>> pipe = TMCCAPipeline(settings=s, channels=channels)     # doctest: +SKIP
+    >>> scores = pipe.fit(train).predict(recording)             # doctest: +SKIP
     """
     return tm_cca_settings(profile="cal_ssvep", mode=MIXED_HARMONICS_TEMPLATE, bands=bands,
                            order=order, n_harmonics=n_harmonics,
@@ -471,16 +540,30 @@ def cvep_settings(*, bands: "Sequence[Sequence[float]]" = ((1.0, 70.0),),
 
     Parameters
     ----------
-    bands : sequence of (low, high), optional
-        One band-pass cutoff pair per sub-band. The useful upper cutoff follows the
-        stimulation frame rate, so this stays yours to choose.
-    order : int, optional
+    bands :
+        One band-pass cutoff pair ``(low, high)`` in Hz per sub-band. The useful upper
+        cutoff follows the stimulation frame rate, so this stays yours to choose.
+    order :
         Filter order shared by every sub-band.
+
+    Returns
+    -------
+    SettingsTree
+        A fresh tree. Pass it as ``TMCCAPipeline(settings=...)``.
+
+    Raises
+    ------
+    ValueError
+        If ``bands`` is empty.
 
     Examples
     --------
-    >>> pipe = TMCCAPipeline(settings=cvep_settings(), channels=channels)   # doctest: +SKIP
-    >>> scores = pipe.fit(train).predict(recording)                         # doctest: +SKIP
+    >>> from medusa.pipelines.bci.vep_spellers.decoding import TMCCAPipeline, cvep_settings
+    >>> s = cvep_settings()
+    >>> s.to_dict()["reference"]["mode"]
+    'calibrated_template'
+    >>> pipe = TMCCAPipeline(settings=s, channels=channels)     # doctest: +SKIP
+    >>> scores = pipe.fit(train).predict(recording)             # doctest: +SKIP
     """
     return tm_cca_settings(profile="cvep", mode=CALIBRATED_TEMPLATE, bands=bands,
                            order=order, band_weights=uniform_weights(bands))
@@ -492,8 +575,8 @@ class TMCCAPipeline(DecodingPipeline):
     Scores each command by the correlation between a cycle's multichannel EEG segment and
     that command's **reference**. Evidence builds up over cycles by coherently averaging the
     segments, so :meth:`predict` returns the cumulative ``(n_cycles, n_commands)`` matrix
-    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`) that the
-    :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`) that
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`
     selects from. Configuration is levelled: ``freq_filtering`` (notch + filter bank),
     ``band_weights`` and ``reference``. With a multi-sub-band filter bank, each sub-band is
     scored on its own and the score matrices are added up with ``band_weights``, a plain list
@@ -656,7 +739,7 @@ class TMCCAPipeline(DecodingPipeline):
                 f"call fit() first.")
         self.check_consistency(recording)          # adopts fs
         sd = SpellerData.from_recording(recording)
-        onsets, trial, cycle, _ = _cycle_arrays(recording.events)
+        onsets, trial, cycle, _ = cycle_arrays(recording.events)
         n_frames = sd.codes.shape[2]
         band_segs = self._cycle_segments_per_band(
             recording.signals[cfg["signal_key"]],
@@ -784,7 +867,7 @@ class TMCCAPipeline(DecodingPipeline):
                 raise ValueError(
                     f"reference.mode={cfg['reference']['mode']!r} needs spell_target in each "
                     f"calibration recording.")
-            onsets, trial, _, _ = _cycle_arrays(rec.events)
+            onsets, trial, _, _ = cycle_arrays(rec.events)
             band_segs = self._cycle_segments_per_band(
                 rec.signals[cfg["signal_key"]],
                 onsets, sd.codes.shape[2],
@@ -831,6 +914,11 @@ class TMCCAPipeline(DecodingPipeline):
             cca.fit(eps.reshape(-1, eps.shape[2]), np.tile(template, (len(eps), 1)))
             templates[str(k)] = (cca.wx[:, 0], template @ cca.wx[:, 0], base_code, template)
         return templates
+
+    def restart(self) -> "TMCCAPipeline":
+        """Forget the learned templates; the next ``fit`` starts over."""
+        self.templates = None
+        return super().restart()
 
     # ---- persistence (settings + adopted fs + learned templates) ----
     def to_pickleable_obj(self) -> dict:

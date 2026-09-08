@@ -16,23 +16,20 @@ import numpy as np
 from numpy.typing import NDArray
 
 from medusa.core.settings_tree import SettingsTree
-from medusa.core.serialization import pack_pickleable, unpack_pickleable
 from medusa.core.data.recording import Recording
 
-from medusa.ml.torch_models.classification import TorchClassifier
 from medusa.ml.torch_models.backbones.eegsym import EEGSym
 
-from medusa.pipelines.base import DecodingPipeline
+from medusa.pipelines.torch_base import TorchPipeline, add_training_settings
 from medusa.pipelines.bci.trial_events import (
     trial_arrays, trial_labels, validate_trial_events)
 from medusa.pipelines.bci._filtering import add_band_filter_settings
-from medusa.pipelines.bci.motor_decoding.decoding._common import (
-    add_training_settings, training_kwargs, trial_segments)
+from medusa.pipelines.bci.motor_decoding.decoding._common import trial_segments
 
 __all__ = ["MIEEGSymPipeline"]
 
 
-class MIEEGSymPipeline(DecodingPipeline):
+class MIEEGSymPipeline(TorchPipeline):
     """EEGSym motor decoder (motor imagery / motor execution).
 
     Band-pass + per-trial raw epoch + the EEGSym backbone (a hemisphere-symmetric convolutional
@@ -52,9 +49,6 @@ class MIEEGSymPipeline(DecodingPipeline):
     for example ``MIEEGSymPipeline(channels=[...], hemisphere_pairs=[{"left": "C3", "right":
     "C4"}], middle_chs=["Cz"])``.
     """
-
-    fs = None       # sampling rate adopted at fit (fitted state)
-    clf = None      # the fitted TorchClassifier (set by fit / restored by load)
 
     # ---- configuration schema (SettingsTree) ----
     @classmethod
@@ -88,7 +82,7 @@ class MIEEGSymPipeline(DecodingPipeline):
                      info="Activation function")
         clf.add_item("spatial_resnet_repetitions", value=1, value_range=[1, None],
                      info="Spatial ResNet block repetitions")
-        add_training_settings(clf)
+        add_training_settings(clf, profiles=cls.TRAINING_PROFILES)
         return s
 
     # ---- validation ----
@@ -136,13 +130,13 @@ class MIEEGSymPipeline(DecodingPipeline):
             baseline=tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None,
             target_fs=seg_cfg["target_fs"])
 
-    def _build_backbone(self, cfg: dict, n_samples: int):
+    def _build_backbone(self, cfg: dict, X: NDArray):
         """Build the EEGSym backbone, sized to the epoch length and the hemisphere layout."""
         c = cfg["classifier"]
         rate = cfg["segmentation"]["target_fs"] or self.fs
         pairs = [(p["left"], p["right"]) for p in cfg["hemisphere_pairs"]]
         return EEGSym(
-            input_samples=n_samples, fs=float(rate), ch_names=list(cfg["channels"]),
+            input_samples=X.shape[1], fs=float(rate), ch_names=list(cfg["channels"]),
             left_right_chs=pairs, middle_chs=list(cfg["middle_chs"]),
             filters_per_branch=int(c["filters_per_branch"]),
             scales_time=tuple(c["scales_ms"]), drop_prob=float(c["drop_prob"]),
@@ -151,7 +145,12 @@ class MIEEGSymPipeline(DecodingPipeline):
 
     # ---- offline ----
     def fit(self, recordings) -> "MIEEGSymPipeline":
-        """Fit the EEGSym classifier on the trial segments and labels of all recordings."""
+        """Fit the EEGSym classifier on the trial segments and labels of all recordings.
+
+        The first call builds the backbone; a later one keeps training the model this
+        pipeline already holds, under the configured ``classifier.training.profile``
+        (see :class:`~medusa.pipelines.torch_base.TorchPipeline`).
+        """
         self._check_settings()
         cfg = self.cfg
         X, y = [], []
@@ -160,12 +159,7 @@ class MIEEGSymPipeline(DecodingPipeline):
             onsets, _, _ = trial_arrays(rec.events)
             X.append(self._segments(rec, onsets, cfg))
             y.append(trial_labels(rec))
-        X, y = np.concatenate(X), np.concatenate(y)
-        backbone = self._build_backbone(cfg, X.shape[1])
-        self.clf = TorchClassifier(
-            backbone, **training_kwargs(cfg["classifier"]["training"])).fit(X, y)
-        self._fitted = True
-        return self
+        return self._fit_classifier(cfg, np.concatenate(X), np.concatenate(y))
 
     def predict(self, recording: Recording) -> NDArray:
         """Per-trial ``(n_trials, n_classes)`` posterior class scores for one recording."""
@@ -174,18 +168,3 @@ class MIEEGSymPipeline(DecodingPipeline):
         self.check_consistency(recording)
         onsets, _, _ = trial_arrays(recording.events)
         return self.clf.predict_proba(self._segments(recording, onsets, self.cfg))
-
-    # ---- persistence (settings + fitted state) ----
-    def to_pickleable_obj(self) -> dict:
-        """Bundle the settings, the fitted flag, ``fs``, and the packed TorchClassifier."""
-        return {"settings": self.settings.to_dict(), "fitted": self._fitted, "fs": self.fs,
-                "clf": pack_pickleable(self.clf) if self._fitted else None}
-
-    @classmethod
-    def from_pickleable_obj(cls, obj: dict) -> "MIEEGSymPipeline":
-        """Rebuild the pipeline from a bundle made by :meth:`to_pickleable_obj`."""
-        self = cls(settings=obj["settings"])
-        self.fs, self._fitted = obj["fs"], obj["fitted"]
-        if self._fitted:
-            self.clf = unpack_pickleable(obj["clf"])
-        return self

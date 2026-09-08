@@ -23,11 +23,11 @@ from medusa.signal.spatial_filtering import car
 from medusa.signal.segmentation import segment_signal_around_events, resample_segments
 
 from medusa.pipelines.base import DecodingPipeline, harmonize_channels
-from medusa.pipelines.bci.vep_spellers.data import SpellerData, validate_speller_events
+from medusa.pipelines.bci.vep_spellers.data import (
+    SpellerData, validate_speller_events, cycle_arrays)
 from medusa.pipelines.bci._filtering import (
     add_notch_and_filterbank_settings, apply_notch_and_filterbank)
-from medusa.pipelines.bci.vep_spellers.decoding._common import (
-    _bit_onsets, _cycle_arrays)
+from medusa.pipelines.bci.vep_spellers.decoding._common import _bit_onsets
 from medusa.pipelines.bci.vep_spellers.decoding.scores import (
     bwr_labels, bwr_command_scores)
 
@@ -43,8 +43,8 @@ class BWRLDAPipeline(DecodingPipeline):
     (the bit onsets come from the cycle onsets and ``fps_resolution``), then resample, then
     flatten, then regularised LDA. It ships with defaults suited to LDA. :meth:`predict`
     returns the cumulative ``(n_cycles, n_commands)`` correlation matrix
-    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`) that the
-    :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`) that
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`
     turns into selections.
 
     Deep BWR variants (EEGInception, EEGNet) are **separate** pipeline classes, not a
@@ -52,7 +52,7 @@ class BWRLDAPipeline(DecodingPipeline):
     epoch shape), so each pipeline owns its own chain. Only the model-agnostic parts are
     shared: :func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_labels`, the cycle and
     bit-onset helpers, and the Layer-2
-    :class:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.VEPCommandDecoder`.
+    :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
 
     Configure it through the live :attr:`~medusa.core.settings_tree.Configurable.settings`
     tree (see :meth:`default_settings`). It has ``freq_filtering`` (notch + filter bank),
@@ -132,7 +132,7 @@ class BWRLDAPipeline(DecodingPipeline):
     def _frame_scores(self, recording: Recording, cfg: dict) -> NDArray:
         """Per-frame target-class scores for one recording (cycle-major order)."""
         sd = SpellerData.from_recording(recording)
-        onsets, _, _, _ = _cycle_arrays(recording.events)
+        onsets, _, _, _ = cycle_arrays(recording.events)
         feats = self._features(recording.signals[cfg["signal_key"]], onsets,
                                sd.codes.shape[2], sd.fps_resolution, cfg)
         return self.clf.predict_proba(feats)[:, 1]
@@ -145,7 +145,7 @@ class BWRLDAPipeline(DecodingPipeline):
         X, y = [], []
         for rec in recordings:
             self.check_consistency(rec)
-            onsets, _, _, _ = _cycle_arrays(rec.events)
+            onsets, _, _, _ = cycle_arrays(rec.events)
             sd = SpellerData.from_recording(rec)
             X.append(self._features(rec.signals[cfg["signal_key"]], onsets,
                                     sd.codes.shape[2], sd.fps_resolution, cfg))
@@ -162,9 +162,14 @@ class BWRLDAPipeline(DecodingPipeline):
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
-        _, trial, cycle, code_idx = _cycle_arrays(recording.events)
+        _, trial, cycle, code_idx = cycle_arrays(recording.events)
         frame_scores = self._frame_scores(recording, self.cfg)
         return bwr_command_scores(frame_scores, sd.codes, trial, cycle, code_idx)
+
+    def restart(self) -> "BWRLDAPipeline":
+        """Forget the fitted LDA; the next ``fit`` starts over."""
+        self.clf = None
+        return super().restart()
 
     # ---- persistence (settings + fitted state) ----
     def to_pickleable_obj(self) -> dict:
