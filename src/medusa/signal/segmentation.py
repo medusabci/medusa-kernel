@@ -1,15 +1,25 @@
 """Segmentation of continuous biosignals into segments.
 
-This module provides free functions to split a continuous signal into
-segments — either with a sliding window (:func:`segment_signal`) or anchored
-to event onsets (:func:`segment_signal_around_events`) — plus helpers to
-normalize and resample the resulting segments.
+- :func:`segment_signal`: split a signal with a sliding window.
+- :func:`segment_signal_around_events`: cut one segment per event onset,
+  with optional per-event baseline normalization.
+- :func:`check_event_segments_feasibility`: report which onsets can be cut,
+  before attempting it.
+- :func:`normalize_segments`, :func:`resample_segments`: post-process an
+  existing segment array.
+- :func:`times_to_sample_indices`: locate event times in a signal.
 
-All functions follow the medusa-kernel signal-shape contract. Continuous
-signals are accepted as ``(n_samples, n_channels)`` (the ``'time'``
-representation); the produced segments follow the canonical
-``(n_segments, n_samples, n_channels)`` shape (the ``'time_segments'``
-representation).
+The extraction functions follow the medusa-kernel signal-shape contract:
+continuous signals are accepted as ``(n_samples, n_channels)`` (the ``'time'``
+representation) and segments are returned as
+``(n_segments, n_samples, n_channels)`` (the ``'time_segments'``
+representation). Under-dimensioned input is promoted by
+:func:`medusa.core.utils.check_data_dims`, which emits a ``UserWarning``;
+:func:`normalize_segments` and :func:`resample_segments` squeeze the promoted
+axes back out, so they preserve the caller's number of axes.
+
+Elsewhere in medusa the same array is called *epochs*, or *trials* when it is
+anchored to events (see :mod:`medusa.pipelines.bci` and the tutorials).
 """
 
 from dataclasses import dataclass
@@ -42,25 +52,36 @@ def segment_signal(
 
     Parameters
     ----------
-    signal
+    signal :
         Shape ``(n_samples, n_channels)``. Continuous signal to segment. A
         1-D array of shape ``(n_samples,)`` is treated as single-channel.
-    segment_length
-        Segment length in samples. Must be greater than 0.
-    stride
+    segment_length :
+        Segment length in samples. Must be greater than 0 and no longer than
+        the signal.
+    stride :
         Separation between the start of consecutive segments in samples. If
         ``None``, ``stride`` is set to ``segment_length`` (non-overlapping
         segments).
-    norm
+    norm :
         Normalization applied to each segment. ``'z'`` for Z-score, ``'dc'``
         for DC (mean) subtraction. Statistics are computed over the samples
-        axis of each segment. ``None`` disables normalization.
+        axis of each segment, so ``'z'`` yields ``NaN`` for a channel that is
+        constant within a segment. ``None`` disables normalization.
 
     Returns
     -------
     NDArray
-        Shape ``(n_segments, segment_length, n_channels)``. Extracted
-        segments.
+        Shape ``(n_segments, segment_length, n_channels)``, with
+        ``n_segments = (n_samples - segment_length) // stride + 1``. Trailing
+        samples that do not fill a whole window are dropped, never padded.
+        With ``norm=None`` this is a read-only view into ``signal`` (no data
+        is copied); any other ``norm`` returns a new writable array.
+
+    Raises
+    ------
+    ValueError
+        If ``segment_length`` or ``stride`` is not greater than 0, or if
+        ``segment_length`` is longer than the signal.
 
     Examples
     --------
@@ -107,47 +128,60 @@ def segment_signal_around_events(
 ) -> NDArray:
     """Extract signal segments anchored to event onsets.
 
-    For each onset a segment is extracted using the temporal window
-    ``segment_window`` (in ms, relative to the onset). Optionally, each
-    segment can be normalized using the statistics of a per-event baseline
-    window.
+    Cuts one segment per onset with the temporal window ``segment_window``
+    (in ms, relative to the onset), optionally normalized with the statistics
+    of a per-event baseline window. Every onset must fit in the recording: a
+    single infeasible onset aborts the whole call, so pre-filter the onsets
+    with :func:`check_event_segments_feasibility` when that is not guaranteed.
 
     Parameters
     ----------
-    timestamps
-        Shape ``(n_samples,)``. Timestamp of each biosignal sample.
-    signal
+    timestamps :
+        Shape ``(n_samples,)``. Timestamp of each biosignal sample, in
+        increasing order.
+    signal :
         Shape ``(n_samples, n_channels)``. Continuous signal. A 1-D array of
         shape ``(n_samples,)`` is treated as single-channel.
-    onsets
-        Shape ``(n_events,)``. Timestamps of the events.
-    fs
-        Sampling frequency in Hz.
-    segment_window
+    onsets :
+        Shape ``(n_events,)``. Timestamps of the events. Need not be sorted.
+    fs :
+        Sampling frequency in Hz. Only converts the ms windows into samples;
+        each event is anchored to its nearest sample in ``timestamps``, so an
+        ``fs`` that disagrees with them silently changes the segment length.
+    segment_window :
         Temporal window in ms of the segment, relative to each onset (0 ms is
-        the onset). For example, ``(0, 1000)`` takes the segment from 0 ms to
-        1000 ms after each onset.
-    baseline_window
+        the onset), end exclusive. For example, ``(0, 1000)`` takes the
+        segment from 0 ms to 1000 ms after each onset.
+    baseline_window :
         Temporal window in ms of the baseline, relative to each onset. For
         example, ``(-500, 100)`` takes the baseline from 500 ms before to 100
-        ms after each onset. This chunk is used to compute the normalization
-        statistics. Required when ``norm`` is not ``None``.
-    norm
+        ms after each onset. Used to compute the normalization statistics.
+        Required when ``norm`` is not ``None``, and checked for feasibility
+        separately from ``segment_window``.
+    norm :
         Normalization applied to each segment using the baseline statistics.
         ``'z'`` for Z-score, ``'dc'`` for DC (mean) subtraction. ``None``
-        disables normalization.
+        disables normalization. A baseline with no variance makes ``'z'``
+        non-finite; see :func:`normalize_segments`.
 
     Returns
     -------
     NDArray
-        Shape ``(n_events, n_samples, n_channels)``. Extracted segments.
+        Shape ``(n_events, n_samples, n_channels)``. One segment per onset, in
+        the order given. Each window edge is rounded to samples on its own, so
+        ``n_samples`` can differ by one from rounding the window duration.
 
     Raises
     ------
     ValueError
         If the requested windows fall outside the available samples, if at
         least one onset lies outside the timestamp range, or if ``norm`` and
-        ``baseline_window`` are not provided consistently.
+        ``baseline_window`` are not provided consistently. The message names
+        the offending onsets.
+
+    See Also
+    --------
+    check_event_segments_feasibility : Report which onsets can be extracted.
 
     Examples
     --------
@@ -162,10 +196,7 @@ def segment_signal_around_events(
     >>> segments.shape
     (3, 125, 4)
     """
-    # Error prevention: validate every onset and fail with an informative
-    # message that lists the offending onsets. To extract only the feasible
-    # events instead of failing, pre-filter onsets with
-    # check_event_segments_feasibility(...).valid (see its Examples).
+    # Validate every onset up front, so the error can name the offending ones
     report = check_event_segments_feasibility(
         timestamps, onsets, fs, segment_window)
     if not report.all_valid:
@@ -220,28 +251,42 @@ def normalize_segments(
 
     Parameters
     ----------
-    segments
+    segments :
         Shape ``(n_segments, n_samples, n_channels)``. Segments to normalize.
-    norm_segments
-        Shape ``(n_segments, n_samples, n_channels)``. Segments used to
-        compute the normalization statistics. If ``None``, ``norm_segments``
-        defaults to ``segments``.
-    norm
+        A 2-D array is treated as one segment, a 1-D array as one
+        single-channel segment.
+    norm_segments :
+        Shape ``(n_segments, n_baseline_samples, n_channels)``. Segments whose
+        statistics are used, typically a baseline window. Its length along the
+        samples axis may differ from ``segments``; only the segments and
+        channels axes must match. If ``None``, the statistics come from
+        ``segments`` itself.
+    norm :
         ``'z'`` for Z-score normalization or ``'dc'`` for DC (mean)
-        subtraction. Statistics are computed over the samples axis.
+        subtraction. Statistics are computed over the samples axis (population
+        standard deviation). The ``'z'`` division is unguarded: a channel with
+        no variance in the statistics window gives ``NaN`` or ``±inf`` and a
+        numpy ``RuntimeWarning``, not an error.
 
     Returns
     -------
     NDArray
         Same shape as ``segments``. Normalized segments.
 
+    Raises
+    ------
+    ValueError
+        If ``norm`` is not ``'z'`` or ``'dc'``.
+
     Examples
     --------
+    Correct each segment with the statistics of a shorter baseline window:
+
     >>> import numpy as np
     >>> from medusa.signal.segmentation import normalize_segments
     >>> segments = np.random.randn(5, 250, 8)
-    >>> normalized = normalize_segments(segments, norm='z')
-    >>> normalized.shape
+    >>> baselines = np.random.randn(5, 50, 8)
+    >>> normalize_segments(segments, norm_segments=baselines, norm='dc').shape
     (5, 250, 8)
     """
     if norm not in ('z', 'dc'):
@@ -272,25 +317,37 @@ def resample_segments(
 ) -> NDArray:
     """Resample segments to a target sampling frequency.
 
-    .. important::
-        No anti-aliasing filter is applied.
-
     Parameters
     ----------
-    segments
+    segments :
         Shape ``(n_segments, n_samples, n_channels)``. Segments to resample.
-    window
+        A 2-D array is treated as one segment, a 1-D array as one
+        single-channel segment.
+    window :
         Temporal window in ms covered by each segment. For example,
-        ``(0, 1000)`` for segments spanning 0 ms to 1000 ms. Used together
-        with ``target_fs`` to compute the target number of samples.
-    target_fs
+        ``(0, 1000)`` for segments spanning 0 ms to 1000 ms. The output length
+        follows from this and ``target_fs`` alone; the length of ``segments``
+        is never inspected, so a ``window`` that does not describe them
+        time-scales the data instead of resampling it.
+    target_fs :
         Target sampling frequency in Hz.
 
     Returns
     -------
     NDArray
-        Shape ``(n_segments, target_n_samples, n_channels)``. Resampled
-        segments.
+        Shape ``(n_segments, target_n_samples, n_channels)``, where
+        ``target_n_samples = floor(target_fs * window_length / 1000)``, and
+        with the same number of axes as ``segments``. Resampled segments.
+
+    Notes
+    -----
+    Resampling happens in the frequency domain
+    (:func:`scipy.signal.resample`), which treats each segment as one period
+    of a periodic signal. Downsampling truncates the spectrum, so content
+    above the new Nyquist frequency is removed rather than aliased. The cost
+    is ringing at the segment edges when the first and last samples do not
+    match, as with an uncorrected drift or step; baseline-correct or detrend
+    beforehand when that matters.
 
     Examples
     --------
@@ -315,22 +372,35 @@ def resample_segments(
 class EventSegmentFeasibility:
     """Per-onset feasibility report for event-anchored segmentation.
 
-    Each attribute is a boolean mask of shape ``(n_onsets,)`` aligned with the
-    ``onsets`` passed to :func:`check_event_segments_feasibility`. The masks
-    are mutually exclusive: an onset flagged as ``out_of_range`` is never also
-    flagged as ``before_start`` or ``after_end``.
+    Returned by :func:`check_event_segments_feasibility`. Every attribute is a
+    boolean mask of shape ``(n_onsets,)`` aligned with the ``onsets`` that were
+    checked, so ``onsets[report.valid]`` keeps the extractable events; apply
+    the same mask to any per-event labels to keep them in step.
+
+    ``valid`` is exactly the negation of the other three masks, which say *why*
+    an onset was rejected::
+
+        valid == ~(out_of_range | before_start | after_end)
+
+    ``out_of_range`` never coincides with the other two, because an onset that
+    is not in the recording has no window to place. ``before_start`` and
+    ``after_end`` are not exclusive of each other: both are ``True`` when the
+    window overhangs the recording at both ends.
+
+    ``bool(report)`` is :attr:`all_valid`, so ``if not report:`` means "some
+    onset cannot be extracted", not "the report is empty" — a report over zero
+    onsets is ``True``.
 
     Attributes
     ----------
     valid
-        ``True`` where the segment can be fully extracted. Use
-        ``onsets[report.valid]`` to keep only the extractable events.
+        The segment can be fully extracted.
     before_start
-        ``True`` where the window starts before the first sample.
+        The window reaches back before the first sample.
     after_end
-        ``True`` where the window extends past the last sample.
+        The window reaches past the last sample.
     out_of_range
-        ``True`` where the onset itself lies outside the timestamp range.
+        The onset itself lies outside the range of the timestamps.
     """
 
     valid: NDArray
@@ -339,21 +409,22 @@ class EventSegmentFeasibility:
     out_of_range: NDArray
 
     def __bool__(self) -> bool:
+        """Alias of :attr:`all_valid`."""
         return self.all_valid
 
     @property
     def all_valid(self) -> bool:
-        """``True`` if every onset is extractable."""
+        """``True`` if every onset is extractable (vacuously so if empty)."""
         return bool(np.all(self.valid))
 
     @property
     def valid_idx(self) -> NDArray:
-        """Indices of the extractable onsets."""
+        """Positions in ``onsets`` of the extractable events."""
         return np.flatnonzero(self.valid)
 
     @property
     def invalid_idx(self) -> NDArray:
-        """Indices of the onsets that cannot be extracted."""
+        """Positions in ``onsets`` of the events that cannot be extracted."""
         return np.flatnonzero(~self.valid)
 
 
@@ -365,36 +436,49 @@ def check_event_segments_feasibility(
 ) -> EventSegmentFeasibility:
     """Report, per onset, whether an event-anchored segment can be extracted.
 
-    An onset cannot be extracted when its window falls partially outside the
-    recording, or when the onset itself lies outside the timestamp range. This
-    function validates *every* onset (so it is robust to unsorted onsets) using
-    the same sample-index mapping as the extraction path
-    (:func:`times_to_sample_indices`); therefore a ``valid`` onset is
-    guaranteed to yield an in-bounds extraction in
-    :func:`segment_signal_around_events`.
+    An onset is infeasible when its window falls partly outside the recording,
+    or when the onset itself lies outside the range of the timestamps. Each
+    onset is checked on its own, so ``onsets`` need not be sorted.
+
+    Use this before :func:`segment_signal_around_events`, which raises as soon
+    as *one* onset does not fit. That is a real risk for events near the
+    beginning or the end of a recording, for a wide window, or for a marker
+    list that may contain strays. Segment ``onsets[report.valid]`` to keep the
+    events that do fit, and read the other three masks to report why the rest
+    were dropped. See :class:`EventSegmentFeasibility` for how the masks
+    relate.
 
     Parameters
     ----------
-    timestamps
-        Shape ``(n_samples,)``. Sorted timestamp of each biosignal sample.
-    onsets
+    timestamps :
+        Shape ``(n_samples,)``. Timestamp of each biosignal sample, in
+        increasing order.
+    onsets :
         Shape ``(n_events,)``. Timestamps of the events.
-    fs
-        Sampling frequency in Hz.
-    window
-        Temporal window in ms relative to each onset. For example,
-        ``(0, 1000)`` takes the window from 0 ms to 1000 ms after each onset.
+    fs :
+        Sampling frequency in Hz. Only converts ``window`` into a number of
+        samples.
+    window :
+        Temporal window in ms relative to each onset, end exclusive. For
+        example, ``(0, 1000)`` takes the window from 0 ms to 1000 ms after each
+        onset. ``window[1] > window[0]`` is assumed but not checked.
 
     Returns
     -------
     EventSegmentFeasibility
-        Per-onset boolean masks (``valid``, ``before_start``, ``after_end``,
-        ``out_of_range``) plus convenience helpers (``all_valid``,
-        ``valid_idx``, ``invalid_idx``).
+        Per-onset masks ``valid``, ``before_start``, ``after_end`` and
+        ``out_of_range``.
+
+    Notes
+    -----
+    Only ``timestamps`` is inspected, never the signal, so a ``valid`` onset is
+    in bounds for :func:`segment_signal_around_events` as long as the signal
+    has as many samples as ``timestamps``. A baseline window is a separate
+    window: check it with a second call.
 
     Examples
     --------
-    Discard the onsets whose window does not fit and segment only the rest:
+    Drop the events whose window does not fit, keeping their labels in step:
 
     >>> import numpy as np
     >>> from medusa.signal.segmentation import (
@@ -403,17 +487,20 @@ def check_event_segments_feasibility(
     >>> timestamps = np.arange(0, 4, 1 / fs)
     >>> signal = np.random.randn(timestamps.size, 4)
     >>> onsets = np.array([0.1, 2.0, 3.99])
+    >>> labels = np.array(['a', 'b', 'c'])
     >>> report = check_event_segments_feasibility(
     ...     timestamps, onsets, fs, window=(-500, 500))
     >>> report.all_valid
     False
-    >>> report.invalid_idx.tolist()
+    >>> report.invalid_idx.tolist()   # positions in `onsets`, not samples
     [0, 2]
+    >>> bool(report.before_start[0]), bool(report.after_end[2])
+    (True, True)
     >>> segments = segment_signal_around_events(
     ...     timestamps, signal, onsets[report.valid], fs,
     ...     segment_window=(-500, 500))
-    >>> segments.shape
-    (1, 250, 4)
+    >>> segments.shape, labels[report.valid].tolist()
+    ((1, 250, 4), ['b'])
     """
     timestamps = np.asarray(timestamps)
     onsets = np.asarray(onsets)
@@ -474,7 +561,10 @@ def _nearest_idx_in_sorted(
     sorted_timestamps: NDArray,
     query_times: NDArray,
 ) -> NDArray:
-    """Nearest-index search assuming ``sorted_timestamps`` is non-decreasing."""
+    """Nearest index, assuming a non-decreasing and non-empty input.
+
+    Exact ties resolve to the higher index.
+    """
     array = sorted_timestamps
     # Get insert positions
     idxs = np.searchsorted(array, query_times, side="left")
@@ -493,28 +583,28 @@ def times_to_sample_indices(
     """Map query times to the index of their nearest signal sample.
 
     For each value in ``query_times`` return the index of the sample whose
-    timestamp is closest in time. The fast path uses binary search
-    (:func:`numpy.searchsorted`) and assumes ``timestamps`` is sorted. To stay
-    correct when samples arrive out of order (e.g. reordered UDP packets), the
-    input is checked and, if unsorted, the search is performed on a sorted view
-    and the result is mapped back to the original positions. Complexity is
-    ``O(n_query · log n_samples)`` when sorted and
-    ``O(n_samples · log n_samples)`` otherwise — never the quadratic cost of a
-    brute-force search.
+    timestamp is closest in time. A query exactly halfway between two samples
+    maps to the later one, and a query outside the range of ``timestamps`` maps
+    to the first or last sample instead of raising — use
+    :func:`check_event_segments_feasibility` to detect that case.
 
     Parameters
     ----------
-    timestamps
-        Shape ``(n_samples,)``. Timestamps of the signal. Need not be
-        sorted, although the sorted case is faster.
-    query_times
+    timestamps :
+        Shape ``(n_samples,)``. Timestamps of the signal. Need not be sorted:
+        out-of-order input (e.g. reordered UDP packets) is detected and handled
+        at the cost of a sort, so the returned indices always refer to
+        ``timestamps`` as given.
+    query_times :
         Shape ``(n_query,)``. Query times (e.g. event onsets) to locate.
 
     Returns
     -------
     NDArray
         Shape ``(n_query,)``. Index (into the original, possibly unsorted
-        ``timestamps``) of the nearest timestamp to each query time.
+        ``timestamps``) of the nearest timestamp to each query time. If
+        ``timestamps`` is empty the values are uninitialized memory, not usable
+        indices.
 
     Examples
     --------

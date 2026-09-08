@@ -173,12 +173,22 @@ argument (`False` = off, a string selects the method). **Never shadow built-ins*
 
 ### 5.3 Docstrings
 
-NumPy style (`Parameters` / `Returns` / `Raises` / `Notes` / `References` /
-`Examples`). Document each array parameter's canonical shape as the first line of
-its description. `Raises` is mandatory when the function validates input;
-`Examples` is mandatory and must contain at least one runnable snippet using the
-current import path. `check_data_dims` in `core/utils.py` is the canonical
-exemplar.
+- Use **NumPy-style docstrings** (`Parameters` / `Returns` / `Raises` / 
+  `Notes` /
+  `References` / `Examples`).
+- Keep docstrings **concise, direct, and information-dense**. Document behavior,
+  assumptions, shapes, and non-obvious details; do not restate the implementation
+  or obvious information.
+- Document each array parameter's **canonical shape as the first line** of its
+  description.
+- `Raises` is mandatory when the function validates input.
+- `Examples` is mandatory and must contain at least one **minimal, runnable
+  snippet** using the current import path.
+- Do not repeat type annotations from the function signature in `Parameters` or
+  `Returns`.
+- Prefer short descriptions and examples over lengthy explanations. Avoid
+  redundant sections when they add no useful information.
+- Use `check_data_dims` in `core/utils.py` as the canonical exemplar.
 
 ### 5.4 General
 

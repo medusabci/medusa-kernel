@@ -267,7 +267,7 @@ def test_feasibility_out_of_range():
         timestamps, onsets, fs, window=(0, 100))
     assert report.out_of_range[1]
     assert not report.valid[1]
-    # Masks are mutually exclusive: out_of_range is not also a boundary flag.
+    # out_of_range never coincides with a boundary flag.
     assert not report.before_start[1]
     assert not report.after_end[1]
 

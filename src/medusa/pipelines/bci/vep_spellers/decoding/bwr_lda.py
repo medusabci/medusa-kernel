@@ -27,7 +27,8 @@ from medusa.pipelines.bci.vep_spellers.data import (
     SpellerData, validate_speller_events, cycle_arrays)
 from medusa.pipelines.bci._filtering import (
     add_notch_and_filterbank_settings, apply_notch_and_filterbank)
-from medusa.pipelines.bci.vep_spellers.decoding._common import _bit_onsets
+from medusa.pipelines.bci.vep_spellers.decoding._common import (
+    _bit_onsets, _check_target_fs)
 from medusa.pipelines.bci.vep_spellers.decoding.scores import (
     bwr_labels, bwr_command_scores)
 
@@ -89,17 +90,27 @@ class BWRLDAPipeline(DecodingPipeline):
 
     # ---- validation ----
     def check_consistency(self, recording: Recording) -> None:
-        """Check the recording has the configured signal and channels, a matching ``fs``,
-        a :class:`SpellerData`, and valid speller events; raise ``ValueError`` if not."""
+        """Check the recording has the configured signal and channels, a usable ``fs``,
+        a :class:`SpellerData`, and valid speller events; raise ``ValueError`` if not.
+
+        Recordings only have to share one sampling rate when ``segmentation.target_fs``
+        is unset. With it set, every epoch is resampled to that rate and the steps before
+        it work off each recording's own ``fs``, so a corpus may mix native rates; the
+        first rate seen is still kept as :attr:`fs`. What is checked instead is that
+        ``target_fs`` is reachable -- not above the recording's rate, and below twice
+        every filter-bank cutoff, so resampling cannot silently cut the configured band.
+        """
         cfg = self.cfg
         sig = recording.signals.get(cfg["signal_key"])
         if sig is None:
             raise ValueError(f"recording has no {cfg['signal_key']!r} signal.")
         if not cfg["channels"]:
             raise ValueError("no channels configured; set the 'channels' setting.")
+        _check_target_fs(cfg, sig.fs)
         if self.fs is None:
             self.fs = sig.fs
-        elif sig.fs != self.fs:
+        elif sig.fs != self.fs and not cfg["segmentation"]["target_fs"]:
+            # Native rates only have to agree when the epochs keep them.
             raise ValueError(f"fs mismatch: pipeline={self.fs}, recording={sig.fs}.")
         missing = [c for c in cfg["channels"] if c not in sig.channel_set.labels]
         if missing:
