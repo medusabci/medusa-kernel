@@ -1203,8 +1203,9 @@ class SSVEPCodeGenerator:
         if freq > self.fps/2:
             raise ValueError('The SSVEP frequency cannot be higher than fps/2.')
         # Generate analog code
-        t = np.arange(0, self.seq_len/self.fps, 1/self.fps)
+        t = (np.arange(self.seq_len) + 0.5) / self.fps
         analog_code = np.sin(2*np.pi*freq*t)
+        analog_code[np.abs(analog_code) < 1e-12] = 0.0
         # Quantification
         digital_code = np.digitize(analog_code, bins=self.bins, right=False)
         return digital_code
