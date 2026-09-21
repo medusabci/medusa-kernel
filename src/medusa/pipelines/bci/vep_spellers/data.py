@@ -318,7 +318,7 @@ def cycle_arrays(events: Events) -> "tuple[NDArray, NDArray, NDArray, NDArray]":
     This is the seam between a recording and the decoding functions. The events hold
     **one row per stimulation cycle**; this reads them into four parallel arrays, one
     entry per cycle, that every decoding step consumes: the Layer-1 accumulators
-    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`,
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`,
     :func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`) and the
     Layer-2 selector
     (:func:`~medusa.pipelines.bci.vep_spellers.decoding.select_commands`).

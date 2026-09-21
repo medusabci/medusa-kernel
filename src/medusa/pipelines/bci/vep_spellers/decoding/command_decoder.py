@@ -48,7 +48,7 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
 
     The paradigm-agnostic Layer-2 rule. Row ``i`` of ``cycle_scores`` is the *cumulative*
     decision score after cycle event ``i`` (a Layer-1 pipeline already accumulated it in
-    its family's natural way: :func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`
+    its family's natural way: :func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`
     or :func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`). For each
     trial, and after each cycle, this takes the argmax over that trial's **available**
     commands. Multi-matrix paradigms are handled entirely by ``trial_available_cmmds``.
