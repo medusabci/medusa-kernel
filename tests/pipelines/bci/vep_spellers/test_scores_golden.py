@@ -11,13 +11,14 @@ import pytest
 from scipy.stats import pearsonr
 
 from medusa.pipelines.bci.vep_spellers import (
-    bwr_command_scores, tm_command_scores, bwr_labels, CommandInfo)
+    bwr_command_scores_corr, bwr_loglik_command_scores, bwr_frame_scores,
+    tm_command_scores, bwr_labels, CommandInfo)
 from medusa.pipelines.bci.vep_spellers.decoding.template_matching import (
     _pearson_signed)
 
 
 # --------------------------------------------------------------------------- #
-# bwr_command_scores
+# bwr_command_scores_corr (the classic concatenate-then-correlate rule)
 # --------------------------------------------------------------------------- #
 class TestBwrCommandScores:
 
@@ -25,36 +26,36 @@ class TestBwrCommandScores:
         """One cycle, two commands: the matching command scores 1, the orthogonal one 0."""
         codes = np.array([[[1, 1, 0, 0]], [[1, 0, 1, 0]]])       # (2 cmd, 1 code, 4 frames)
         frame_scores = np.array([1.0, 1.0, 0.0, 0.0])            # matches command 0
-        out = bwr_command_scores(frame_scores, codes,
-                                 cycle_trial=np.array([0]), cycle_idx=np.array([0]),
-                                 cycle_code_idx=np.array([0]))
+        out = bwr_command_scores_corr(frame_scores, codes,
+                                      cycle_trial=np.array([0]), cycle_idx=np.array([0]),
+                                      cycle_code_idx=np.array([0]))
         np.testing.assert_allclose(out, [[1.0, 0.0]], atol=1e-12)
 
     def test_sign_inverted_scores_one(self):
         """BWR ranks by ``|corr|``: a fully sign-inverted reconstruction still scores 1."""
         codes = np.array([[[1, 1, 0, 0]]])
         inverted = np.array([0.0, 0.0, 1.0, 1.0])
-        out = bwr_command_scores(inverted, codes, np.array([0]), np.array([0]), np.array([0]))
+        out = bwr_command_scores_corr(inverted, codes, np.array([0]), np.array([0]), np.array([0]))
         np.testing.assert_allclose(out, [[1.0]], atol=1e-12)
 
     def test_constant_code_is_neg_inf(self):
         """A command whose code is constant over the used cycles gets ``-inf`` (never chosen)."""
         codes = np.array([[[1, 1, 1, 1]]])                       # constant -> zero variance
-        out = bwr_command_scores(np.array([1.0, 0.0, 1.0, 0.0]), codes,
-                                 np.array([0]), np.array([0]), np.array([0]))
+        out = bwr_command_scores_corr(np.array([1.0, 0.0, 1.0, 0.0]), codes,
+                                      np.array([0]), np.array([0]), np.array([0]))
         assert out[0, 0] == -np.inf
 
     def test_constant_scores_is_neg_inf(self):
         codes = np.array([[[1, 0, 1, 0]]])
-        out = bwr_command_scores(np.array([2.0, 2.0, 2.0, 2.0]), codes,
-                                 np.array([0]), np.array([0]), np.array([0]))
+        out = bwr_command_scores_corr(np.array([2.0, 2.0, 2.0, 2.0]), codes,
+                                      np.array([0]), np.array([0]), np.array([0]))
         assert out[0, 0] == -np.inf
 
     def test_wrong_length_raises(self):
         codes = np.array([[[1, 0, 1, 0]]])
         with pytest.raises(ValueError):
-            bwr_command_scores(np.array([1.0, 0.0]), codes,   # 2 != 1 cycle * 4 frames
-                               np.array([0]), np.array([0]), np.array([0]))
+            bwr_command_scores_corr(np.array([1.0, 0.0]), codes,  # 2 != 1 cycle * 4 frames
+                                    np.array([0]), np.array([0]), np.array([0]))
 
     def test_cumulative_matches_pearson_oracle(self):
         """Two trials, multi-cycle: match an independent concatenate-then-|Pearson| oracle."""
@@ -66,7 +67,7 @@ class TestBwrCommandScores:
         cycle_code = np.array([0, 0, 0, 0])
         frame_scores = rng.standard_normal(4 * 5)
 
-        out = bwr_command_scores(frame_scores, codes, cycle_trial, cycle_idx, cycle_code)
+        out = bwr_command_scores_corr(frame_scores, codes, cycle_trial, cycle_idx, cycle_code)
         expected = _bwr_oracle(frame_scores, codes, cycle_trial, cycle_idx, cycle_code)
         np.testing.assert_allclose(out, expected, atol=1e-10)
 
@@ -89,6 +90,129 @@ def _bwr_oracle(frame_scores, codes, cycle_trial, cycle_idx, cycle_code):
                     out[order[i], k] = -np.inf
                 else:
                     out[order[i], k] = abs(pearsonr(exp, s)[0])
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# bwr_loglik_command_scores (the Bayes alternative, under study; not used by the pipelines)
+# --------------------------------------------------------------------------- #
+ONE = (np.array([0]), np.array([0]), np.array([0]))          # one trial, one cycle
+
+
+class TestBwrLoglikCommandScores:
+
+    def test_single_cycle_exact(self):
+        """One cycle: each command's row is the sum of log P(its level) over the frames."""
+        codes = np.array([[[1, 1, 0, 0]], [[1, 0, 1, 0]]])       # (2 cmd, 1 code, 4 frames)
+        proba = np.array([[0.1, 0.9], [0.2, 0.8], [0.9, 0.1], [0.8, 0.2]])  # P(0), P(1)
+        out = bwr_loglik_command_scores(proba, [0, 1], codes, *ONE)
+        cmd0 = np.log(0.9) + np.log(0.8) + np.log(0.9) + np.log(0.8)
+        cmd1 = np.log(0.9) + np.log(0.2) + np.log(0.1) + np.log(0.8)
+        np.testing.assert_allclose(out, [[cmd0, cmd1]], atol=1e-12)
+        assert int(out.argmax()) == 0
+
+    def test_eps_floor_keeps_a_wrong_frame_finite(self):
+        """A confidently wrong frame costs log(eps), not -inf: it cannot veto a command."""
+        codes = np.array([[[1, 0]]])
+        proba = np.array([[1.0, 0.0], [1.0, 0.0]])              # frame 0 says level 0 for sure
+        out = bwr_loglik_command_scores(proba, [0, 1], codes, *ONE, eps=1e-6)
+        np.testing.assert_allclose(out, [[np.log(1e-6) + 0.0]])
+        assert np.isfinite(out).all()
+
+    def test_binary_matches_frame_score_route(self):
+        """Binary code: same argmax as the classic route on a clean posterior."""
+        rng = np.random.default_rng(1)
+        codes = rng.integers(0, 2, size=(4, 1, 16))
+        p1 = np.clip(codes[2, 0] * 0.6 + 0.2 + rng.normal(0, 0.1, 16), 0.01, 0.99)
+        proba = np.stack([1 - p1, p1], axis=1)
+        loglik = bwr_loglik_command_scores(proba, [0, 1], codes, *ONE)
+        corr = bwr_command_scores_corr(bwr_frame_scores(proba, [0, 1]), codes, *ONE)
+        assert int(loglik.argmax()) == int(corr.argmax()) == 2
+
+    def test_p_ary_level_negated_code_loses(self):
+        """3 levels, perfect posterior: the level-negated partner code must rank below the target.
+
+        This is the p-ary failure the whole-posterior rule exists to avoid: with ``P(level=1)``
+        alone as the frame score, the negated code ``(-s) mod 3`` outscores the target.
+        """
+        target = np.array([0, 1, 2, 1, 0, 2, 2, 1])
+        negated = (-target) % 3
+        codes = np.stack([target, negated])[:, None, :]          # (2 cmd, 1 code, 8 frames)
+        proba = np.eye(3)[target]                                # perfect classifier
+        out = bwr_loglik_command_scores(proba, [0, 1, 2], codes, *ONE)
+        assert int(out.argmax()) == 0
+        assert out[0, 0] == pytest.approx(0.0)                   # log 1 on every frame
+        assert out[0, 1] < out[0, 0]
+
+    def test_cumulative_matches_oracle_out_of_order(self):
+        """Two trials, cycles given out of order: rows cumulate per trial in cycle_idx order."""
+        rng = np.random.default_rng(0)
+        codes = rng.integers(0, 3, size=(3, 2, 5))               # 3 cmd, 2 codes, 5 frames
+        cycle_trial = np.array([0, 1, 0, 1])
+        cycle_idx = np.array([1, 0, 0, 1])
+        cycle_code = np.array([0, 1, 1, 0])
+        proba = rng.dirichlet(np.ones(3), size=4 * 5)
+        out = bwr_loglik_command_scores(proba, [0, 1, 2], codes, cycle_trial, cycle_idx,
+                                        cycle_code)
+        expected = _loglik_oracle(proba, codes, cycle_trial, cycle_idx, cycle_code)
+        np.testing.assert_allclose(out, expected, atol=1e-10)
+
+    def test_classes_order_is_honoured(self):
+        """Columns follow ``classes``, not the level value: a permuted classes_ still decodes."""
+        codes = np.array([[[1, 1, 0, 0]], [[0, 0, 1, 1]]])
+        proba = np.array([[0.9, 0.1], [0.9, 0.1], [0.1, 0.9], [0.1, 0.9]])
+        # columns are [P(level 1), P(level 0)]
+        out = bwr_loglik_command_scores(proba, [1, 0], codes, *ONE)
+        assert int(out.argmax()) == 0
+
+    def test_float_valued_integer_codes_are_accepted(self):
+        """Codes that came back as floats from a JSON/.mat round-trip still work."""
+        codes = np.array([[[1.0, 0.0]]])
+        proba = np.array([[0.2, 0.8], [0.7, 0.3]])
+        out = bwr_loglik_command_scores(proba, [0, 1], codes, *ONE)
+        np.testing.assert_allclose(out, [[np.log(0.8) + np.log(0.7)]])
+
+    def test_unseen_level_raises(self):
+        codes = np.array([[[0, 1, 2]]])                          # level 2 never fitted
+        proba = np.full((3, 2), 0.5)
+        with pytest.raises(ValueError, match="not fitted"):
+            bwr_loglik_command_scores(proba, [0, 1], codes, *ONE)
+
+    def test_classifier_with_extra_level_is_fine(self):
+        """A classifier fitted on more levels than this recording's codes show is allowed."""
+        codes = np.array([[[0, 1]]])
+        proba = np.full((2, 3), 1 / 3)                           # classes_ = [0, 1, 2]
+        out = bwr_loglik_command_scores(proba, [0, 1, 2], codes, *ONE)
+        np.testing.assert_allclose(out, [[2 * np.log(1 / 3)]])
+
+    def test_wrong_shape_raises(self):
+        codes = np.array([[[1, 0, 1, 0]]])
+        with pytest.raises(ValueError, match="expected"):
+            bwr_loglik_command_scores(np.full((4, 3), 1 / 3), [0, 1], codes, *ONE)
+        with pytest.raises(ValueError, match="expected"):
+            bwr_loglik_command_scores(np.full((2, 2), 0.5), [0, 1], codes, *ONE)
+
+    def test_non_integer_codes_raise(self):
+        with pytest.raises(ValueError, match="integer"):
+            bwr_loglik_command_scores(np.full((2, 2), 0.5), [0, 1],
+                                      np.array([[[0.5, 1.0]]]), *ONE)
+
+
+def _loglik_oracle(proba, codes, cycle_trial, cycle_idx, cycle_code):
+    """Independent reference: per trial, running sum in cycle order of log P(the code's level)."""
+    n_cmd, _, n_frames = codes.shape
+    n_cycles = len(cycle_idx)
+    out = np.full((n_cycles, n_cmd), -np.inf)
+    for t in np.unique(cycle_trial):
+        rows = np.where(cycle_trial == t)[0]
+        order = rows[np.argsort(cycle_idx[rows], kind="stable")]
+        running = np.zeros(n_cmd)
+        for i in order:
+            for k in range(n_cmd):
+                for f in range(n_frames):
+                    level = codes[k, cycle_code[i], f]
+                    running[k] += np.log(proba[i * n_frames + f, level])
+            out[i] = running
     return out
 
 

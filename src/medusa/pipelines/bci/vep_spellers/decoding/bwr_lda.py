@@ -1,9 +1,9 @@
 """Bit-wise-reconstruction speller pipeline with a regularised-LDA classifier.
 
 The shallow BWR Layer-1 pipeline (:class:`BWRLDAPipeline`). The BWR *strategy* classifies
-each code frame (is the target response present or not); a command's score is then the
-correlation of its code with those frame scores
-(:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`). This is the
+each code frame (which code level did it show); a command's score is then the correlation
+of its code with the per-frame scores
+(:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`). This is the
 calibrated, torch-free BWR pipeline; the deep EEG-Inception sibling
 (:class:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_eeg_inception.BWREEGInceptionPipeline`)
 lives in its own torch-gated module and shares only the model-agnostic BWR pure functions.
@@ -30,7 +30,7 @@ from medusa.pipelines.bci._filtering import (
 from medusa.pipelines.bci.vep_spellers.decoding._common import (
     _bit_onsets, _check_target_fs)
 from medusa.pipelines.bci.vep_spellers.decoding.scores import (
-    bwr_labels, bwr_command_scores)
+    bwr_labels, bwr_frame_scores, bwr_command_scores_corr)
 
 __all__ = ["BWRLDAPipeline"]
 
@@ -38,13 +38,15 @@ __all__ = ["BWRLDAPipeline"]
 class BWRLDAPipeline(DecodingPipeline):
     """Bit-wise-reconstruction speller pipeline with a regularised-LDA classifier.
 
-    The BWR *strategy* classifies each code frame (is the target response present or not).
-    A command's score is then the correlation of its code with those frame scores. This
-    class bundles the whole shallow chain: band-pass IIR + CAR, then epoch each code frame
-    (the bit onsets come from the cycle onsets and ``fps_resolution``), then resample, then
-    flatten, then regularised LDA. It ships with defaults suited to LDA. :meth:`predict`
-    returns the cumulative ``(n_cycles, n_commands)`` correlation matrix
-    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`) that
+    The BWR *strategy* classifies each code frame (which code level did it show). The
+    posterior is collapsed to one score per frame
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_frame_scores`), and a command's
+    score is then the correlation of its code with those frame scores. This class bundles
+    the whole shallow chain: band-pass IIR + CAR, then epoch each code frame (the bit
+    onsets come from the cycle onsets and ``fps_resolution``), then resample, then flatten,
+    then regularised LDA. It ships with defaults suited to LDA. :meth:`predict` returns the
+    cumulative ``(n_cycles, n_commands)`` correlation matrix
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`) that
     :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`
     turns into selections.
 
@@ -140,14 +142,6 @@ class BWRLDAPipeline(DecodingPipeline):
             feats.append(seg.reshape(len(seg), -1))
         return np.concatenate(feats, axis=1)
 
-    def _frame_scores(self, recording: Recording, cfg: dict) -> NDArray:
-        """Per-frame target-class scores for one recording (cycle-major order)."""
-        sd = SpellerData.from_recording(recording)
-        onsets, _, _, _ = cycle_arrays(recording.events)
-        feats = self._features(recording.signals[cfg["signal_key"]], onsets,
-                               sd.codes.shape[2], sd.fps_resolution, cfg)
-        return self.clf.predict_proba(feats)[:, 1]
-
     # ---- offline ----
     def fit(self, recordings) -> "BWRLDAPipeline":
         """Fit the LDA on the per-frame BWR features and labels of all recordings; return ``self``."""
@@ -173,9 +167,13 @@ class BWRLDAPipeline(DecodingPipeline):
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
-        _, trial, cycle, code_idx = cycle_arrays(recording.events)
-        frame_scores = self._frame_scores(recording, self.cfg)
-        return bwr_command_scores(frame_scores, sd.codes, trial, cycle, code_idx)
+        onsets, trial, cycle, code_idx = cycle_arrays(recording.events)
+        feats = self._features(
+            recording.signals[self.cfg["signal_key"]],
+            onsets, sd.codes.shape[2], sd.fps_resolution, self.cfg)
+        proba = self.clf.predict_proba(feats)
+        frame_scores = bwr_frame_scores(proba, self.clf.classes_)
+        return bwr_command_scores_corr(frame_scores, sd.codes, trial, cycle, code_idx)
 
     def restart(self) -> "BWRLDAPipeline":
         """Forget the fitted LDA; the next ``fit`` starts over."""

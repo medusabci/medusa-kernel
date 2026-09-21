@@ -15,9 +15,12 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
+from medusa.ml.torch_models.classification import TorchClassifier
 from medusa.pipelines.bci._torch_backbones import ARCHITECTURES
 from medusa.pipelines.bci.vep_spellers import (
     generate_random_codebook, BWREEGInceptionPipeline, bwr_eeg_inception_settings)
+from medusa.pipelines.bci.vep_spellers.decoding.bwr_eeg_inception import (
+    _validation_groups)
 
 # Small on purpose: 4 codes x 2 cycles x 84 frames keeps the epoch count in the hundreds.
 FPS, FS, N_CMDS, N_FRAMES, N_CYCLES = 60.0, 256.0, 4, 84, 2
@@ -109,3 +112,72 @@ def test_without_a_seed_two_fits_differ(cvep_train_test):
     assert not np.allclose(_fitted_scores(channels, train, test, training),
                            _fitted_scores(channels, train, test, training),
                            rtol=1e-3, atol=1e-3)
+
+
+# --------------------------------------------------------------------------- #
+# classifier.training.val_split_unit: what the validation split holds out
+# --------------------------------------------------------------------------- #
+class TestValidationGroups:
+    """``_validation_groups`` maps the setting to one group id per frame epoch."""
+
+    TRIAL = np.array([0, 0, 1, 1, 2, 2])            # 3 trials x 2 cycles
+
+    def test_trial_gives_every_cycle_its_trial(self):
+        ids = _validation_groups("trial", self.TRIAL, n_frames=4)
+        np.testing.assert_array_equal(ids, np.repeat([0, 0, 1, 1, 2, 2], 4))
+
+    def test_cycle_gives_every_cycle_its_own_id(self):
+        ids = _validation_groups("cycle", self.TRIAL, n_frames=4)
+        np.testing.assert_array_equal(ids, np.repeat(np.arange(6), 4))
+
+    def test_frame_means_no_groups(self):
+        assert _validation_groups("frame", self.TRIAL, n_frames=4) is None
+
+    def test_unknown_unit_is_rejected(self):
+        with pytest.raises(ValueError, match="val_split_unit"):
+            _validation_groups("recording", self.TRIAL, n_frames=4)
+
+
+def test_the_default_unit_is_trial_and_sits_next_to_val_split():
+    settings = bwr_eeg_inception_settings()
+    item = settings.get_item("classifier", "training", "val_split_unit")
+    assert item.tree["value"] == "trial"
+    assert item.tree["value_options"] == ["frame", "cycle", "trial"]
+    keys = list(settings.to_dict()["classifier"]["training"])
+    assert keys.index("val_split_unit") == keys.index("val_split") + 1
+    assert keys[keys.index("val_split_unit") + 1] == "patience"    # the stopping block
+
+
+@pytest.mark.parametrize("unit, n_groups, group_size", [
+    ("trial", 2 * N_CMDS, N_CYCLES * N_FRAMES),      # 2 recordings x N_CMDS trials
+    ("cycle", 2 * N_CMDS * N_CYCLES, N_FRAMES),
+])
+def test_fit_hands_the_classifier_one_group_per_unit(cvep_train_test, monkeypatch,
+                                                     unit, n_groups, group_size):
+    """Two recordings: trials must stay apart across them, and every group is whole."""
+    train, test, channels = cvep_train_test
+    seen = {}
+    monkeypatch.setattr(TorchClassifier, "fit",
+                        lambda self, X, y, groups=None: seen.update(groups=groups) or self)
+    pipe = BWREEGInceptionPipeline(
+        settings=bwr_eeg_inception_settings(arch="eeg_inception_v2", **SETTINGS),
+        channels=channels, classifier={"training": dict(TRAINING, val_split_unit=unit)})
+    pipe.fit([train, test])
+
+    groups = seen["groups"]
+    _, counts = np.unique(groups, return_counts=True)
+    assert len(groups) == 2 * N_CMDS * N_CYCLES * N_FRAMES
+    assert len(counts) == n_groups
+    assert (counts == group_size).all()
+
+
+def test_frame_unit_passes_no_groups(cvep_train_test, monkeypatch):
+    train, _, channels = cvep_train_test
+    seen = {}
+    monkeypatch.setattr(TorchClassifier, "fit",
+                        lambda self, X, y, groups=None: seen.update(groups=groups) or self)
+    pipe = BWREEGInceptionPipeline(
+        settings=bwr_eeg_inception_settings(arch="eeg_inception_v2", **SETTINGS),
+        channels=channels, classifier={"training": dict(TRAINING, val_split_unit="frame")})
+    pipe.fit([train])
+    assert seen["groups"] is None

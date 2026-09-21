@@ -1,10 +1,11 @@
-"""Tests for the two knobs that make an unbalanced classification problem trainable.
+"""Tests for what makes an unbalanced classification problem trainable.
 
 ``class_weight`` (off by default) re-weights the cross-entropy so a rare class is not cheap
-to ignore, and ``val_split_stratify`` (on by default) keeps each class's share of the data
-in the validation split that early stopping watches. A 3 %-target bit-wise-reconstruction problem
-needs both: without the first the network can collapse onto the majority class, and without
-the second the validation fold can end up with almost no targets.
+to ignore, and the observation-level validation split is always stratified, so the fold
+early stopping watches keeps each class's real share of the data. A 3 %-target
+bit-wise-reconstruction problem needs both: without the first the network can collapse onto
+the majority class, and without the second the validation fold can end up with almost no
+targets.
 
 Skipped on the no-extras CI job: torch / Lightning are optional.
 """
@@ -177,19 +178,11 @@ class TestSplitLoaders:
     def _val_labels(loader):
         return torch.cat([y for _, y in loader]).numpy()
 
-    def test_stratified_by_default(self):
+    def test_stratified_whenever_labels_are_given(self):
         clf = self._clf(val_split=0.2)
         _, val_loader = clf._loaders_from_dataset(self._dataset(self.LABELS),
                                                   labels=self.LABELS)
         assert self._val_labels(val_loader).sum() == 4      # 10 % of 40
-
-    def test_stratify_off_falls_back_to_a_random_split(self):
-        clf = self._clf(val_split=0.2, val_split_stratify=False)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")    # no warning when it was not asked for
-            _, val_loader = clf._loaders_from_dataset(self._dataset(self.LABELS),
-                                                      labels=self.LABELS)
-        assert len(self._val_labels(val_loader)) == 40
 
     def test_an_impossible_split_warns_and_falls_back(self):
         labels = np.array([0] * 199 + [1])
@@ -215,37 +208,32 @@ class TestSplitLoaders:
 
 
 class TestEstimatorParameters:
-    """Both knobs are ordinary sklearn parameters: cloned, saved and reloaded."""
+    """``class_weight`` is an ordinary sklearn parameter: cloned, saved and reloaded."""
 
-    def test_defaults_are_off_and_on(self):
-        clf = TorchClassifier(nn.Identity())
-        assert clf.class_weight is None      # opt-in
-        assert clf.val_split_stratify is True     # opt-out
+    def test_class_weight_is_off_by_default(self):
+        assert TorchClassifier(nn.Identity()).class_weight is None      # opt-in
 
     def test_get_params_keeps_every_engine_parameter(self):
         """The explicit __init__ must not hide the inherited hyper-parameters."""
         params = TorchClassifier(nn.Identity()).get_params(deep=False)
         assert set(params) == {"backbone", "lr", "max_epochs", "batch_size",
-                               "val_split", "val_split_stratify", "patience",
-                               "device", "verbose", "class_weight",
-                               "random_state"}
+                               "val_split", "patience", "min_delta", "device",
+                               "verbose", "class_weight", "random_state"}
 
-    def test_clone_preserves_them(self):
-        clf = TorchClassifier(nn.Identity(), class_weight="balanced",
-                              val_split_stratify=False)
+    def test_clone_preserves_it(self):
+        clf = TorchClassifier(nn.Identity(), class_weight="balanced", val_split=0.3)
         cloned = clone(clf)
         assert cloned.class_weight == "balanced"
-        assert cloned.val_split_stratify is False
+        assert cloned.val_split == 0.3
 
-    def test_they_survive_save_and_load(self, tmp_path):
+    def test_it_survives_save_and_load(self, tmp_path):
         clf = TorchClassifier(_backbone(), class_weight={0: 1.0, 1: 4.0},
-                              val_split_stratify=False, max_epochs=1,
-                              device="cpu")
+                              val_split=0.3, max_epochs=1, device="cpu")
         path = tmp_path / "clf.pkl"
         clf.save(str(path))
         reloaded = TorchClassifier.load(str(path))
         assert reloaded.class_weight == {0: 1.0, 1: 4.0}
-        assert reloaded.val_split_stratify is False
+        assert reloaded.val_split == 0.3
 
 
 class TestFitEndToEnd:

@@ -22,7 +22,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from rich.console import Console
 from sklearn.base import BaseEstimator
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from torch.utils.data import DataLoader, Subset, random_split
 
 from medusa.core.serialization import PickleableComponent
@@ -154,6 +154,34 @@ def _stratified_split_indices(n: int, n_val: int, labels, random_state=None):
     return train_idx.tolist(), val_idx.tolist()
 
 
+def _group_split_indices(n: int, val_split: float, groups, random_state=None):
+    """``(train_idx, val_idx)`` holding out whole groups, or ``None``.
+
+    The validation side gets ``max(1, int(n_groups * val_split))`` whole groups
+    (never all of them), so no group has observations on both sides. ``None``
+    means there is a single group, so nothing can be held out this way, and the
+    caller falls back to an observation-level split. ``random_state`` fixes
+    which groups land on each side.
+
+    Raises
+    ------
+    ValueError
+        If ``groups`` does not have one entry per observation.
+    """
+    groups = np.asarray(groups).reshape(-1)
+    if len(groups) != n:
+        raise ValueError(
+            f"groups has {len(groups)} entries but the data have {n} observations.")
+    n_groups = len(np.unique(groups))
+    if n_groups < 2:
+        return None
+    n_val_groups = min(max(1, int(n_groups * val_split)), n_groups - 1)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=n_val_groups,
+                                 random_state=random_state)
+    train_idx, val_idx = next(splitter.split(np.zeros(n), groups=groups))
+    return train_idx.tolist(), val_idx.tolist()
+
+
 def _metric(trainer, name) -> float:
     value = trainer.callback_metrics.get(name)
     return float(value) if value is not None else float('nan')
@@ -228,15 +256,19 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         it (so ``cross_validate`` refits a fresh copy per fold, starting from
         the backbone's current weights).
     lr, max_epochs, batch_size, patience : training hyperparameters.
+    min_delta : float, default 0.0
+        Smallest drop in the monitored loss that counts as an improvement.
+        A smaller drop is treated as noise: it does not reset ``patience``, so
+        a run that is only wobbling around its best value stops instead of
+        spending every remaining epoch on it. ``0.0`` (the default) accepts any
+        drop at all, which is Lightning's own default.
     val_split : float or None
         Fraction in (0, 1) held out for validation-based early stopping and
-        best-checkpoint restore. ``None`` monitors training loss instead.
-    val_split_stratify : bool, default True
-        Keep each class's share of the data in that validation split, instead of
-        drawing it at random. It only applies when the estimator hands labels to
-        the splitter (the classifiers do) and ``val_split`` is set; when a class
-        is too small to appear on both sides, the split falls back to the random
-        one and warns.
+        best-checkpoint restore. ``None`` monitors training loss instead. The
+        fold keeps each class's share of the data (stratified by label) when the
+        estimator hands labels to the splitter, as the classifiers do; ``fit``
+        can instead hold out whole groups through its ``groups`` argument. See
+        :meth:`_loaders_from_dataset`.
     device : {'auto', 'cpu', 'cuda', 'cuda:N', 'mps'}
         Resolved once at ``fit`` time and reused for inference.
     verbose : int | str, default 1
@@ -265,15 +297,15 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
     """
 
     def __init__(self, backbone, *, lr=1e-3, max_epochs=100, batch_size=64,
-                 val_split=None, val_split_stratify=True, patience=10,
-                 device='auto', verbose=1, random_state=None):
+                 val_split=None, patience=10, min_delta=0.0, device='auto',
+                 verbose=1, random_state=None):
         self.backbone = backbone
         self.lr = lr
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.val_split = val_split
-        self.val_split_stratify = val_split_stratify
         self.patience = patience
+        self.min_delta = min_delta
         self.device = device
         self.verbose = verbose
         self.random_state = random_state
@@ -327,33 +359,55 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         """
         return seeded_rng(self.random_state, self.device)
 
-    def _loaders_from_dataset(self, dataset, labels=None):
+    def _loaders_from_dataset(self, dataset, labels=None, groups=None):
         """Split one dataset into ``(train_loader, val_loader)`` per ``val_split``.
 
-        With ``val_split_stratify`` on (the default) and ``labels`` given, the
-        validation fold keeps each class's share of the data instead of being
-        drawn at random. That matters as soon as the classes are unbalanced: a random
-        split of, say, a 3 %-target set can leave the fold with almost no
-        targets, and then the validation loss that early stopping watches says
-        very little about the model. When the split cannot keep every class on
-        both sides, it falls back to the random split and warns.
+        With ``groups`` given (one group id per observation), the validation fold
+        is made of **whole groups**: ``val_split`` of the groups, at least one and
+        never all, chosen with :class:`~sklearn.model_selection.GroupShuffleSplit`.
+        That is the split to use when observations are not independent -- epochs
+        cut from overlapping windows of one recording, say -- because a random
+        draw would then put near-copies of the training data into the fold, and
+        the validation loss that early stopping watches would stop measuring
+        generalisation. With a single group nothing can be held out this way, so
+        it warns and falls back to the observation-level split below.
+
+        Without groups, the fold is drawn observation by observation and, when
+        ``labels`` are given, **stratified**: it keeps each class's share of the
+        data instead of the share a random draw happens to land on. That is not
+        a distortion -- the fold has the real class distribution, the random draw
+        deviates from it by chance -- and it matters as soon as the classes are
+        unbalanced: a random split of, say, a 3 %-target set can leave the fold
+        with almost no targets, and then the validation loss says very little
+        about the model. When the split cannot keep every class on both sides
+        (a class with a single member, fewer slots than classes), it falls back
+        to the random split and warns.
         """
         if not self.val_split:
             return DataLoader(dataset, batch_size=self.batch_size,
                               shuffle=True), None
-        n_val = max(1, int(len(dataset) * self.val_split))
-        split = (_stratified_split_indices(len(dataset), n_val, labels,
-                                           random_state=self.random_state)
-                 if self.val_split_stratify and labels is not None else None)
-        if split is None:
-            if self.val_split_stratify and labels is not None:
+        n = len(dataset)
+        split = None
+        if groups is not None:
+            split = _group_split_indices(n, self.val_split, groups,
+                                         random_state=self.random_state)
+            if split is None:
+                warnings.warn(
+                    "groups holds a single group, so no whole group can be held "
+                    "out for validation; splitting observations instead.",
+                    UserWarning, stacklevel=3)
+        n_val = max(1, int(n * self.val_split))
+        if split is None and labels is not None:
+            split = _stratified_split_indices(n, n_val, labels,
+                                              random_state=self.random_state)
+            if split is None:
                 warnings.warn(
                     f"cannot stratify a {n_val}-observation validation split of "
-                    f"{len(dataset)} observations (a class is too small, or there "
+                    f"{n} observations (a class is too small, or there "
                     f"are fewer slots than classes); splitting at random instead.",
                     UserWarning, stacklevel=3)
-            train_ds, val_ds = random_split(
-                dataset, [len(dataset) - n_val, n_val])
+        if split is None:
+            train_ds, val_ds = random_split(dataset, [n - n_val, n_val])
         else:
             train_idx, val_idx = split
             train_ds, val_ds = Subset(dataset, train_idx), Subset(dataset, val_idx)
@@ -379,7 +433,8 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         monitor = 'val_loss' if val_loader is not None else 'train_loss'
         level = normalize_verbose(self.verbose)
 
-        early = EarlyStopping(monitor=monitor, mode='min', patience=self.patience)
+        early = EarlyStopping(monitor=monitor, mode='min', patience=self.patience,
+                              min_delta=self.min_delta)
         history = EpochHistory()
         console = Console() if level == 1 else None
         bar = MedusaProgressBar(console) if level == 1 else None

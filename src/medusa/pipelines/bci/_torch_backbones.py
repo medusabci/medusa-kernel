@@ -18,8 +18,11 @@ Three layers, low to high:
 * :func:`add_eeg_inception_settings` / :func:`build_eeg_inception` (and the ``_v2`` pair)
   describe **one** architecture: the leaves it really has, and the mapping back onto its
   constructor. The leaf names mirror the constructor arguments, so the mapping stays
-  obvious; the only renames are the temporal scales, which are leaves in **milliseconds**
-  (``*_ms``) and become samples at build time.
+  obvious. The one leaf that is not a straight copy is **v1**'s temporal scales, which the
+  settings state in milliseconds (``scales_ms``) and :func:`scales_to_samples` converts at
+  build time with the epoch rate. v2 does not do that: it sizes its temporal kernels in
+  samples, exactly like the dilated ones it sits next to, so its ``temp_scales_samples``
+  leaf is used as it stands and both halves of the architecture are read in one unit.
 * :data:`ARCHITECTURES` maps each ``arch`` name to everything the selector needs to know
   about it, so registering an architecture is a single edit in a single place.
 * :func:`add_architecture_settings` mounts the whole thing on a ``classifier`` group -- an
@@ -47,7 +50,7 @@ from medusa.ml.torch_models.backbones.eeg_inception import EEGInception
 from medusa.ml.torch_models.backbones.eeg_inception_v2 import EEGInceptionV2
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from medusa.core.settings_tree import SettingsTree
 
@@ -80,10 +83,10 @@ _V2_MIN_POOLING_FACTOR = 2
 def scales_to_samples(scales_ms: "Sequence[float]", rate: float) -> "tuple[int, ...]":
     """Temporal kernel scales in ms -> whole samples at ``rate`` (at least one sample each).
 
-    Every architecture takes its temporal scales in samples, but a sensible scale is a
-    duration, not a sample count: it should mean the same thing whatever the epochs were
-    resampled to. So the settings hold milliseconds and this converts them, with the epoch
-    rate the pipeline used.
+    Every backbone constructor takes its temporal scales in samples. v1's settings state
+    them as durations instead, so that a scale means the same thing whatever the epochs were
+    resampled to, and this converts them with the epoch rate the pipeline used. v2 states
+    its kernel sizes in samples and never comes through here.
     """
     if not scales_ms:
         raise ValueError("at least one temporal scale is required, got an empty list.")
@@ -162,7 +165,7 @@ def _check_eeg_inception_dims(n_samples: int, scales: "tuple[int, ...]",
 # --------------------------------------------------------------------------- #
 def add_eeg_inception_v2_settings(
         group: "SettingsTree", *,
-        temp_scales_ms: "Sequence[float]" = (100.0, 75.0, 50.0),
+        temp_scales_samples: "Sequence[int]" = (100, 75, 50),
         temp_filt_per_branch: int = 8,
         n_temp_inc_blocks: int = 1,
         dil_filt_per_branch: int = 8,
@@ -177,10 +180,17 @@ def add_eeg_inception_v2_settings(
     All of them except ``input_samples`` and ``n_cha``, which are read off the data at fit
     time. Unlike v1, the temporal and the dilated inception blocks have their **own** filter
     counts (``temp_filt_per_branch`` / ``dil_filt_per_branch``), so they are separate leaves.
+
+    Every leaf carries the constructor argument's own name and its own units, so the whole
+    group maps one-to-one onto the constructor. That includes the temporal scales: v2 sizes
+    its kernels in **samples**, exactly like its dilated branches do, and the leaf holds the
+    number it is given. v1's scales are the one place that still works in milliseconds
+    (:func:`add_eeg_inception_settings`), so only that architecture converts at build time.
     """
-    group.add_item("temp_scales_ms", value=[float(ms) for ms in temp_scales_ms],
-                   info="Temporal inception kernel scales (ms); converted to samples at "
-                        "build time with the epoch rate")
+    group.add_item("temp_scales_samples",
+                   value=[int(k) for k in temp_scales_samples],
+                   info="Temporal inception kernel sizes, in samples (one per branch); "
+                        "used as given, so pick them for the rate of the epochs")
     group.add_item("temp_filt_per_branch", value=int(temp_filt_per_branch),
                    value_range=[1, None],
                    info="Convolutional filters per temporal inception branch")
@@ -221,7 +231,16 @@ def add_eeg_inception_v2_settings(
 
 def build_eeg_inception_v2(cfg: dict, *, input_samples: int, n_cha: int,
                            rate: float) -> EEGInceptionV2:
-    """Build an :class:`~medusa.ml.torch_models.backbones.eeg_inception_v2.EEGInceptionV2` from its settings group."""
+    """Build an :class:`~medusa.ml.torch_models.backbones.eeg_inception_v2.EEGInceptionV2` from its settings group.
+
+    ``rate`` is part of the common builder signature but unused here: every v2 kernel size
+    is already a sample count, so nothing has to be converted.
+    """
+    scales = tuple(int(k) for k in cfg["temp_scales_samples"])
+    if not scales:
+        raise ValueError(
+            "eeg_inception_v2 needs at least one entry in 'temp_scales_samples' "
+            "(one temporal inception kernel size, in samples, per branch).")
     specs = tuple((int(b["kernel"]), int(b["dilation"])) for b in cfg["dil_branch_specs"])
     if not specs:
         raise ValueError(
@@ -237,7 +256,7 @@ def build_eeg_inception_v2(cfg: dict, *, input_samples: int, n_cha: int,
             f"and makes the output-block count undefined).")
     return EEGInceptionV2(
         input_samples=input_samples, n_cha=n_cha,
-        temp_scales_samples=scales_to_samples(cfg["temp_scales_ms"], rate),
+        temp_scales_samples=scales,
         temp_filt_per_branch=int(cfg["temp_filt_per_branch"]),
         n_temp_inc_blocks=int(cfg["n_temp_inc_blocks"]),
         dil_filt_per_branch=int(cfg["dil_filt_per_branch"]),
@@ -255,30 +274,36 @@ def build_eeg_inception_v2(cfg: dict, *, input_samples: int, n_cha: int,
 class _Architecture(NamedTuple):
     """Everything :data:`ARCHITECTURES` has to know about one backbone.
 
-    ``scales_leaf`` is here rather than in a lookup table beside it so that registering an
-    architecture is a *single* edit: a second, partial mapping would raise ``KeyError`` for
-    every architecture the first time a new one was added.
+    ``scales_ms_leaf`` is here rather than in a lookup table beside it so that registering
+    an architecture is a *single* edit: a second, partial mapping would raise ``KeyError``
+    for every architecture the first time a new one was added.
     """
 
     add_settings: "Callable"      # (group, **defaults) -> None
     build: "Callable"             # (cfg, *, input_samples, n_cha, rate) -> nn.Module
-    scales_leaf: str              # the leaf holding its temporal scales, in ms
+    scales_ms_leaf: "str | None"  # its temporal-scale leaf, if that leaf is in ms
 
 
 #: Selectable architectures: ``arch`` name -> :class:`_Architecture`. The name is also the
 #: key of that architecture's settings group, so :func:`build_backbone` needs no lookup
 #: table of its own.
+#:
+#: ``scales_ms_leaf`` is ``None`` for v2 because its temporal kernels are sized in samples,
+#: like its dilated ones, so the ``scales_ms`` shorthand below has nothing to convert into:
+#: a v2 kernel size is stated in the settings and used as it stands.
 ARCHITECTURES = {
     "eeg_inception_v1": _Architecture(
         add_eeg_inception_settings, build_eeg_inception, "scales_ms"),
     "eeg_inception_v2": _Architecture(
-        add_eeg_inception_v2_settings, build_eeg_inception_v2, "temp_scales_ms"),
+        add_eeg_inception_v2_settings, build_eeg_inception_v2, None),
 }
 
 
-def add_architecture_settings(classifier_group: "SettingsTree", *,
-                              arch: str = "eeg_inception_v1",
-                              scales_ms: "Sequence[float] | None" = None) -> None:
+def add_architecture_settings(
+        classifier_group: "SettingsTree", *,
+        arch: str = "eeg_inception_v1",
+        scales_ms: "Sequence[float] | None" = None,
+        defaults: "Mapping[str, Mapping] | None" = None) -> None:
     """Add the ``arch`` selector and one settings group per architecture.
 
     Every architecture in :data:`ARCHITECTURES` gets its own group, named after it, holding
@@ -292,14 +317,35 @@ def add_architecture_settings(classifier_group: "SettingsTree", *,
     arch : str, optional
         The architecture selected by default; must be a key of :data:`ARCHITECTURES`.
     scales_ms : sequence of float, optional
-        Temporal kernel scales, in ms, applied as the default to **every** architecture's
-        temporal-scale leaf. They all express the same quantity, so a pipeline (or a
-        paradigm profile) that has an opinion about the timescales of its responses states
-        it once here. ``None`` keeps each architecture's own default.
+        Temporal kernel scales, in ms, applied as the default to the temporal-scale leaf of
+        every architecture that states that leaf in ms (today: v1). A duration means the
+        same thing whatever the epochs were resampled to, so a pipeline that has an opinion
+        about the timescales of its responses states it once here. ``None`` keeps each
+        architecture's own default. It reaches no architecture whose kernels are sized in
+        samples -- v2 -- because there is no rate to convert with at schema-building time;
+        give those their sizes through ``defaults``.
+    defaults : mapping of {arch name: {leaf: value}}, optional
+        Per-architecture default overrides, passed straight to that architecture's
+        ``add_settings`` as keyword arguments. This is how a pipeline pins the values it
+        wants for one architecture in particular -- ``{"eeg_inception_v2":
+        {"temp_scales_samples": (50, 25, 15), "dropout_rate": 0.2}}``. They become the
+        group's **defaults**, so ``reset()`` returns to them and ``user_overrides()``
+        reports only what was changed on top.
+
+    Raises
+    ------
+    ValueError
+        If ``arch``, or a key of ``defaults``, is not a known architecture.
     """
     if arch not in ARCHITECTURES:
         raise ValueError(
             f"arch must be one of {list(ARCHITECTURES)}, got {arch!r}.")
+    defaults = dict(defaults or {})
+    unknown = [name for name in defaults if name not in ARCHITECTURES]
+    if unknown:
+        raise ValueError(
+            f"defaults has no architecture {unknown}; keys must be among "
+            f"{list(ARCHITECTURES)}.")
     classifier_group.add_item(
         "arch", value=arch, value_options=list(ARCHITECTURES),
         info="Backbone architecture; its settings are the group of the same name below "
@@ -307,8 +353,10 @@ def add_architecture_settings(classifier_group: "SettingsTree", *,
     for name, spec in ARCHITECTURES.items():
         group = classifier_group.add_group(
             name, info=f"{name} hyper-parameters (used when arch is {name!r})")
-        overrides = ({} if scales_ms is None
-                     else {spec.scales_leaf: [float(ms) for ms in scales_ms]})
+        overrides = {}
+        if scales_ms is not None and spec.scales_ms_leaf is not None:
+            overrides[spec.scales_ms_leaf] = [float(ms) for ms in scales_ms]
+        overrides.update(defaults.get(name, {}))
         spec.add_settings(group, **overrides)
 
 
@@ -318,8 +366,9 @@ def build_backbone(classifier_cfg: dict, *, input_samples: int, n_cha: int,
 
     ``input_samples`` and ``n_cha`` come from the actual feature array at fit time, so the
     backbone can never desync from the data; ``rate`` is the epoch rate (the resampling
-    target, or the recording rate when resampling is off) that turns the millisecond scales
-    into samples.
+    target, or the recording rate when resampling is off), which the architectures that
+    state their temporal scales as durations use to turn them into samples. v2 sizes its
+    kernels in samples and ignores it.
     """
     arch = classifier_cfg["arch"]
     if arch not in ARCHITECTURES:

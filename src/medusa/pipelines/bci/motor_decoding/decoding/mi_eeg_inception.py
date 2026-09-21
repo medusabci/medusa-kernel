@@ -77,7 +77,11 @@ class MIEEGInceptionPipeline(TorchPipeline):
                           "the native rate")
         clf = s.add_group("classifier", info="EEG-Inception classifier")
         # Trial epochs are seconds long, so the kernels are much wider than a VEP speller's.
-        add_architecture_settings(clf, scales_ms=[500.0, 250.0, 125.0])
+        # v1 states them as durations; v2 sizes every kernel in samples, so it gets the same
+        # 500 / 250 / 125 ms written out at the 128 Hz target_fs above.
+        add_architecture_settings(
+            clf, scales_ms=[500.0, 250.0, 125.0],
+            defaults={"eeg_inception_v2": {"temp_scales_samples": (64, 32, 16)}})
         add_training_settings(clf, profiles=cls.TRAINING_PROFILES)
         return s
 

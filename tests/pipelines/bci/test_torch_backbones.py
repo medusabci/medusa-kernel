@@ -10,6 +10,11 @@ were reachable only *because* the module exposes every constructor argument:
   registering a third architecture raised ``KeyError`` while building the schema -- for
   *every* architecture, not just the new one.
 
+The temporal scales are also the one place the two architectures genuinely differ in units:
+v1 states them as durations (``scales_ms``, converted at build time), v2 as sample counts
+(``temp_scales_samples``, used as given), so ``scales_ms_leaf`` is ``None`` for v2 and the
+``scales_ms`` shorthand must not reach it.
+
 Skipped on the no-extras CI job: this module imports the torch backbones.
 """
 from __future__ import annotations
@@ -44,6 +49,7 @@ class TestOneRegistry:
         extra = dict(tb.ARCHITECTURES)
         extra["fake_arch"] = tb._Architecture(add_settings, lambda cfg, **kw: None,
                                               "scales_ms")
+
         monkeypatch.setattr(tb, "ARCHITECTURES", extra)
 
         classifier = _classifier_settings(
@@ -53,11 +59,16 @@ class TestOneRegistry:
 
     @pytest.mark.parametrize("name", list(tb.ARCHITECTURES))
     def test_every_entry_names_a_leaf_its_own_schema_has(self, name):
-        """``scales_leaf`` must exist in the group that architecture builds."""
+        """``scales_ms_leaf``, when set, must exist in the group that architecture builds."""
         spec = tb.ARCHITECTURES[name]
         group = SettingsTree().add_group("g")
         spec.add_settings(group)
-        assert spec.scales_leaf in group.to_dict()
+        if spec.scales_ms_leaf is not None:
+            assert spec.scales_ms_leaf in group.to_dict()
+
+    def test_defaults_rejects_an_unknown_architecture(self):
+        with pytest.raises(ValueError, match="defaults has no architecture"):
+            _classifier_settings(defaults={"nope": {"dropout_rate": 0.5}})
 
     def test_build_backbone_rejects_an_unknown_arch(self):
         with pytest.raises(ValueError, match="classifier.arch must be one of"):
@@ -115,3 +126,34 @@ class TestScalesToSamples:
     def test_an_empty_list_is_rejected(self):
         with pytest.raises(ValueError, match="at least one temporal scale"):
             tb.scales_to_samples([], 128.0)
+
+
+class TestV2KernelsAreSizedInSamples:
+    """v2 states every kernel size directly, so nothing about it depends on the epoch rate."""
+
+    def test_the_leaf_holds_the_sample_counts_it_was_given(self):
+        classifier = _classifier_settings(
+            defaults={"eeg_inception_v2": {"temp_scales_samples": (50, 25, 15)}}
+        ).to_dict()["classifier"]
+        assert classifier["eeg_inception_v2"]["temp_scales_samples"] == [50, 25, 15]
+
+    def test_the_milliseconds_shorthand_does_not_reach_it(self):
+        """``scales_ms`` is a duration; v2 has no leaf to put one in."""
+        classifier = _classifier_settings(
+            scales_ms=(500.0, 250.0)).to_dict()["classifier"]
+        assert classifier["eeg_inception_v1"]["scales_ms"] == [500.0, 250.0]
+        assert classifier["eeg_inception_v2"]["temp_scales_samples"] == [100, 75, 50]
+
+    @pytest.mark.parametrize("rate", [128.0, 200.0, 512.0])
+    def test_the_kernels_built_ignore_the_epoch_rate(self, rate):
+        cfg = _classifier_settings(
+            defaults={"eeg_inception_v2": {"temp_scales_samples": (21, 11)}}
+        ).to_dict()["classifier"]["eeg_inception_v2"]
+        backbone = tb.build_eeg_inception_v2(cfg, input_samples=64, n_cha=4, rate=rate)
+        assert backbone.temp_scales_samples == (21, 11)
+
+    def test_an_empty_scale_list_is_rejected(self):
+        cfg = _classifier_settings().to_dict()["classifier"]["eeg_inception_v2"]
+        cfg["temp_scales_samples"] = []
+        with pytest.raises(ValueError, match="temp_scales_samples"):
+            tb.build_eeg_inception_v2(cfg, input_samples=64, n_cha=4, rate=200.0)

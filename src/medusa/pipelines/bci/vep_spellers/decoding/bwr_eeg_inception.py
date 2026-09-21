@@ -68,13 +68,40 @@ from medusa.pipelines.bci._torch_backbones import (
 from medusa.pipelines.bci.vep_spellers.decoding._common import (
     _bit_onsets, _check_target_fs)
 from medusa.pipelines.bci.vep_spellers.decoding.scores import (
-    bwr_labels, bwr_command_scores)
+    bwr_labels, bwr_frame_scores, bwr_command_scores_corr)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["BWREEGInceptionPipeline", "bwr_eeg_inception_settings",
-           "mseq_cvep_settings", "burst_cvep_settings"]
+__all__ = [
+    "BWREEGInceptionPipeline",
+    "bwr_eeg_inception_settings",
+    "mseq_cvep_settings",
+    "burst_cvep_settings"
+]
+
+#: EEG-Inception v2 hyper-parameters for a VEP speller: the defaults the
+#: ``classifier.eeg_inception_v2`` group of every tree this module builds starts from. v1's
+#: three knobs keep their own defaults, set through ``scales_ms`` and the schema.
+#:
+#: v2 sizes its temporal kernels in **samples**, so these numbers only mean what they are
+#: meant to mean at the ``target_fs`` this module ships (200 Hz): the three temporal
+#: branches then span 250, 125 and 75 ms of a 500 ms frame epoch. Change the resampling rate
+#: and these have to follow -- that is the trade for stating the sizes directly, which is
+#: what v2 does everywhere else too (its dilated branches have always been in samples).
+_EEG_INCEPTION_V2_DEFAULTS = dict(
+    temp_scales_samples=(50, 25, 15),
+    temp_filt_per_branch=12,
+    n_temp_inc_blocks=1,
+    dil_filt_per_branch=12,
+    dil_branch_specs=((5, 1), (5, 5), (5, 10), (5, 15)),
+    n_dil_inc_blocks=1,
+    n_spatial_filt_mult=2,
+    output_pooling_factor=2,
+    dropout_type="Dropout",
+    dropout_rate=0.2,
+)
+
 
 # --------------------------------------------------------------------------- #
 # Configuration profiles
@@ -89,9 +116,10 @@ def bwr_eeg_inception_settings(
         band: "Sequence[float]" = (1.0, 60.0), order: int = 7,
         w_segment_t: "Sequence[float]" = (0.0, 500.0),
         baseline_t: "Sequence[float] | None" = None,
-        target_fs: "float | None" = 128.0,
+        target_fs: "float | None" = 200.0,
         arch: str = "eeg_inception_v1",
-        scales_ms: "Sequence[float]" = (100.0, 75.0, 50.0)) -> SettingsTree:
+        scales_ms: "Sequence[float]" = (100.0, 75.0, 50.0),
+        temp_scales_samples: "Sequence[int]" = (50, 25, 15)) -> SettingsTree:
     """Build a :class:`BWREEGInceptionPipeline` schema with the given band, window and backbone.
 
     The general builder the paradigm profiles below are built from. Call it directly to
@@ -121,8 +149,9 @@ def bwr_eeg_inception_settings(
         it takes when you switch it on.
     target_fs :
         Rate the segments are resampled to, in Hz. ``None`` ships the resampling switched
-        **off**, so the epochs keep the recording rate, and 128 Hz stays as the value it
-        takes when you switch it on.
+        **off**, so the epochs keep the recording rate, and 200 Hz stays as the value it
+        takes when you switch it on. It is also the rate ``temp_scales_samples`` below is
+        chosen for, so the two move together.
     arch :
         EEG-Inception architecture: ``'eeg_inception_v1'`` or ``'eeg_inception_v2'``.
         Every architecture gets its own ``classifier.<arch>`` group of hyper-parameters;
@@ -131,9 +160,17 @@ def bwr_eeg_inception_settings(
         kwargs, e.g. ``classifier={"eeg_inception_v2": {"n_spatial_filt_mult": 3}}``),
         because which ones exist depends on the architecture.
     scales_ms :
-        Temporal inception kernel scales in ms, applied as the default to **every**
-        architecture's group. They become samples at build time, using the epoch rate, so
-        they mean the same thing whatever ``target_fs`` is.
+        Temporal inception kernel scales in ms, for the architectures that state them as
+        durations -- today **v1** only. They become samples at build time, using the epoch
+        rate, so they mean the same thing whatever ``target_fs`` is.
+    temp_scales_samples :
+        Temporal inception kernel sizes for **v2**, one per branch, in **samples**. v2 sizes
+        every kernel it has directly, dilated branches included, so this one is not
+        converted: it is the number of samples the kernel covers. The default spans 250, 125
+        and 75 ms at the 200 Hz ``target_fs`` above; change that rate and these should
+        follow. The rest of v2's hyper-parameters default to
+        :data:`_EEG_INCEPTION_V2_DEFAULTS` and are edited on the tree (or passed as nested
+        construction kwargs), because which ones exist depends on the architecture.
 
     Returns
     -------
@@ -175,7 +212,7 @@ def bwr_eeg_inception_settings(
                  enabled=bool(baseline_t),
                  info="Baseline window (ms); switch it off to leave the segments as they are")
     seg.add_item("target_fs",
-                 value=float(target_fs) if target_fs else 128.0,
+                 value=float(target_fs) if target_fs else 200.0,
                  optional=True,
                  enabled=bool(target_fs),
                  value_range=[1.0, None],
@@ -183,9 +220,22 @@ def bwr_eeg_inception_settings(
                       "switch it off to keep the native rate")
     clf = s.add_group("classifier",
                       info="EEG-Inception frame classifier")
-    add_architecture_settings(clf, arch=arch, scales_ms=scales_ms)
-    add_training_settings(clf, profiles=BWREEGInceptionPipeline.TRAINING_PROFILES,
-                          max_epochs=500, batch_size=512)
+    add_architecture_settings(
+        clf, arch=arch, scales_ms=scales_ms,
+        defaults={"eeg_inception_v2": {**_EEG_INCEPTION_V2_DEFAULTS,
+                                       "temp_scales_samples": temp_scales_samples}})
+    add_training_settings(
+        clf, profiles=BWREEGInceptionPipeline.TRAINING_PROFILES,
+        max_epochs=100, batch_size=256, learning_rate=0.01,
+        val_split=0.1, patience=5, min_delta=0.001,
+        val_split_units={
+            "frame": "single frame epochs, drawn at random and stratified by label; "
+                     "they overlap their neighbours, so training data leaks into "
+                     "validation and early stopping stops measuring generalisation",
+            "cycle": "whole stimulation cycles",
+            "trial": "whole trials with all their cycles (default; keep it unless you "
+                     "know why not)",
+        })
     return s
 
 
@@ -239,7 +289,8 @@ def mseq_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7,
     """
     return bwr_eeg_inception_settings(
         profile="mseq_cvep", band=band, order=order, w_segment_t=w_segment_t, arch=arch,
-        baseline_t=None, target_fs=128.0, scales_ms=(100.0, 75.0, 50.0))
+        baseline_t=None, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
+        temp_scales_samples=(50, 25, 15))
 
 
 def burst_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7,
@@ -301,7 +352,28 @@ def burst_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7
     """
     return bwr_eeg_inception_settings(
         profile="burst_cvep", band=band, order=order, w_segment_t=w_segment_t, arch=arch,
-        baseline_t=None, target_fs=128.0, scales_ms=(100.0, 75.0, 50.0))
+        baseline_t=None, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
+        temp_scales_samples=(50, 25, 15))
+
+
+def _validation_groups(unit: str, cycle_trial: NDArray, n_frames: int) -> "NDArray | None":
+    """One validation-group id per frame epoch of a recording, per ``val_split_unit``.
+
+    The epochs are cycle-major with ``n_frames`` per cycle, so a per-cycle id repeated
+    ``n_frames`` times lines up with them. ``'trial'`` gives every cycle its trial index,
+    ``'cycle'`` gives every cycle its own id, and ``'frame'`` returns ``None``: no groups,
+    the estimator splits single epochs.
+    """
+    if unit == "frame":
+        return None
+    if unit == "trial":
+        per_cycle = np.asarray(cycle_trial, dtype=int)
+    elif unit == "cycle":
+        per_cycle = np.arange(len(cycle_trial))
+    else:
+        raise ValueError(
+            f"unknown val_split_unit {unit!r}; choose 'frame', 'cycle' or 'trial'.")
+    return np.repeat(per_cycle, n_frames)
 
 
 class BWREEGInceptionPipeline(TorchPipeline):
@@ -309,10 +381,10 @@ class BWREEGInceptionPipeline(TorchPipeline):
 
     The deep sibling of
     :class:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_lda.BWRLDAPipeline`. It runs the
-    same BWR *strategy* -- classify each code frame (is the target response present or not),
-    then score each command by the correlation of its code with the frame scores -- and
+    same BWR *strategy* -- classify each code frame (which code level did it show), then
+    score each command by the correlation of its code with the frame scores -- and
     returns the same cumulative ``(n_cycles, n_commands)`` correlation matrix
-    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores`) for
+    (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`) for
     :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
     The only change is the frame classifier: a convolutional EEG-Inception backbone (v1 or
     v2) wrapped in a :class:`~medusa.ml.torch_models.classification.TorchClassifier`.
@@ -339,7 +411,7 @@ class BWREEGInceptionPipeline(TorchPipeline):
 
     * **Raw epochs.** Features are the per-frame epochs kept as
       ``(n_segments, n_samples, n_channels)`` (not flattened), resampled to
-      ``segmentation.target_fs`` (default 128 Hz, EEG-Inception's design rate).
+      ``segmentation.target_fs`` (default 200 Hz).
     * **Single band.** A conv backbone consumes one multichannel epoch, so it cannot fuse a
       parallel filter bank the way the LDA pipeline concatenates sub-band features. The
       ``freq_filtering`` schema is kept for consistency, but the filter bank must hold exactly
@@ -439,14 +511,6 @@ class BWREEGInceptionPipeline(TorchPipeline):
             seg = resample_segments(seg, window, seg_cfg["target_fs"])
         return seg
 
-    def _frame_scores(self, recording: Recording, cfg: dict) -> NDArray:
-        """Per-frame target-class scores for one recording (cycle-major order)."""
-        sd = SpellerData.from_recording(recording)
-        onsets, _, _, _ = cycle_arrays(recording.events)
-        feats = self._features(recording.signals[cfg["signal_key"]], onsets,
-                               sd.codes.shape[2], sd.fps_resolution, cfg)
-        return self.clf.predict_proba(feats)[:, 1]
-
     # ---- offline ----
     def fit(self, recordings) -> "BWREEGInceptionPipeline":
         """Fit the EEG-Inception classifier on the per-frame BWR features and labels of all
@@ -458,22 +522,36 @@ class BWREEGInceptionPipeline(TorchPipeline):
         a later call keeps training the model this pipeline already holds, under the
         configured ``classifier.training.profile`` (see
         :class:`~medusa.pipelines.torch_base.TorchPipeline`).
+
+        The validation split early stopping watches is cut per
+        ``classifier.training.val_split_unit``: whole trials (the default), whole
+        cycles, or single frame epochs. Frame epochs overlap their neighbours (a 500 ms
+        window against a 17 ms frame period), so a frame-level split puts near-copies of
+        the training epochs into the validation fold; holding out whole trials keeps the
+        two apart. Trials of different recordings are always distinct groups.
         """
         self._check_settings()          # re-validate (the live tree may have been edited)
         cfg = self.cfg
-        X, y = [], []
+        unit = cfg["classifier"]["training"]["val_split_unit"]
+        X, y, groups, offset = [], [], [], 0
         for rec in recordings:
             self.check_consistency(rec)
-            onsets, _, _, _ = cycle_arrays(rec.events)
+            onsets, trial, _, _ = cycle_arrays(rec.events)
             sd = SpellerData.from_recording(rec)
+            n_frames = sd.codes.shape[2]
             X.append(self._features(rec.signals[cfg["signal_key"]], onsets,
-                                    sd.codes.shape[2], sd.fps_resolution, cfg))
+                                    n_frames, sd.fps_resolution, cfg))
             y.append(bwr_labels(rec))
-        return self._fit_classifier(cfg, np.concatenate(X), np.concatenate(y))
+            ids = _validation_groups(unit, trial, n_frames)
+            if ids is not None:
+                groups.append(ids + offset)     # keep recordings' trials apart
+                offset += int(ids.max()) + 1
+        return self._fit_classifier(cfg, np.concatenate(X), np.concatenate(y),
+                                    groups=np.concatenate(groups) if groups else None)
 
     def _build_backbone(self, cfg: dict, X: NDArray):
         """Build the architecture ``classifier.arch`` names, sized to the frame epochs."""
-        # the epoch rate the millisecond kernel scales are measured against
+        # the epoch rate, for the architectures whose kernel scales are durations (v1)
         rate = cfg["segmentation"]["target_fs"] or self.fs
         return build_backbone(cfg["classifier"], input_samples=X.shape[1],
                               n_cha=X.shape[2], rate=rate)
@@ -485,10 +563,9 @@ class BWREEGInceptionPipeline(TorchPipeline):
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
         onsets, trial, cycle, code_idx = cycle_arrays(recording.events)
-        # frame_scores = self._frame_scores(recording, self.cfg)
         feats = self._features(
             recording.signals[self.cfg["signal_key"]],
             onsets, sd.codes.shape[2], sd.fps_resolution, self.cfg)
-        frame_scores = self.clf.predict_proba(feats)[:, 1]
-        return bwr_command_scores(frame_scores, sd.codes, trial, cycle,
-                                  code_idx)
+        proba = self.clf.predict_proba(feats)
+        frame_scores = bwr_frame_scores(proba, self.clf.classes_)
+        return bwr_command_scores_corr(frame_scores, sd.codes, trial, cycle, code_idx)

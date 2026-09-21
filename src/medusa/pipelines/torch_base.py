@@ -89,7 +89,7 @@ from medusa.ml.torch_models.classification import TorchClassifier
 from medusa.pipelines.base import DecodingPipeline
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     import torch.nn as nn
     from numpy.typing import NDArray
@@ -111,7 +111,9 @@ TRAINING_PROFILES = ("train", "finetune", "custom")
 def add_training_settings(clf_group: "SettingsTree", *,
                           profiles: "Sequence[str]" = TRAINING_PROFILES,
                           max_epochs: int = 100, batch_size: int = 64,
-                          learning_rate: float = 1e-3, patience: int = 10) -> None:
+                          learning_rate: float = 1e-3, val_split: float = 0.2,
+                          patience: int = 10, min_delta: float = 0.0,
+                          val_split_units: "Mapping[str, str] | None" = None) -> None:
     """Add the ``training`` subgroup of
     :class:`~medusa.ml.torch_models.classification.TorchClassifier` hyper-parameters to a
     classifier settings group.
@@ -120,6 +122,12 @@ def add_training_settings(clf_group: "SettingsTree", *,
     drift apart. The defaults that legitimately differ between paradigms (a VEP speller
     trains on far more, far shorter epochs than a motor-imagery decoder) are arguments.
 
+    The items are ordered the way a person reads a training run: what trains
+    (``profile``), then how (``max_epochs``, ``batch_size``, ``learning_rate``,
+    ``class_weight``), then how it is validated and stopped (``val_split``,
+    ``val_split_unit`` when the pipeline has one, ``patience``, ``min_delta``), then the
+    run itself (``random_state``, ``device``, ``verbose``).
+
     Parameters
     ----------
     clf_group : SettingsTree
@@ -127,8 +135,17 @@ def add_training_settings(clf_group: "SettingsTree", *,
     profiles : sequence of str, optional
         The training profiles this pipeline implements, offered as the options of the
         ``profile`` item. Pass ``cls.TRAINING_PROFILES``.
-    max_epochs, batch_size, learning_rate, patience : optional
+    max_epochs, batch_size, learning_rate, val_split, patience, min_delta : optional
         Per-pipeline defaults for the items of the same name.
+    val_split_units : mapping of {name: description}, optional
+        The units the validation split can hold out, for a pipeline whose observations
+        are not independent (epochs cut from overlapping windows of one trial, say).
+        Ordered from the smallest to the largest: the **first** is the observation-level
+        split (single observations, drawn at random and stratified by label), the
+        **last** is the default. When given, a ``val_split_unit`` item is added right
+        after ``val_split``; the pipeline reads it to build the ``groups`` it hands to
+        :meth:`TorchPipeline._fit_classifier`. A pipeline whose observations are
+        independent (one epoch per trial) leaves it out.
     """
     tr = clf_group.add_group("training", info="TorchClassifier training hyper-parameters")
     tr.add_item("profile", value="train", value_options=list(profiles),
@@ -146,14 +163,28 @@ def add_training_settings(clf_group: "SettingsTree", *,
                 value_options=["balanced"],
                 info="Weight the loss by class frequency, so a rare class counts as much "
                      "as a common one; switch it off to weight every observation the same")
-    tr.add_item("val_split", value=0.2, optional=True, value_range=[0, 1],
-                info="Validation fraction for early stopping; switch it off to train "
-                     "without a validation split")
-    tr.add_item("val_split_stratify", value=True,
-                info="Keep each class's share of the data in the validation split "
-                     "(only used when val_split is on)")
+    if val_split_units:
+        units = list(val_split_units)
+        tr.add_item("val_split", value=float(val_split), optional=True, value_range=[0, 1],
+                    info=f"Fraction of the {units[-1]}s (or whatever val_split_unit "
+                         f"names) held out to watch for early stopping; switch it off "
+                         f"to train without a validation split")
+        tr.add_item("val_split_unit", value=units[-1], value_options=units,
+                    info="What the validation split holds out: " + "; ".join(
+                        f"'{name}' -- {description}"
+                        for name, description in val_split_units.items()))
+    else:
+        tr.add_item("val_split", value=float(val_split), optional=True, value_range=[0, 1],
+                    info="Fraction of the observations held out to watch for early "
+                         "stopping, stratified by class; switch it off to train "
+                         "without a validation split")
     tr.add_item("patience", value=int(patience), value_range=[1, None],
-                info="Early-stopping patience (epochs)")
+                info="Epochs without improvement of the validation loss (the training "
+                     "loss when val_split is off) before training stops")
+    tr.add_item("min_delta", value=float(min_delta), value_range=[0, None],
+                info="Smallest drop in the watched loss that counts as an improvement; "
+                     "anything smaller is noise and spends one of the patience epochs. "
+                     "0 accepts any drop at all")
     tr.add_item("random_state", value=0, optional=True, enabled=False,
                 value_range=[0, None],
                 info="Seed that makes a fit repeatable: the backbone's initial weights, "
@@ -177,8 +208,8 @@ def training_kwargs(cfg_training: dict) -> dict:
     return dict(lr=float(t["learning_rate"]), max_epochs=int(t["max_epochs"]),
                 batch_size=int(t["batch_size"]), class_weight=t["class_weight"],
                 val_split=t["val_split"] or None,
-                val_split_stratify=t["val_split_stratify"],
-                patience=int(t["patience"]), device=t["device"], verbose=t["verbose"],
+                patience=int(t["patience"]), min_delta=float(t["min_delta"]),
+                device=t["device"], verbose=t["verbose"],
                 random_state=(None if t["random_state"] is None
                               else int(t["random_state"])))
 
@@ -272,14 +303,19 @@ class TorchPipeline(DecodingPipeline):
         return self
 
     # ---- training ---- #
-    def _fit_classifier(self, cfg: dict, X: "NDArray", y: "NDArray") -> Self:
+    def _fit_classifier(self, cfg: dict, X: "NDArray", y: "NDArray",
+                        groups: "NDArray | None" = None) -> Self:
         """Build or continue the classifier, train it on ``(X, y)``, return ``self``.
 
         The tail of every subclass's ``fit``: gather the features and labels, then hand
-        them here.
+        them here. ``groups`` (one id per observation) makes the validation split hold
+        out whole groups instead of single observations; pass it when the observations
+        are not independent, for example epochs cut from overlapping windows of one
+        trial (see :meth:`TorchClassifier.fit
+        <medusa.ml.torch_models.classification.TorchClassifier.fit>`).
         """
         self._ensure_classifier(cfg, X)
-        self.clf.fit(X, y)
+        self.clf.fit(X, y, groups=groups)
         self._backbone_trained = True
         self._fitted = True
         self._fit_cfg = cfg     # the configuration of the last *successful* fit

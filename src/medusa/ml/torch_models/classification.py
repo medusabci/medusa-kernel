@@ -252,21 +252,33 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
     # builds ``get_params`` from this signature: a ``**kwargs`` would hide them
     # from ``clone()``, from ``cross_validate`` and from the saved bundle.
     def __init__(self, backbone, *, lr=1e-3, max_epochs=100, batch_size=64,
-                 val_split=None, val_split_stratify=True, patience=10,
-                 device='auto', verbose=1, class_weight=None, random_state=None):
+                 val_split=None, patience=10, min_delta=0.0, device='auto',
+                 verbose=1, class_weight=None, random_state=None):
         super().__init__(backbone, lr=lr, max_epochs=max_epochs,
                          batch_size=batch_size, val_split=val_split,
-                         val_split_stratify=val_split_stratify,
-                         patience=patience, device=device, verbose=verbose,
-                         random_state=random_state)
+                         patience=patience, min_delta=min_delta, device=device,
+                         verbose=verbose, random_state=random_state)
         self.class_weight = class_weight
 
-    def fit(self, X, y):
+    def fit(self, X, y, groups=None):
         """Fit backbone and head on ``X`` (epochs) and ``y`` (labels).
 
         A second ``fit`` **continues** the model: the same backbone and the same head
         keep training. Call :meth:`reset_head` first to train a fresh classifier on
         the learned features instead (a new subject, or a new set of labels).
+
+        Parameters
+        ----------
+        X : array-like
+            Epochs, in the layout the backbone declares.
+        y : array-like
+            One label per epoch (categorical or one-hot).
+        groups : array-like of shape (n_epochs,), optional
+            Group id of every epoch (the trial it was cut from, say). When given and
+            ``val_split`` is on, the validation fold holds out **whole groups**, so
+            an epoch never has a near-copy of itself on the other side (see
+            :meth:`_loaders_from_dataset`). ``None`` (the default) splits single
+            epochs, stratified by label.
         """
         classes, y_idx = encode_labels(y)
         if len(y_idx) != len(X):
@@ -283,8 +295,8 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
                 class_weight=_class_weights(self.class_weight, self.classes_,
                                             y_idx),
                 head=head)
-            train_loader, val_loader = self._loaders_from_dataset(dataset,
-                                                                  labels=y_idx)
+            train_loader, val_loader = self._loaders_from_dataset(
+                dataset, labels=y_idx, groups=groups)
             self._run_training(task, train_loader, val_loader)
         self.head_ = task.head
         return self

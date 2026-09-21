@@ -196,7 +196,7 @@ class TestArchitectureGroups:
             classifier={"arch": "eeg_inception_v2",
                         "eeg_inception_v2": {"dil_filt_per_branch": 16}})
         v2 = pipe.cfg["classifier"]["eeg_inception_v2"]
-        assert (v2["temp_filt_per_branch"], v2["dil_filt_per_branch"]) == (8, 16)
+        assert (v2["temp_filt_per_branch"], v2["dil_filt_per_branch"]) == (12, 16)
 
     def test_dil_branch_specs_is_an_editable_group_list(self):
         v2 = bwr_eeg_inception_settings().to_dict()["classifier"]["eeg_inception_v2"]
@@ -211,12 +211,32 @@ class TestArchitectureGroups:
         v2 = pipe.cfg["classifier"]["eeg_inception_v2"]
         assert [b["dilation"] for b in v2["dil_branch_specs"]] == [1, 5, 10, 15]
 
-    def test_scales_ms_reaches_every_architecture(self):
-        """One millisecond opinion, written into whichever leaf each architecture calls it."""
+    def test_scales_ms_reaches_the_architectures_that_speak_in_durations(self):
+        """v1 states its scales as durations; v2 sizes every kernel in samples instead."""
         classifier = bwr_eeg_inception_settings(
-            scales_ms=(200.0, 100.0)).to_dict()["classifier"]
+            scales_ms=(200.0, 100.0),
+            temp_scales_samples=(40, 20)).to_dict()["classifier"]
         assert classifier["eeg_inception_v1"]["scales_ms"] == [200.0, 100.0]
-        assert classifier["eeg_inception_v2"]["temp_scales_ms"] == [200.0, 100.0]
+        assert classifier["eeg_inception_v2"]["temp_scales_samples"] == [40, 20]
+
+    def test_the_v2_defaults_are_the_ones_this_module_pins(self):
+        """The vep-speller recipe, at the 200 Hz target_fs it is chosen for."""
+        settings = bwr_eeg_inception_settings().to_dict()
+        assert settings["segmentation"]["target_fs"] == 200.0
+        v2 = settings["classifier"]["eeg_inception_v2"]
+        assert v2["temp_scales_samples"] == [50, 25, 15]
+        assert v2["temp_filt_per_branch"] == v2["dil_filt_per_branch"] == 12
+        assert (v2["n_temp_inc_blocks"], v2["n_dil_inc_blocks"]) == (1, 1)
+        assert (v2["n_spatial_filt_mult"], v2["output_pooling_factor"]) == (2, 2)
+        assert (v2["dropout_type"], v2["dropout_rate"]) == ("Dropout", 0.2)
+
+    def test_the_training_defaults_are_the_ones_this_module_pins(self):
+        training = bwr_eeg_inception_settings().to_dict()["classifier"]["training"]
+        assert training["profile"] == "train"
+        assert training["learning_rate"] == 0.01
+        assert (training["max_epochs"], training["batch_size"]) == (100, 256)
+        assert (training["val_split"], training["patience"]) == (0.1, 5)
+        assert training["min_delta"] == 0.001
 
     def test_an_unknown_arch_is_rejected(self):
         with pytest.raises(ValueError, match="arch must be one of"):
