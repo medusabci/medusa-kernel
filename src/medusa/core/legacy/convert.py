@@ -766,6 +766,12 @@ def edubiomat_recording_to_v2(legacy_recording, *, task=None, subject=None,
     records.sort(key=lambda r: r["onset"])   # append() warns on out-of-order onsets
     events = Events(optional_columns=dict(EDUBIOMAT_EVENT_COLUMNS),
                     descriptions=_edubiomat_event_descriptions(mode))
+
+    initial_time = signals['eeg'].times[0]
+    for record in records:
+        record['onset'] = record['onset'] - initial_time
+        record['response_onset'] = record['response_onset'] - initial_time
+
     if records:
         events.append(records)
 
