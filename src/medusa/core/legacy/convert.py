@@ -20,7 +20,8 @@ import numpy as np
 
 __all__ = ["recorder_recording_to_v2", "cvep_recording_to_v2",
            "rcp_recording_to_v2", "mi_recording_to_v2",
-           "edubiomat_recording_to_v2"]
+           "edubiomat_recording_to_v2", "EDUBIOMAT_TASK_LABELS",
+           "EDUBIOMAT_EVENT_COLUMNS"]
 
 
 def _find_attr(legacy_recording, registry_name: str, class_name: str):
@@ -45,6 +46,69 @@ def _bids_label(value, fallback="01"):
         return None
     label = "".join(ch for ch in str(value) if ch.isalnum())
     return label or fallback
+
+
+def _legacy_biosignals(legacy_recording):
+    """``[(key, biosignal, class_name)]`` for every stream in the legacy file."""
+    bios = [(key, getattr(legacy_recording, key), meta.get("class_name"))
+            for key, meta in getattr(legacy_recording, "biosignals", {}).items()]
+    if not bios:
+        raise ValueError("legacy recording has no biosignals to convert.")
+    return bios
+
+
+def _time_origin(bios):
+    """First-sample timestamp of the run: the earliest across streams.
+
+    All streams of a legacy recording are timestamped on the same LSL clock, so the
+    earliest first sample is the absolute start of the run.
+    """
+    firsts = [float(np.asarray(bio.times)[0])
+              for _, bio, _ in bios
+              if getattr(bio, "times", None) is not None
+              and np.asarray(bio.times).size]
+    return min(firsts) if firsts else 0.0
+
+
+def _biosignals_to_signals(bios, shift=0.0):
+    """Every legacy biosignal -> a 2.0 :class:`Signal`, keyed as in the legacy file.
+
+    An ``EEG`` stream gets located sensors resolved from its labels, so topographic
+    plotting works; every other modality gets generic typed channels. ``shift``
+    (seconds) is subtracted from the absolute (LSL) timestamps: pass the run origin
+    to rezero the time axis, or leave it at 0 to keep the original clock (which is
+    what a paradigm whose event onsets are absolute timestamps needs).
+    """
+    from medusa.core.data import (Signal, ChannelSet, Channel, BIDS_CHANNEL_TYPES)
+
+    signals = {}
+    for key, bio, class_name in bios:
+        signal_arr = np.asarray(bio.signal)
+        if signal_arr.ndim < 2:   # a 1-D single-channel stream -> [n_samples x 1]
+            signal_arr = signal_arr.reshape(-1, 1)
+        n_cha = signal_arr.shape[1]
+        labels = getattr(getattr(bio, "channel_set", None), "l_cha", None)
+        if not labels or len(labels) != n_cha:
+            labels = [f"ch{i + 1}" for i in range(n_cha)]
+        # The 1.x class name already *is* the BIDS type for a typed modality
+        # (EEG/ECG/...), but the Recorder writes every untyped stream as a free-form
+        # CustomBiosignalData keyed by its modality instead (GSR, PPG, ...), so read
+        # the type off the key when the class name says nothing.
+        ch_type = next((str(c).upper() for c in (class_name, key)
+                        if c and str(c).upper() in BIDS_CHANNEL_TYPES), "OTHER")
+        if ch_type == "EEG":
+            channel_set = ChannelSet().add_unipolar_eeg_channels(list(labels))
+        else:
+            channel_set = ChannelSet().add_channels(
+                [Channel(lab, ch_type=ch_type, unit="n/a") for lab in labels])
+        times = getattr(bio, "times", None)
+        if times is not None and np.asarray(times).size:
+            times = np.asarray(times, dtype=float) - shift
+        else:
+            times = None   # let Signal synthesize a regular axis from fs
+        signals[key] = Signal(signal_arr, fs=float(bio.fs),
+                              channel_set=channel_set, times=times)
+    return signals
 
 
 def recorder_recording_to_v2(legacy_recording, *, task="rest", subject=None,
@@ -113,46 +177,16 @@ def recorder_recording_to_v2(legacy_recording, *, task="rest", subject=None,
         :class:`Events` timeline (``None`` when the file carries no marks), and the
         recorder metadata in ``experiment``.
     """
-    from medusa.core.data import (Recording, BidsInfo, Signal, ChannelSet, Channel)
+    from medusa.core.data import Recording, BidsInfo
 
-    bios = [(key, getattr(legacy_recording, key), meta.get("class_name"))
-            for key, meta in getattr(legacy_recording, "biosignals", {}).items()]
-    if not bios:
-        raise ValueError("legacy recording has no biosignals to convert.")
+    bios = _legacy_biosignals(legacy_recording)
 
     # -- Time origin: earliest first-sample across streams (shared LSL clock). --
     # ``abs_origin`` is the true absolute (LSL) start, always recorded in the
     # experiment; ``shift`` is what we actually subtract (0 unless rezeroing).
-    firsts = [float(np.asarray(bio.times)[0])
-              for _, bio, _ in bios
-              if getattr(bio, "times", None) is not None
-              and np.asarray(bio.times).size]
-    abs_origin = min(firsts) if firsts else 0.0
+    abs_origin = _time_origin(bios)
     shift = abs_origin if zero_time_origin else 0.0
-
-    # -- Biosignals -> Signals (EEG gets located sensors; others stay generic) --
-    signals = {}
-    for key, bio, class_name in bios:
-        signal_arr = np.asarray(bio.signal)
-        if signal_arr.ndim < 2:   # a 1-D single-channel stream -> [n_samples x 1]
-            signal_arr = signal_arr.reshape(-1, 1)
-        n_cha = signal_arr.shape[1]
-        labels = getattr(getattr(bio, "channel_set", None), "l_cha", None)
-        if not labels or len(labels) != n_cha:
-            labels = [f"ch{i + 1}" for i in range(n_cha)]
-        if str(class_name).upper() == "EEG":
-            channel_set = ChannelSet().add_unipolar_eeg_channels(list(labels))
-        else:
-            channel_set = ChannelSet().add_channels(
-                [Channel(lab, ch_type=str(class_name).upper(), unit="n/a")
-                 for lab in labels])
-        times = getattr(bio, "times", None)
-        if times is not None and np.asarray(times).size:
-            times = np.asarray(times, dtype=float) - shift
-        else:
-            times = None   # let Signal synthesize a regular axis from fs
-        signals[key] = Signal(signal_arr, fs=float(bio.fs),
-                              channel_set=channel_set, times=times)
+    signals = _biosignals_to_signals(bios, shift)
 
     # -- Manual marks -> a single Events timeline ----------------------------
     marks = _find_marks(legacy_recording)
@@ -640,9 +674,8 @@ EDUBIOMAT_EVENT_COLUMNS = {
 }
 
 
-def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
-                              task=None, subject=None, session=None,
-                              run=None):
+def edubiomat_recording_to_v2(legacy_recording, *, task=None, subject=None,
+                              session=None, run=None):
     """Convert a legacy *edubiomat* recording (``.rec.*``) to a 2.0 :class:`Recording`.
 
     The edubiomat app runs an educational test while the EEG is recorded. It has two test
@@ -657,8 +690,10 @@ def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
     Like motor imagery, this paradigm needs **no data class**: the trials are independent,
     and everything time-locked lives in the events. So this maps
 
-    - the legacy ``EEG`` biosignal to a :class:`~medusa.core.data.signal.Signal`, keeping
-      the absolute timestamps so the trial onsets align with the samples;
+    - every biosignal in ``recording.biosignals`` to a
+      :class:`~medusa.core.data.signal.Signal`, keeping the absolute timestamps so the
+      trial onsets align with the samples (the app streams EEG together with the
+      autonomic modalities that carry the stress response -- ECG, GSR, PPG);
     - every trial to one :class:`~medusa.core.data.events.Events` row
       (:data:`EDUBIOMAT_EVENT_COLUMNS`), with the stimulus onset as ``onset`` and the
       configured ``t_sti`` as ``duration``; and
@@ -684,8 +719,6 @@ def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
         A recording loaded from a legacy edubiomat ``.rec.*`` file. Its experiment is a
         generic ``CustomExperimentData``, so it is found by its ``app_settings["test"]``
         rather than by a class name.
-    signal_key : str, optional
-        Key under which the EEG stream is stored in ``Recording.data`` (default ``"eeg"``).
     task : str or None, optional
         BIDS ``task`` label for the new recording. ``None`` (default) takes the label of
         the mode the file holds from :data:`EDUBIOMAT_TASK_LABELS`, so an image run and a
@@ -704,27 +737,25 @@ def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
     Returns
     -------
     medusa.core.data.recording.Recording
-        The converted recording: an EEG signal, a per-trial events timeline, and a
-        plain-dict provenance experiment.
+        The converted recording: one :class:`Signal` per biosignal (keyed as in the
+        legacy file), a per-trial events timeline, and a plain-dict provenance
+        experiment.
 
     Raises
     ------
     ValueError
-        If the file holds no EEG, or no experiment whose ``app_settings["test"]`` names an
-        edubiomat mode.
+        If the file holds no biosignals, or no experiment whose ``app_settings["test"]``
+        names an edubiomat mode.
     """
-    from medusa.core.data import (Recording, BidsInfo, Signal, ChannelSet, Events)
+    from medusa.core.data import Recording, BidsInfo, Events
 
-    eeg = _find_attr(legacy_recording, "biosignals", "EEG")
     exp = _find_edubiomat_experiment(legacy_recording)
     settings = dict(getattr(exp, "app_settings", None) or {})
     mode = settings.get("test")
     trials = list(getattr(exp, "data", None) or [])
 
-    # -- Signal (keep the absolute timestamps so the trial onsets align) -----
-    channel_set = ChannelSet().add_unipolar_eeg_channels(list(eeg.channel_set.l_cha))
-    signal = Signal(np.asarray(eeg.signal), fs=float(eeg.fs), channel_set=channel_set,
-                    times=np.asarray(eeg.times))
+    # -- Signals (keep the absolute timestamps: the trial onsets are on that clock) --
+    signals = _biosignals_to_signals(_legacy_biosignals(legacy_recording))
 
     # -- Events: one row per trial (onset = stimulus, duration = configured t_sti) --
     duration = float(settings.get("t_sti") or 0.0) / 1000.0   # ms -> s
@@ -757,7 +788,9 @@ def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
         subject=subject,
         session=_bids_label(session, fallback=None) if session else None,
         task=task, run=run))
-    rec.add_signal(signal_key, signal).set_events(events)
+    for key, signal in signals.items():
+        rec.add_signal(key, signal)
+    rec.set_events(events)
     rec.set_experiment(experiment)
     rec.set_sidecar(TaskName=f"edubiomat {mode}")
     return rec

@@ -48,6 +48,10 @@ examples/*_figures/
 examples/*.png
 examples/**/*.png
 
+# 2.0 recordings written by examples/convert_edubiomat_dataset.py (hundreds of
+# MB, regenerated from the legacy files next to them)
+examples/data/edubiomat/converted/
+
 # Model-training checkpoints (written to CWD by torch training / tests)
 checkpoints/
 *.ckpt

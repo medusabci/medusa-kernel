@@ -10,6 +10,14 @@ from medusa.core.serialization import SerializableComponent
 from medusa.core.legacy.signal import Signal, CustomSignal
 from medusa.core.legacy.experiment import ExperimentData, CustomExperimentData
 
+# Backward-compatibility aliases for the 1.x *class* names. The resolver below
+# looks a serialized class up by the name the file recorded, so the compat
+# classes must also be reachable under their 1.x names. The Recorder app writes
+# every stream without a modality class (GSR, PPG, ...) as a
+# `medusa.components.CustomBiosignalData`, so this is not an edge case.
+BiosignalData = Signal
+CustomBiosignalData = CustomSignal
+
 
 # Backward-compatibility map for module renames between Kernel <2.0 (flat
 # layout) and the post-K1 hierarchical layout. Used when loading legacy
