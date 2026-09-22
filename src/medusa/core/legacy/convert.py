@@ -9,7 +9,9 @@ higher ``pipelines`` layer.
 
 :func:`recorder_recording_to_v2` covers plain *Recorder*-app runs (``.rec.*``: any
 biosignals plus the manual ``marks`` annotations) and needs only ``medusa.core.data``;
-:func:`cvep_recording_to_v2` and :func:`rcp_recording_to_v2` cover the BCI spellers.
+:func:`cvep_recording_to_v2` and :func:`rcp_recording_to_v2` cover the BCI spellers;
+:func:`mi_recording_to_v2` and :func:`edubiomat_recording_to_v2` cover the trial-based
+runs, which need no data class at all (their trials live in the events timeline).
 """
 
 import warnings
@@ -17,7 +19,8 @@ import warnings
 import numpy as np
 
 __all__ = ["recorder_recording_to_v2", "cvep_recording_to_v2",
-           "rcp_recording_to_v2"]
+           "rcp_recording_to_v2", "mi_recording_to_v2",
+           "edubiomat_recording_to_v2"]
 
 
 def _find_attr(legacy_recording, registry_name: str, class_name: str):
@@ -604,6 +607,275 @@ def mi_recording_to_v2(legacy_recording, *, signal_key="eeg", task="mi"):
     rec.add_signal(signal_key, signal).set_events(events)
     rec.set_experiment(experiment)
     return rec
+
+
+#: BIDS ``task`` label a run of each edubiomat test mode gets when the caller passes
+#: none. Its keys are the two test modes, as ``app_settings["test"]`` spells them, and
+#: they are the only modes this converter accepts.
+#:
+#: The mode belongs in ``task``, not in ``acq``: the two modes show different stimuli,
+#: trial by trial, and even fill different event columns, which is what a BIDS *task* is;
+#: ``acq`` marks a change of acquisition parameters for the same task, and this kernel
+#: already spends it on the data key (:meth:`Recording.bids_basename`), which would
+#: override a mode put there. The labels are camelCase because a BIDS label holds letters
+#: and digits only, so there is no separator to put between the two words.
+EDUBIOMAT_TASK_LABELS = {
+    "images": "edubiomatImages",
+    "questions": "edubiomatQuestions",
+}
+
+#: Columns of the events timeline :func:`edubiomat_recording_to_v2` writes, whatever the
+#: mode: one row per trial. A column the mode has no value for is ``n/a`` on every row (an
+#: image run has no ``correct`` or ``feedback_onset``; a question run has no ``label``), so
+#: the two modes share one schema and their timelines stay comparable.
+EDUBIOMAT_EVENT_COLUMNS = {
+    "trial_idx": "Int64",
+    "trial_type": str,
+    "stim_id": str,
+    "label": "Int64",
+    "response": str,
+    "response_onset": "float64",
+    "correct": "Int64",
+    "feedback_onset": "float64",
+}
+
+
+def edubiomat_recording_to_v2(legacy_recording, *, signal_key="eeg",
+                              task=None, subject=None, session=None,
+                              run=None):
+    """Convert a legacy *edubiomat* recording (``.rec.*``) to a 2.0 :class:`Recording`.
+
+    The edubiomat app runs an educational test while the EEG is recorded. It has two test
+    modes, and both are trial-based: one stimulus per trial, one response per trial.
+
+    * ``"images"`` shows an image for ``t_sti`` ms and then takes a response. The image
+      file name may carry the image's class (``8-0.png`` is image 8 of class 0), which the
+      app stores in ``img_class``.
+    * ``"questions"`` asks a question, takes the answer the subject chose, and then shows
+      whether it was right.
+
+    Like motor imagery, this paradigm needs **no data class**: the trials are independent,
+    and everything time-locked lives in the events. So this maps
+
+    - the legacy ``EEG`` biosignal to a :class:`~medusa.core.data.signal.Signal`, keeping
+      the absolute timestamps so the trial onsets align with the samples;
+    - every trial to one :class:`~medusa.core.data.events.Events` row
+      (:data:`EDUBIOMAT_EVENT_COLUMNS`), with the stimulus onset as ``onset`` and the
+      configured ``t_sti`` as ``duration``; and
+    - the app settings and the raw per-trial records to a plain provenance ``dict`` in
+      ``Recording.experiment``, so nothing the columns leave out is lost.
+
+    An ``images`` run comes out as a valid trial-decoding recording in the sense of
+    :mod:`~medusa.pipelines.bci.trial_events` (``trial_idx`` + ``label``), so the image
+    class can be decoded from the EEG straight away -- as long as the file names carry a
+    class. A ``questions`` run has no integer class, so its ``label`` is ``n/a``
+    throughout; what it has instead is ``correct`` and ``feedback_onset``, which is what a
+    feedback-locked analysis needs.
+
+    Three moments of a trial are time-locked, and all three keep the clock of ``onset``:
+    the stimulus (``onset``), the response (``response_onset``) and, for a question, the
+    feedback (``feedback_onset``). ``duration`` is the **configured** stimulus time from
+    ``app_settings["t_sti"]``, not a measured one: the app does not record when the
+    stimulus actually went away.
+
+    Parameters
+    ----------
+    legacy_recording : medusa.core.legacy.recording.Recording
+        A recording loaded from a legacy edubiomat ``.rec.*`` file. Its experiment is a
+        generic ``CustomExperimentData``, so it is found by its ``app_settings["test"]``
+        rather than by a class name.
+    signal_key : str, optional
+        Key under which the EEG stream is stored in ``Recording.data`` (default ``"eeg"``).
+    task : str or None, optional
+        BIDS ``task`` label for the new recording. ``None`` (default) takes the label of
+        the mode the file holds from :data:`EDUBIOMAT_TASK_LABELS`, so an image run and a
+        question run never collide in one dataset. Letters and digits only; it is
+        validated, not sanitized.
+    subject : str or None, optional
+        Override the ``sub`` label. ``None`` (default) sanitizes the legacy ``subject_id``
+        to a valid BIDS label, falling back to ``"01"`` when nothing usable remains -- as
+        it does for a run recorded without a subject id.
+    session : str or int or None, optional
+        BIDS ``ses`` label. ``None`` (default) uses the legacy ``session_id`` when the file
+        has one. Like ``subject``, it is sanitized, not validated.
+    run : str or int or None, optional
+        Optional BIDS ``run`` index (validated, like ``task``).
+
+    Returns
+    -------
+    medusa.core.data.recording.Recording
+        The converted recording: an EEG signal, a per-trial events timeline, and a
+        plain-dict provenance experiment.
+
+    Raises
+    ------
+    ValueError
+        If the file holds no EEG, or no experiment whose ``app_settings["test"]`` names an
+        edubiomat mode.
+    """
+    from medusa.core.data import (Recording, BidsInfo, Signal, ChannelSet, Events)
+
+    eeg = _find_attr(legacy_recording, "biosignals", "EEG")
+    exp = _find_edubiomat_experiment(legacy_recording)
+    settings = dict(getattr(exp, "app_settings", None) or {})
+    mode = settings.get("test")
+    trials = list(getattr(exp, "data", None) or [])
+
+    # -- Signal (keep the absolute timestamps so the trial onsets align) -----
+    channel_set = ChannelSet().add_unipolar_eeg_channels(list(eeg.channel_set.l_cha))
+    signal = Signal(np.asarray(eeg.signal), fs=float(eeg.fs), channel_set=channel_set,
+                    times=np.asarray(eeg.times))
+
+    # -- Events: one row per trial (onset = stimulus, duration = configured t_sti) --
+    duration = float(settings.get("t_sti") or 0.0) / 1000.0   # ms -> s
+    # An explicit map, not an if/else: a mode added to EDUBIOMAT_TASK_LABELS without a
+    # row builder then raises here instead of quietly being read as the other mode.
+    build_row = {"images": _image_trial_row, "questions": _question_trial_row}[mode]
+    records = [build_row(trial, i, duration) for i, trial in enumerate(trials)]
+    records.sort(key=lambda r: r["onset"])   # append() warns on out-of-order onsets
+    events = Events(optional_columns=dict(EDUBIOMAT_EVENT_COLUMNS),
+                    descriptions=_edubiomat_event_descriptions(mode))
+    if records:
+        events.append(records)
+
+    # -- Provenance (a plain dict; keeping the raw trials loses nothing) -----
+    experiment = {
+        "paradigm": "edubiomat",
+        "mode": mode,
+        "app_settings": settings,
+        "trials": trials,
+    }
+
+    # Identity fields are sanitized from possibly-empty legacy values (an edubiomat run is
+    # often recorded with no subject id at all); task/run are caller args and are validated.
+    subject = _bids_label(legacy_recording.subject_id if subject is None
+                          else subject) or "01"
+    task = EDUBIOMAT_TASK_LABELS[mode] if task is None else task
+    if session is None:
+        session = getattr(legacy_recording, "session_id", None)
+    rec = Recording(BidsInfo(
+        subject=subject,
+        session=_bids_label(session, fallback=None) if session else None,
+        task=task, run=run))
+    rec.add_signal(signal_key, signal).set_events(events)
+    rec.set_experiment(experiment)
+    rec.set_sidecar(TaskName=f"edubiomat {mode}")
+    return rec
+
+
+def _find_edubiomat_experiment(legacy_recording):
+    """Return the legacy edubiomat experiment object, or raise.
+
+    The app writes a generic ``CustomExperimentData``, so its class name says nothing about
+    which app produced it. This duck-types instead: the edubiomat experiment is the one
+    whose ``app_settings["test"]`` names a mode and that carries the per-trial ``data``.
+    """
+    seen = []
+    for key in getattr(legacy_recording, "experiments", {}):
+        exp = getattr(legacy_recording, key)
+        settings = getattr(exp, "app_settings", None) or {}
+        test = settings.get("test") if isinstance(settings, dict) else None
+        if hasattr(exp, "data") and test in EDUBIOMAT_TASK_LABELS:
+            return exp
+        seen.append(test)
+    raise ValueError(
+        f"legacy recording has no edubiomat experiment: none of its experiments has a "
+        f"'data' list and an app_settings['test'] in {list(EDUBIOMAT_TASK_LABELS)} "
+        f"(found tests: {seen}).")
+
+
+def _image_trial_row(trial, index, duration):
+    """The events record of one ``images`` trial."""
+    return {
+        "onset": float(trial["onset_time"]),
+        "duration": duration,
+        "trial_idx": int(trial.get("trial", index)),
+        "trial_type": "image",
+        "stim_id": _file_name(trial.get("img_path")),
+        "label": _or_none(trial.get("img_class"), int),
+        "response": _response_text(trial.get("response")),
+        "response_onset": _or_none(trial.get("response_time"), float),
+        "correct": None,         # the file does not say whether a response was right
+        "feedback_onset": None,  # this mode shows no feedback
+    }
+
+
+def _question_trial_row(trial, index, duration):
+    """The events record of one ``questions`` trial."""
+    question = trial.get("question") or {}
+    return {
+        "onset": float(trial["onset_time"]),
+        "duration": duration,
+        "trial_idx": int(trial.get("trial", index)),
+        "trial_type": "question",
+        "stim_id": question.get("question-text"),
+        "label": None,           # a question has no integer class
+        "response": _response_text(trial.get("answer")),
+        "response_onset": _or_none(trial.get("answer_time"), float),
+        "correct": _or_none(trial.get("feedback"), int),
+        "feedback_onset": _or_none(trial.get("feedback_time"), float),
+    }
+
+
+def _edubiomat_event_descriptions(mode):
+    """``events.json`` column descriptions, written for the mode that produced them."""
+    images = mode == "images"
+    return {
+        "trial_idx": {"Description": "Trial number within the run."},
+        "trial_type": {
+            "Description": "Kind of stimulus the trial showed.",
+            "Levels": {"image": "An image was shown.",
+                       "question": "A question was asked."}},
+        "stim_id": {"Description": "Image file name shown on this trial." if images else
+                    "Text of the question asked on this trial."},
+        "label": {"Description":
+                  "Class of the image, as its file name carries it; n/a when the name "
+                  "carries none." if images else
+                  "Not used by the questions mode: a question has no integer class."},
+        "response": {"Description":
+                     "Response the subject gave, as the app recorded it (1 or -1)."
+                     if images else
+                     "Text of the answer option the subject chose."},
+        "response_onset": {
+            "Description": "Time the subject responded, on the same clock as onset; "
+                           "n/a when the trial got no response.",
+            "Units": "s"},
+        "correct": {"Description":
+                    "Not used by the images mode: the file does not record whether a "
+                    "response was right." if images else
+                    "1 when the chosen answer was the correct one, 0 when it was not."},
+        "feedback_onset": {
+            "Description": "Not used by the images mode: it shows no feedback."
+                           if images else
+                           "Time the feedback was shown, on the same clock as onset.",
+            "Units": "s"},
+    }
+
+
+def _file_name(path):
+    """File name of a legacy path, whatever separator it was written with; ``None``-safe."""
+    if not path:
+        return None
+    return str(path).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _response_text(value):
+    """Render a legacy response as the text the ``response`` column holds.
+
+    One string column carries both modes: the questions mode answers with the text of an
+    option, the images mode with a number. An integral float loses its ``.0`` on the way,
+    so a response reads as ``1`` / ``-1`` rather than ``1.0`` / ``-1.0``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _or_none(value, cast):
+    """``cast(value)``, or ``None`` when the legacy field is absent or null (-> ``n/a``)."""
+    return None if value is None else cast(value)
 
 
 def _aslist(value):

@@ -67,22 +67,29 @@ class SerializableComponent(ABC):
 
     @staticmethod
     def _str_lists_to_cells(obj):
-        """Convert all-string lists to object arrays for ``scipy.io.savemat``.
+        """Convert lists holding strings to object arrays for ``scipy.io.savemat``.
 
-        ``savemat`` writes a Python ``list[str]`` as a 2-D char *matrix*, which
-        right-pads every shorter string with spaces to the longest one (so
-        ``["go", "nogo"]`` round-trips as ``["go  ", "nogo"]``). Storing the list as
-        an object array makes ``savemat`` emit a MATLAB *cell* array instead, which
-        preserves each string's exact length. Recurses through dicts/lists; all
-        other values (incl. numeric lists) are untouched, and the result
-        round-trips through ``_sanitize_and_reconstruct`` on load.
+        ``savemat`` writes any Python list that holds a string as a 2-D char
+        *matrix*, which right-pads every shorter entry with spaces to the longest
+        one (so ``["go", "nogo"]`` round-trips as ``["go  ", "nogo"]``). Storing the
+        list as an object array makes ``savemat`` emit a MATLAB *cell* array
+        instead, which preserves each entry exactly.
+
+        **Any** string in the list is enough to trigger it, not all of them: a
+        mixed list is padded just the same, and it is what a nullable column turns
+        into once ``__none_to_null`` has replaced its blanks (``[None, 3]`` ->
+        ``["null", 3]``). Left as a plain list, that comes back as
+        ``["null                 ", "3                    "]`` and the padded
+        ``"null"`` no longer reads as a blank. Recurses through dicts/lists; a list
+        with no string in it (a numeric one, a list of dicts) is untouched, and the
+        result round-trips through ``_sanitize_and_reconstruct`` on load.
         """
         if isinstance(obj, dict):
             return {k: SerializableComponent._str_lists_to_cells(v)
                     for k, v in obj.items()}
         if isinstance(obj, list):
             items = [SerializableComponent._str_lists_to_cells(v) for v in obj]
-            if items and all(isinstance(v, str) for v in items):
+            if any(isinstance(v, str) for v in items):
                 return np.array(items, dtype=object)
             return items
         return obj
@@ -178,7 +185,11 @@ class SerializableComponent(ABC):
             warnings.warn('Option avoid_none_objects may slow this process. '
                           'Consider removing None objects manually before '
                           'calling this function to save time')
-            ser_obj = self.__none_to_null(ser_obj)
+            # __none_to_null rewrites its argument in place, and
+            # to_serializable_obj may hand back containers the component still
+            # owns (a plain-dict experiment, say). Copy first, so that saving a
+            # recording never turns the live object's None values into 'null'.
+            ser_obj = self.__none_to_null(copy.deepcopy(ser_obj))
         # Store variable-length string lists as cell arrays, not padded char
         # matrices (otherwise scipy right-pads shorter strings with spaces).
         ser_obj = self._str_lists_to_cells(ser_obj)
