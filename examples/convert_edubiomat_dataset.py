@@ -37,10 +37,12 @@ from medusa.core.legacy.convert import (EDUBIOMAT_TASK_LABELS,
                                         edubiomat_recording_to_v2,
                                         recorder_recording_to_v2)
 from medusa.core.legacy.recording import Recording as LegacyRecording
+import unicodedata
 
-SRC = Path(__file__).resolve().parent / "data" / "edubiomat"
-DST = SRC / "converted"
+SRC = Path(r"X:\Temps\alphonso\raw")
+DST = SRC / "converteeeeeeed"
 FORMAT = "h5"          # any Recording.save format: h5 / bson / json / mat
+texto = "áéíóú ÁÉÍÓÚ ñ Ñ ç"
 
 # Mark arrays written by the Recorder app; any one of them identifies its experiment.
 MARK_ATTRS = ("conditions_times", "conditions_labels",
@@ -70,7 +72,7 @@ def bids_label(value):
     return "".join(ch for ch in str(value) if ch.isalnum())
 
 
-def bids_entities(rel_path, app):
+def bids_entities(subject, task):
     """BIDS entities for one file, read off its place in the tree.
 
     This dataset is laid out as ``<study>/<participant>/[<block>/]<name>.rec.*``,
@@ -80,16 +82,14 @@ def bids_entities(rel_path, app):
     ``task`` than the converter's generic ``"rest"`` default. An edubiomat run needs
     no ``task``: the converter labels it after the mode the file holds.
     """
-    folders = rel_path.parts[:-1]
+    # folders = rel_path.parts[:-1]
     entities = {}
-    if len(folders) >= 2:
-        entities["subject"] = folders[1]      # converters sanitize this one
-    if app == "recorder":
-        entities["task"] = bids_label(rel_path.name.split(".rec.")[0])
+    entities["subject"] = subject     # converters sanitize this one
+    entities["task"] = task
     return entities
 
 
-def convert(path):
+def convert(path, sub, task):
     """Load one legacy file, convert it, and return the 2.0 recording (or ``None``)."""
     # Legacy files predate several module renames, and their custom streams have no
     # channel metadata; the reader warns about both on every load.
@@ -101,7 +101,7 @@ def convert(path):
     if app is None:
         return None, None
 
-    entities = bids_entities(path.relative_to(SRC), app)
+    entities = bids_entities(sub, task)
     converter = {"edubiomat": edubiomat_recording_to_v2,
                  "recorder": recorder_recording_to_v2}[app]
     return app, converter(legacy, **entities)
@@ -116,13 +116,25 @@ print(f"{len(sources)} legacy recordings under {SRC}\n")
 converted, skipped = 0, []
 for path in sources:
     rel = path.relative_to(SRC)
-    app, recording = convert(path)
+    sub = rel.parts[0].lower().replace('-', '').replace('_', '').replace(' ', '')
+    sub = ''.join(
+        c for c in unicodedata.normalize('NFD', sub)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+    task = rel.name.split('.rec.')[0].lower().replace('-', '').replace('_', '').replace(' ', '')
+    task = ''.join(
+        c for c in unicodedata.normalize('NFD', task)
+        if unicodedata.category(c) != 'Mn'
+    )
+    app, recording = convert(path, sub, task)
     if recording is None:
         skipped.append(rel)
         print(f"[skip] {rel}  (no edubiomat or recorder experiment)")
         continue
 
-    out = DST / rel.parent / f"{rel.name.split('.rec.')[0]}.{FORMAT}"
+
+    out = DST / f"sub-{sub}_task-{task}.{FORMAT}"
     out.parent.mkdir(parents=True, exist_ok=True)
     recording.save(str(out))
     converted += 1
