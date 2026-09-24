@@ -190,7 +190,8 @@ def recorder_recording_to_v2(legacy_recording, *, task="rest", subject=None,
 
     # -- Manual marks -> a single Events timeline ----------------------------
     marks = _find_marks(legacy_recording)
-    events = _marks_to_events(marks, shift, pair_conditions) \
+    final_timestamp = legacy_recording.eeg.times[-1]
+    events = _marks_to_events(marks, shift, pair_conditions, final_timestamp) \
         if marks is not None else None
 
     # -- Assemble the 2.0 Recording ------------------------------------------
@@ -242,7 +243,7 @@ def _invert_label_dict(spec):
     return out
 
 
-def _pair_condition_marks(points, pair_conditions):
+def _pair_condition_marks(points, pair_conditions, final_timestamp):
     """Turn condition ``(label, time)`` marks into ``(label, onset, duration)`` rows.
 
     With ``pair_conditions``, consecutive time-ordered marks that share a label are
@@ -262,13 +263,13 @@ def _pair_condition_marks(points, pair_conditions):
         else:
             warnings.warn(
                 f"condition mark {lab!r} at t={start:.3f} has no matching end mark; "
-                f"emitting it as an instantaneous event (duration 0).")
-            rows.append((lab, start, 0.0))
+                f"emitting it as its duration reaches the end of the recording.")
+            rows.append((lab, start, final_timestamp))
             i += 1
     return rows
 
 
-def _marks_to_events(marks, shift, pair_conditions):
+def _marks_to_events(marks, shift, pair_conditions, final_timestamp):
     """Build the BIDS :class:`Events` timeline from the recorder marks.
 
     ``shift`` (seconds) is subtracted from every absolute mark time so the onsets share
@@ -291,7 +292,7 @@ def _marks_to_events(marks, shift, pair_conditions):
 
     records = []
     for lab, onset, dur in _pair_condition_marks(
-            list(zip(cond_labels, cond_times)), pair_conditions):
+            list(zip(cond_labels, cond_times)), pair_conditions, final_timestamp):
         records.append({
             "onset": onset - shift, "duration": float(dur),
             "trial_type": cond_names.get(int(lab), str(lab)),
@@ -766,8 +767,37 @@ def edubiomat_recording_to_v2(legacy_recording, *, task=None, subject=None,
     records.sort(key=lambda r: r["onset"])   # append() warns on out-of-order onsets
     events = Events(optional_columns=dict(EDUBIOMAT_EVENT_COLUMNS),
                     descriptions=_edubiomat_event_descriptions(mode))
+
+    initial_time = signals['eeg'].times[0]
+    for record in records:
+        record['onset'] = record['onset'] - initial_time
+        record['response_onset'] = record['response_onset'] - initial_time
+
     if records:
         events.append(records)
+
+    mask = events.df["trial_type"].eq("image")
+
+    if task in ['edubiomatgen','edubiomatpatios']:
+        events.df.loc[mask, "trial_type"] = (
+            events.df.loc[mask, "stim_id"]
+            .astype(str)
+            .str.extract(r"-(0|1)\.png$")[0]
+            .map({"0": "imgag", "1": "imgda"})
+            .fillna("image")
+        )
+    if task == 'edubiomatmate':
+        events.df.loc[mask, "trial_type"] = (
+            events.df.loc[mask, "stim_id"]
+            .astype(str)
+            .str.extract(r"-(\d+)\.png$")[0]
+            .map({
+                "0": "imgac", "1": "imgap", "2": "imgaa",
+                "3": "imgec", "4": "imgep", "5": "imgea",
+                "6": "imggc", "7": "imggp", "8": "imgga",
+                "9": "imgnc", "10": "imgnp", "11": "imgna"})
+            .fillna("image")
+        )
 
     # -- Provenance (a plain dict; keeping the raw trials loses nothing) -----
     experiment = {

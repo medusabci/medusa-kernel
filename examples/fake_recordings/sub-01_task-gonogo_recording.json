@@ -12312,7 +12312,7 @@
                 "channel_set": {
                     "channels": [
                         {
-                            "uid": "Fp1",
+                            "label": "Fp1",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "Fp1",
@@ -12320,7 +12320,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "Fp2",
+                            "label": "Fp2",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "Fp2",
@@ -12328,7 +12328,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "F3",
+                            "label": "F3",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "F3",
@@ -12336,7 +12336,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "F4",
+                            "label": "F4",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "F4",
@@ -12344,7 +12344,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "C3",
+                            "label": "C3",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "C3",
@@ -12352,7 +12352,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "C4",
+                            "label": "C4",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "C4",
@@ -12360,7 +12360,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "P3",
+                            "label": "P3",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "P3",
@@ -12368,7 +12368,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "P4",
+                            "label": "P4",
                             "ch_type": "EEG",
                             "unit": "uV",
                             "sensor": "P4",
@@ -12376,7 +12376,7 @@
                             "reference_method": "common"
                         },
                         {
-                            "uid": "VEOG",
+                            "label": "VEOG",
                             "ch_type": "EOG",
                             "unit": "uV",
                             "sensor": "VEOG_up",
@@ -12384,7 +12384,7 @@
                             "reference_method": "bipolar"
                         },
                         {
-                            "uid": "HEOG",
+                            "label": "HEOG",
                             "ch_type": "EOG",
                             "unit": "uV",
                             "sensor": "HEOG_l",
@@ -12394,7 +12394,7 @@
                     ],
                     "sensors": [
                         {
-                            "uid": "Cz",
+                            "label": "Cz",
                             "coordinates": [
                                 0.0,
                                 0.0,
@@ -12406,7 +12406,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "Fpz",
+                            "label": "Fpz",
                             "coordinates": [
                                 0.0,
                                 0.9511,
@@ -12418,7 +12418,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "Fp1",
+                            "label": "Fp1",
                             "coordinates": [
                                 -0.2939,
                                 0.9045,
@@ -12430,7 +12430,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "Fp2",
+                            "label": "Fp2",
                             "coordinates": [
                                 0.2939,
                                 0.9045,
@@ -12442,7 +12442,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "F3",
+                            "label": "F3",
                             "coordinates": [
                                 -0.4591,
                                 0.58,
@@ -12454,7 +12454,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "F4",
+                            "label": "F4",
                             "coordinates": [
                                 0.4591,
                                 0.58,
@@ -12466,7 +12466,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "C3",
+                            "label": "C3",
                             "coordinates": [
                                 -0.5878,
                                 0.0,
@@ -12478,7 +12478,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "C4",
+                            "label": "C4",
                             "coordinates": [
                                 0.5878,
                                 0.0,
@@ -12490,7 +12490,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "P3",
+                            "label": "P3",
                             "coordinates": [
                                 -0.4591,
                                 -0.58,
@@ -12502,7 +12502,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "P4",
+                            "label": "P4",
                             "coordinates": [
                                 0.4591,
                                 -0.58,
@@ -12514,7 +12514,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "VEOG_up",
+                            "label": "VEOG_up",
                             "coordinates": null,
                             "sensor_type": null,
                             "location": null,
@@ -12522,7 +12522,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "VEOG_down",
+                            "label": "VEOG_down",
                             "coordinates": null,
                             "sensor_type": null,
                             "location": null,
@@ -12530,7 +12530,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "HEOG_l",
+                            "label": "HEOG_l",
                             "coordinates": null,
                             "sensor_type": null,
                             "location": null,
@@ -12538,7 +12538,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "HEOG_r",
+                            "label": "HEOG_r",
                             "coordinates": null,
                             "sensor_type": null,
                             "location": null,
@@ -45590,7 +45590,7 @@
                 "channel_set": {
                     "channels": [
                         {
-                            "uid": "EMG_right",
+                            "label": "EMG_right",
                             "ch_type": "EMG",
                             "unit": "uV",
                             "sensor": "EMG_R_act",
@@ -45598,7 +45598,7 @@
                             "reference_method": "bipolar"
                         },
                         {
-                            "uid": "EMG_left",
+                            "label": "EMG_left",
                             "ch_type": "EMG",
                             "unit": "uV",
                             "sensor": "EMG_L_act",
@@ -45608,7 +45608,7 @@
                     ],
                     "sensors": [
                         {
-                            "uid": "EMG_R_act",
+                            "label": "EMG_R_act",
                             "coordinates": null,
                             "sensor_type": "surface",
                             "location": "right extensor digitorum",
@@ -45616,7 +45616,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "EMG_R_ref",
+                            "label": "EMG_R_ref",
                             "coordinates": null,
                             "sensor_type": "surface",
                             "location": "right ulnar styloid",
@@ -45624,7 +45624,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "EMG_L_act",
+                            "label": "EMG_L_act",
                             "coordinates": null,
                             "sensor_type": "surface",
                             "location": "left extensor digitorum",
@@ -45632,7 +45632,7 @@
                             "impedance": null
                         },
                         {
-                            "uid": "EMG_L_ref",
+                            "label": "EMG_L_ref",
                             "coordinates": null,
                             "sensor_type": "surface",
                             "location": "left ulnar styloid",
@@ -77656,7 +77656,7 @@
                 "channel_set": {
                     "channels": [
                         {
-                            "uid": "photodiode",
+                            "label": "photodiode",
                             "ch_type": "OTHER",
                             "unit": "V",
                             "sensor": "photosensor",
@@ -77667,7 +77667,7 @@
                     ],
                     "sensors": [
                         {
-                            "uid": "photosensor",
+                            "label": "photosensor",
                             "coordinates": null,
                             "sensor_type": "phototransistor",
                             "location": "top-left of stimulus monitor",
