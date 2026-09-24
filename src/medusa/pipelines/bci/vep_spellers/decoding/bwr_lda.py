@@ -61,7 +61,7 @@ class BWRLDAPipeline(DecodingPipeline):
     tree (see :meth:`default_settings`). It has ``freq_filtering`` (notch + filter bank),
     ``segmentation`` and ``classifier`` levels. You can also configure it with construction
     kwargs, which may be nested, for example ``BWRLDAPipeline(channels=["Fz", "Cz", "Pz",
-    "Oz"], segmentation={"target_fs": 20.0})``. With a multi-filter bank, the per-sub-band
+    "Oz"], segmentation={"target_fs": 200.0})``. With a multi-filter bank, the per-sub-band
     epoch features are concatenated before the LDA (filter-bank feature fusion).
     """
 
@@ -78,11 +78,17 @@ class BWRLDAPipeline(DecodingPipeline):
         s.add_item("car", value=True, info="Common-average reference before filtering")
         add_notch_and_filterbank_settings(s)
         seg = s.add_group("segmentation", info="Per-frame segment windowing + resampling")
-        seg.add_item("w_segment_t", value=[0.0, 500.0],
+        w_segment_t = [0.0, 500.0]
+        seg.add_item("w_segment_t", value=w_segment_t,
                      info="Segment window relative to each frame onset (ms)")
-        seg.add_item("baseline_t", value=[-200.0, 0.0],
-                     info="Baseline window (ms); empty to disable")
-        seg.add_item("target_fs", value=20.0, optional=True, enabled=False,
+        seg.add_item("baseline_t", value=list(w_segment_t),
+                     info="Baseline window (ms); set it equal to w_segment_t to normalize "
+                          "each segment with its own statistics; empty to disable")
+        seg.add_item("norm", value="z", value_options=["dc", "z"],
+                     info="Baseline normalization, per segment and channel: 'dc' subtracts "
+                          "the baseline mean, 'z' also divides by the baseline standard "
+                          "deviation. Only used when baseline_t is set")
+        seg.add_item("target_fs", value=200.0, optional=True, enabled=False,
                      value_range=[1.0, None],
                      info="Resample segments to this rate (Hz); switch it off to keep "
                           "the native rate")
@@ -99,7 +105,7 @@ class BWRLDAPipeline(DecodingPipeline):
         is unset. With it set, every epoch is resampled to that rate and the steps before
         it work off each recording's own ``fs``, so a corpus may mix native rates; the
         first rate seen is still kept as :attr:`fs`. What is checked instead is that
-        ``target_fs`` is reachable -- not above the recording's rate, and below twice
+        ``target_fs`` is reachable -- not above the recording's rate, and at least twice
         every filter-bank cutoff, so resampling cannot silently cut the configured band.
         """
         cfg = self.cfg
@@ -136,7 +142,7 @@ class BWRLDAPipeline(DecodingPipeline):
         for xf in bands:
             seg = segment_signal_around_events(
                 x.times, xf, onsets, x.fs, window, baseline,
-                norm="dc" if baseline is not None else None)
+                norm=seg_cfg["norm"] if baseline is not None else None)
             if seg_cfg["target_fs"]:
                 seg = resample_segments(seg, window, seg_cfg["target_fs"])
             feats.append(seg.reshape(len(seg), -1))

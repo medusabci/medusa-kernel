@@ -71,6 +71,10 @@ class MICSPLDAPipeline(DecodingPipeline):
                      info="Segment window relative to each trial onset (ms)")
         seg.add_item("baseline_t", value=[-1000.0, 0.0],
                      info="Baseline window (ms); empty to disable")
+        seg.add_item("norm", value="dc", value_options=["dc", "z"],
+                     info="Baseline normalization, per segment and channel: 'dc' subtracts "
+                          "the baseline mean, 'z' also divides by the baseline standard "
+                          "deviation. Only used when baseline_t is set")
         seg.add_item("target_fs", value=60.0, optional=True,
                      value_range=[1.0, None],
                      info="Resample segments to this rate (Hz); switch it off to keep "
@@ -115,7 +119,7 @@ class MICSPLDAPipeline(DecodingPipeline):
             channels=cfg["channels"], apply_car=cfg["car"], filter_spec=cfg["filter"],
             window=tuple(seg_cfg["w_segment_t"]),
             baseline=tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None,
-            target_fs=seg_cfg["target_fs"])
+            target_fs=seg_cfg["target_fs"], norm=seg_cfg["norm"])
 
     def _features(self, segments: NDArray, cfg: dict) -> NDArray:
         """Project the segments through the fitted CSP and take log-variance features."""

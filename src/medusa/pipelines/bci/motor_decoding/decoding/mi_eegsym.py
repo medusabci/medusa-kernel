@@ -63,6 +63,10 @@ class MIEEGSymPipeline(TorchPipeline):
         seg.add_item("w_segment_t", value=[500.0, 2500.0],
                      info="Segment window relative to each trial onset (ms)")
         seg.add_item("baseline_t", value=[], info="Baseline window (ms); empty to disable")
+        seg.add_item("norm", value="dc", value_options=["dc", "z"],
+                     info="Baseline normalization, per segment and channel: 'dc' subtracts "
+                          "the baseline mean, 'z' also divides by the baseline standard "
+                          "deviation. Only used when baseline_t is set")
         seg.add_item("target_fs", value=128.0, optional=True,
                      value_range=[1.0, None],
                      info="Resample segments to this rate (Hz); switch it off to keep the "
@@ -128,7 +132,7 @@ class MIEEGSymPipeline(TorchPipeline):
             channels=cfg["channels"], apply_car=cfg["car"], filter_spec=cfg["filter"],
             window=tuple(seg_cfg["w_segment_t"]),
             baseline=tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None,
-            target_fs=seg_cfg["target_fs"])
+            target_fs=seg_cfg["target_fs"], norm=seg_cfg["norm"])
 
     def _build_backbone(self, cfg: dict, X: NDArray):
         """Build the EEGSym backbone, sized to the epoch length and the hemisphere layout."""

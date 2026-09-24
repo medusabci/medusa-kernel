@@ -56,11 +56,12 @@ def _check_target_fs(cfg: dict, fs: float) -> None:
     every epoch to that rate and drops everything from ``target_fs / 2`` (the new Nyquist
     frequency) up, so two settings have to agree with it:
 
-    * The filter bank must already bound the signal below that limit -- every filter a
-      band-pass or low-pass with an upper cutoff under it. A ``highpass`` or ``bandstop``
-      leaves the signal unbounded above, and a cutoff at or above the limit means the top
-      of the band the user asked for is thrown away by the resampling instead of reaching
-      the classifier.
+    * The filter bank must already bound the signal at that limit -- every filter a
+      band-pass or low-pass with an upper cutoff no higher than it. A ``highpass`` or
+      ``bandstop`` leaves the signal unbounded above, and a cutoff above the limit means
+      the top of the band the user asked for is thrown away by the resampling instead of
+      reaching the classifier. A cutoff *at* the limit is the matched setting and passes:
+      only the filter's transition-band residual is dropped.
     * ``target_fs`` must not exceed the recording's rate, which would only interpolate.
 
     Raises ``ValueError`` naming the offending cutoff and the Nyquist limit.
@@ -81,13 +82,13 @@ def _check_target_fs(cfg: dict, fs: float) -> None:
                 f"freq_filtering.filterbank[{i}] is a {band_type!r} filter, which "
                 f"leaves the signal unbounded above, but segmentation.target_fs="
                 f"{target_fs} Hz keeps only what is below {nyquist} Hz (Nyquist). Use a "
-                f"bandpass or lowpass with an upper cutoff below {nyquist} Hz.")
+                f"bandpass or lowpass with an upper cutoff of at most {nyquist} Hz.")
         cutoff = spec.get("cutoff")
         upper = float(cutoff[-1] if isinstance(cutoff, (list, tuple)) else cutoff)
-        if upper >= nyquist:
+        if upper > nyquist:
             raise ValueError(
                 f"freq_filtering.filterbank[{i}] passes up to {upper} Hz, but "
                 f"segmentation.target_fs={target_fs} Hz keeps only what is below "
                 f"{nyquist} Hz (Nyquist), so resampling would discard the band from "
-                f"{nyquist} Hz up. Lower the filter's upper cutoff below {nyquist} Hz, "
-                f"or raise target_fs.")
+                f"{nyquist} Hz up. Lower the filter's upper cutoff to {nyquist} Hz or "
+                f"less, or raise target_fs.")

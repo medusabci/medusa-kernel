@@ -115,7 +115,7 @@ def bwr_eeg_inception_settings(
         *, profile: "str | None" = None,
         band: "Sequence[float]" = (1.0, 60.0), order: int = 7,
         w_segment_t: "Sequence[float]" = (0.0, 500.0),
-        baseline_t: "Sequence[float] | None" = None,
+        baseline_t: "Sequence[float] | None" = (0.0, 500.0),
         target_fs: "float | None" = 200.0,
         arch: str = "eeg_inception_v1",
         scales_ms: "Sequence[float]" = (100.0, 75.0, 50.0),
@@ -144,9 +144,12 @@ def bwr_eeg_inception_settings(
     w_segment_t :
         Segment window ``(start, stop)`` around each code-frame onset, in ms.
     baseline_t :
-        Baseline window ``(start, stop)`` in ms, removed from every segment. ``None`` (the
-        default) ships the baseline switched **off**, keeping ``(-200, 0)`` ms as the value
-        it takes when you switch it on.
+        Baseline window ``(start, stop)`` in ms. Each segment is normalized per channel with
+        the statistics of this window (``'z'`` by default; see the ``segmentation.norm``
+        setting). The default equals the default ``w_segment_t``, so each segment is
+        normalized with its own statistics; pass the same window here when you change
+        ``w_segment_t``. ``None`` ships the baseline switched **off**, keeping
+        ``w_segment_t`` as the value it takes when you switch it on.
     target_fs :
         Rate the segments are resampled to, in Hz. ``None`` ships the resampling switched
         **off**, so the epochs keep the recording rate, and 200 Hz stays as the value it
@@ -207,10 +210,16 @@ def bwr_eeg_inception_settings(
                  value=[float(t) for t in w_segment_t],
                  info="Segment window relative to each frame onset (ms)")
     seg.add_item("baseline_t",
-                 value=[float(t) for t in baseline_t] if baseline_t else [-200.0, 0.0],
+                 value=[float(t) for t in (baseline_t or w_segment_t)],
                  optional=True,
                  enabled=bool(baseline_t),
-                 info="Baseline window (ms); switch it off to leave the segments as they are")
+                 info="Baseline window (ms); set it equal to w_segment_t to normalize each "
+                      "segment with its own statistics; switch it off to leave the "
+                      "segments as they are")
+    seg.add_item("norm", value="z", value_options=["dc", "z"],
+                 info="Baseline normalization, per segment and channel: 'dc' subtracts the "
+                      "baseline mean, 'z' also divides by the baseline standard deviation. "
+                      "Only used while baseline_t is on")
     seg.add_item("target_fs",
                  value=float(target_fs) if target_fs else 200.0,
                  optional=True,
@@ -289,7 +298,7 @@ def mseq_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7,
     """
     return bwr_eeg_inception_settings(
         profile="mseq_cvep", band=band, order=order, w_segment_t=w_segment_t, arch=arch,
-        baseline_t=None, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
+        baseline_t=w_segment_t, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
         temp_scales_samples=(50, 25, 15))
 
 
@@ -352,7 +361,7 @@ def burst_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7
     """
     return bwr_eeg_inception_settings(
         profile="burst_cvep", band=band, order=order, w_segment_t=w_segment_t, arch=arch,
-        baseline_t=None, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
+        baseline_t=w_segment_t, target_fs=200.0, scales_ms=(100.0, 75.0, 50.0),
         temp_scales_samples=(50, 25, 15))
 
 
@@ -458,7 +467,7 @@ class BWREEGInceptionPipeline(TorchPipeline):
         work off each recording's own ``fs``, and the backbone is sized from
         ``target_fs``, so a corpus may mix native rates; the first rate seen is still kept
         as :attr:`fs`. What is checked instead is that ``target_fs`` is reachable -- not
-        above the recording's rate, and below twice the filter-bank cutoff, so resampling
+        above the recording's rate, and at least twice the filter-bank cutoff, so resampling
         cannot silently cut the configured band.
         """
         cfg = self.cfg
@@ -506,7 +515,7 @@ class BWREEGInceptionPipeline(TorchPipeline):
         baseline = tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None
         seg = segment_signal_around_events(
             x.times, xf, onsets, x.fs, window, baseline,
-            norm="dc" if baseline is not None else None)
+            norm=seg_cfg["norm"] if baseline is not None else None)
         if seg_cfg["target_fs"]:
             seg = resample_segments(seg, window, seg_cfg["target_fs"])
         return seg

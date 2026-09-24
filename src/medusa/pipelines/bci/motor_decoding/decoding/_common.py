@@ -11,6 +11,8 @@ defaults.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -24,20 +26,21 @@ from medusa.pipelines.bci._filtering import make_filter
 
 def trial_segments(signal: Signal, onsets: NDArray, *, channels: list, apply_car: bool,
                    filter_spec: dict, window: tuple, baseline: "tuple | None",
-                   target_fs: float) -> NDArray:
+                   target_fs: float, norm: "Literal['dc', 'z']" = "dc") -> NDArray:
     """Cut labelled-trial segments: pick channels, CAR, band-pass, segment, resample.
 
     Returns a ``(n_trials, n_samples, n_channels)`` array. Every motor pipeline shares this:
     CSP learns spatial filters from the segments; a deep model consumes them directly. ``window``
     and ``baseline`` are ``(start, end)`` in milliseconds relative to each onset (``baseline``
-    is ``None`` to disable DC baseline correction); ``target_fs`` of ``None`` keeps the native rate.
+    is ``None`` to disable baseline normalization); ``norm`` is that normalization, ``'dc'``
+    or ``'z'``; ``target_fs`` of ``None`` keeps the native rate.
     """
     x = harmonize_channels(signal, channels)
     raw = car(x.signal) if apply_car else x.signal
     filtered = make_filter(filter_spec).fit_transform(raw, x.fs)
     seg = segment_signal_around_events(
         x.times, filtered, onsets, x.fs, window, baseline,
-        norm="dc" if baseline is not None else None)
+        norm=norm if baseline is not None else None)
     if target_fs:
         seg = resample_segments(seg, window, target_fs)
     return seg
