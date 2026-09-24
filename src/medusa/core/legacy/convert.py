@@ -776,6 +776,29 @@ def edubiomat_recording_to_v2(legacy_recording, *, task=None, subject=None,
     if records:
         events.append(records)
 
+    mask = events.df["trial_type"].eq("image")
+
+    if task in ['edubiomatgen','edubiomatpatios']:
+        events.df.loc[mask, "trial_type"] = (
+            events.df.loc[mask, "stim_id"]
+            .astype(str)
+            .str.extract(r"-(0|1)\.png$")[0]
+            .map({"0": "imgag", "1": "imgda"})
+            .fillna("image")
+        )
+    if task == 'edubiomatmate':
+        events.df.loc[mask, "trial_type"] = (
+            events.df.loc[mask, "stim_id"]
+            .astype(str)
+            .str.extract(r"-(\d+)\.png$")[0]
+            .map({
+                "0": "imgac", "1": "imgap", "2": "imgaa",
+                "3": "imgec", "4": "imgep", "5": "imgea",
+                "6": "imggc", "7": "imggp", "8": "imgga",
+                "9": "imgnc", "10": "imgnp", "11": "imgna"})
+            .fillna("image")
+        )
+
     # -- Provenance (a plain dict; keeping the raw trials loses nothing) -----
     experiment = {
         "paradigm": "edubiomat",
