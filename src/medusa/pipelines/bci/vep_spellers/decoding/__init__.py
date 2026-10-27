@@ -52,7 +52,6 @@ Shared building blocks: the family-level cumulative accumulators and BWR labels 
 (:func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.bwr_labels`,
 :func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.bwr_frame_scores`,
 :func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.bwr_command_scores_corr`,
-:func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.bwr_loglik_command_scores`,
 :func:`~medusa.pipelines.bci.vep_spellers.decoding.scores.tm_command_scores`). Reading a
 recording's events into the per-cycle arrays every layer consumes is
 :func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`; the remaining model-agnostic
@@ -68,7 +67,6 @@ from medusa.pipelines.bci.vep_spellers.decoding.scores import (
     bwr_labels,
     bwr_frame_scores,
     bwr_command_scores_corr,
-    bwr_loglik_command_scores,
     tm_command_scores,
 )
 from medusa.pipelines.bci.vep_spellers.decoding.command_decoder import (
@@ -109,7 +107,6 @@ __all__ = [
     "bwr_labels",
     "bwr_frame_scores",
     "bwr_command_scores_corr",
-    "bwr_loglik_command_scores",
     "tm_command_scores",
     "select_commands",
     "command_decoding_accuracy",

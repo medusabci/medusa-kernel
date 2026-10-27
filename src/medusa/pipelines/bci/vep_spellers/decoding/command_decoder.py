@@ -43,69 +43,70 @@ def _available(trial_available_cmmds, command_uids, trial: int) -> "list[str]":
 
 def select_commands(cycle_scores: NDArray, command_uids: list[str],
                     trial_idx: NDArray, cycle_idx: NDArray,
-                    trial_available_cmmds: list[list[str]] | None = None):
-    """Select the decoded command per trial from a cumulative score matrix.
+                    trial_available_cmmds: list[list[str]] | None = None,
+                    ) -> tuple[dict, dict, dict]:
+    """Select the decoded command of each trial from cumulative scores.
 
-    The paradigm-agnostic Layer-2 rule. Row ``i`` of ``cycle_scores`` is the *cumulative*
-    decision score after cycle event ``i`` (a Layer-1 pipeline already accumulated it in
-    its family's natural way: :func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`
-    or :func:`~medusa.pipelines.bci.vep_spellers.decoding.tm_command_scores`). For each
-    trial, and after each cycle, this takes the argmax over that trial's **available**
-    commands. Multi-matrix paradigms are handled entirely by ``trial_available_cmmds``.
+    Layer-2 rule shared by every VEP speller: no fitting, no paradigm logic. Row ``i`` of
+    ``cycle_scores`` already accumulates all cycles of its trial up to cycle event ``i``
+    (Layer 1 did that). For each trial and cycle, the selected command is the argmax over
+    the trial's available commands.
 
     Parameters
     ----------
     cycle_scores :
-        ``(n_cycles, n_commands)``. Cumulative per-cycle command scores (a Layer-1
-        pipeline's ``predict`` output).
+        ``(n_cycles, n_commands)``. Cumulative scores, one row per cycle event (all trials
+        stacked): a Layer-1 pipeline's ``predict`` output. Higher is better.
     command_uids :
-        Length ``n_commands``. Command ``uid``\\ s in score-column order
+        Length ``n_commands``. Command ``uid``\\ s in column order
         (``SpellerData.command_uids``).
     trial_idx, cycle_idx :
-        ``(n_cycles,)`` each. Per-cycle trial index and cycle index (one row per
-        cycle, from the events).
+        ``(n_cycles,)`` each. Trial and 0-based cycle index of each row, from
+        :func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`. Need not be sorted.
     trial_available_cmmds :
-        Per-trial list of available command ``uid``\\ s
-        (``SpellerData.trial_available_cmmds``). ``None`` makes every command available.
+        Selectable command ``uid``\\ s per trial, indexed by trial index
+        (``SpellerData.trial_available_cmmds``). ``None`` makes all commands available.
 
     Returns
     -------
     sel_cmd : dict
-        ``{trial_idx: command_uid}``. The final selection (all cycles).
+        ``{trial_idx: command_uid}``. Final command of each trial, using all its cycles.
+        Input of :func:`command_decoding_accuracy`.
     sel_cmd_per_cycle : dict
-        ``{trial_idx: {n_cycles: command_uid}}``. The cumulative selection after each
-        cycle (for dynamic stopping or accuracy-vs-cycles).
+        ``{trial_idx: {cycle_idx: command_uid}}``. Command selected if the trial stopped
+        after cycle ``cycle_idx`` (0-based, so ``cycle_idx + 1`` cycles). Input of
+        :func:`command_decoding_accuracy_per_cycle` and of early-stopping rules.
     scores : dict
-        ``{trial_idx: {n_cycles: ndarray[n_available]}}``. Per-available-command score.
+        ``{trial_idx: {cycle_idx: ndarray}}``. The ``(n_available,)`` scores behind each
+        selection, in the order of ``trial_available_cmmds[trial_idx]`` (or
+        ``command_uids``). Useful as a confidence measure.
 
     Raises
     ------
     ValueError
-        If ``trial_available_cmmds`` is given but has fewer entries than the largest
-        ``trial_idx`` in ``cycle_trial`` (it is indexed by trial index, not by position).
+        If ``trial_available_cmmds`` has no entry for some ``trial_idx``.
     KeyError
-        If a command ``uid`` listed in ``trial_available_cmmds`` is not in ``command_uids``.
+        If a ``uid`` in ``trial_available_cmmds`` is not in ``command_uids``.
 
     Examples
     --------
     >>> import numpy as np
     >>> from medusa.pipelines.bci.vep_spellers.decoding import select_commands
-    >>> cycle_scores = np.array([[0.1, 0.9], [0.8, 0.2]])    # 2 cycles, 2 commands
-    >>> selected, per_cycle, scores = select_commands(
+    >>> cycle_scores = np.array([[0.1, 0.9],      # after cycle 0
+    ...                          [0.8, 0.2]])     # after cycles 0 and 1
+    >>> sel_cmd, sel_cmd_per_cycle, scores = select_commands(
     ...     cycle_scores, command_uids=["A", "B"],
     ...     trial_idx=np.array([0, 0]), cycle_idx=np.array([0, 1]))
-    >>> selected[0]                     # the last cycle (idx 1) picks command "A"
-    'A'
+    >>> sel_cmd, sel_cmd_per_cycle, scores[0][1]
+    ({0: 'A'}, {0: {0: 'B', 1: 'A'}}, array([0.8, 0.2]))
 
-    On a real recording, the per-cycle arrays come from its events:
+    On a recording:
 
-    >>> from medusa.pipelines.bci.vep_spellers import (
-    ...     SpellerData, cycle_arrays, select_commands)
-    >>> sd = SpellerData.from_recording(recording)
-    >>> onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(
-    recording.events)
-    >>> selected, per_cycle, scores = select_commands(
-    ...     pipeline.predict(recording), sd.command_uids, trial, cycle,
+    >>> from medusa.pipelines.bci.vep_spellers import SpellerData, cycle_arrays
+    >>> sd = SpellerData.from_recording(recording)                   # doctest: +SKIP
+    >>> _, trial_idx, cycle_idx, _ = cycle_arrays(recording.events)  # doctest: +SKIP
+    >>> sel_cmd, sel_cmd_per_cycle, scores = select_commands(        # doctest: +SKIP
+    ...     pipeline.predict(recording), sd.command_uids, trial_idx, cycle_idx,
     ...     sd.trial_available_cmmds)
     """
     cycle_scores = np.asarray(cycle_scores, dtype=float)
@@ -113,18 +114,18 @@ def select_commands(cycle_scores: NDArray, command_uids: list[str],
     cycle_idx = np.asarray(cycle_idx, dtype=int)
     row = {uid: i for i, uid in enumerate(command_uids)}
 
-    selected, per_cycle, scores = {}, {}, {}
+    sel_cmd, sel_cmd_per_cycle, scores = {}, {}, {}
     for t, order in _trial_cycle_order(trial_idx, cycle_idx):
         avail = _available(trial_available_cmmds, command_uids, t)
         avail_cols = [row[u] for u in avail]
-        per_cycle[t], scores[t] = {}, {}
+        sel_cmd_per_cycle[t], scores[t] = {}, {}
         for i in order:
             corr = cycle_scores[i, avail_cols]
             nc = int(cycle_idx[i])
-            per_cycle[t][nc] = avail[int(np.argmax(corr))]
+            sel_cmd_per_cycle[t][nc] = avail[int(np.argmax(corr))]
             scores[t][nc] = corr
-        selected[t] = per_cycle[t][max(per_cycle[t])]
-    return selected, per_cycle, scores
+        sel_cmd[t] = sel_cmd_per_cycle[t][max(sel_cmd_per_cycle[t])]
+    return sel_cmd, sel_cmd_per_cycle, scores
 
 
 def command_decoding_accuracy(sel_cmd: dict, target: dict) -> float:

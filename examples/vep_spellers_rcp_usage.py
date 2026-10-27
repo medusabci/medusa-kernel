@@ -121,8 +121,8 @@ def pooled_per_cycle(pipe, verbose=False):
         sd = SpellerData.from_recording(rec)
         n_trials = len(sd.spell_target)
         tgt = {t: sd.spell_target[t] for t in range(n_trials)}
-        _, trial, cycle, _ = cycle_arrays(rec.events)
-        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+        _, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)
+        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx,
                                    sd.trial_available_cmmds)
         if verbose:
             n_cyc = int(rec.events.df["cycle_idx"].max()) + 1

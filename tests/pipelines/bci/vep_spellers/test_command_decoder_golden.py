@@ -90,17 +90,17 @@ def test_cycle_arrays_feeds_select_commands(cvep_recording_factory):
     rng = np.random.default_rng(0)
     cycle_scores = rng.standard_normal((n_cycle_rows, 2))
 
-    onsets, trial, cycle, code_idx = cycle_arrays(rec.events)
+    onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(rec.events)
 
-    # one entry per cycle row, lined up with the Layer-1 score matrix
-    assert onsets.shape == trial.shape == cycle.shape == code_idx.shape == (n_cycle_rows,)
-    np.testing.assert_array_equal(trial, rec.events.df["trial_idx"].to_numpy(int))
-    np.testing.assert_array_equal(cycle, rec.events.df["cycle_idx"].to_numpy(int))
+    # one entry per cycle_idx row, lined up with the Layer-1 score matrix
+    assert onsets.shape == trial_idx.shape == cycle_idx.shape == code_idx.shape == (n_cycle_rows,)
+    np.testing.assert_array_equal(trial_idx, rec.events.df["trial_idx"].to_numpy(int))
+    np.testing.assert_array_equal(cycle_idx, rec.events.df["cycle_idx"].to_numpy(int))
 
     sd = rec.experiment
     selected, per_cycle, _ = select_commands(
-        cycle_scores, sd.command_uids, trial, cycle, sd.trial_available_cmmds)
-    assert set(selected) == set(per_cycle) == set(trial.tolist())
+        cycle_scores, sd.command_uids, trial_idx, cycle_idx, sd.trial_available_cmmds)
+    assert set(selected) == set(per_cycle) == set(trial_idx.tolist())
 
 
 def test_cycle_arrays_ignores_non_cycle_rows(cvep_recording_factory):

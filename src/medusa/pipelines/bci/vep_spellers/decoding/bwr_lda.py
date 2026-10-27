@@ -1,7 +1,7 @@
 """Bit-wise-reconstruction speller pipeline with a regularised-LDA classifier.
 
 The shallow BWR Layer-1 pipeline (:class:`BWRLDAPipeline`). The BWR *strategy* classifies
-each code frame (which code level did it show); a command's score is then the correlation
+each code frame (which class of the code it showed); a command's score is then the correlation
 of its code with the per-frame scores
 (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`). This is the
 calibrated, torch-free BWR pipeline; the deep EEG-Inception sibling
@@ -38,7 +38,7 @@ __all__ = ["BWRLDAPipeline"]
 class BWRLDAPipeline(DecodingPipeline):
     """Bit-wise-reconstruction speller pipeline with a regularised-LDA classifier.
 
-    The BWR *strategy* classifies each code frame (which code level did it show). The
+    The BWR *strategy* classifies each code frame (which class of the code it showed). The
     posterior is collapsed to one score per frame
     (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_frame_scores`), and a command's
     score is then the correlation of its code with those frame scores. This class bundles
@@ -173,13 +173,14 @@ class BWRLDAPipeline(DecodingPipeline):
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
-        onsets, trial, cycle, code_idx = cycle_arrays(recording.events)
+        onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(recording.events)
         feats = self._features(
             recording.signals[self.cfg["signal_key"]],
             onsets, sd.codes.shape[2], sd.fps_resolution, self.cfg)
         proba = self.clf.predict_proba(feats)
         frame_scores = bwr_frame_scores(proba, self.clf.classes_)
-        return bwr_command_scores_corr(frame_scores, sd.codes, trial, cycle, code_idx)
+        return bwr_command_scores_corr(frame_scores, sd.codes, trial_idx, cycle_idx,
+                                       code_idx)
 
     def restart(self) -> "BWRLDAPipeline":
         """Forget the fitted LDA; the next ``fit`` starts over."""

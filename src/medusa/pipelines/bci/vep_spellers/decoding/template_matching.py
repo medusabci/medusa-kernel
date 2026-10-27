@@ -739,7 +739,7 @@ class TMCCAPipeline(DecodingPipeline):
                 f"call fit() first.")
         self.check_consistency(recording)          # adopts fs
         sd = SpellerData.from_recording(recording)
-        onsets, trial, cycle, _ = cycle_arrays(recording.events)
+        onsets, trial_idx, cycle_idx, _ = cycle_arrays(recording.events)
         n_frames = sd.codes.shape[2]
         band_segs = self._cycle_segments_per_band(
             recording.signals[cfg["signal_key"]],
@@ -750,7 +750,7 @@ class TMCCAPipeline(DecodingPipeline):
         combined = None                              # weighted sum of per-sub-band scores
         for b, segs in enumerate(band_segs):
             score_fn = self._build_score_fn(sd, segs.shape[1], n_frames, b)
-            m = np.nan_to_num(tm_command_scores(segs, score_fn, trial, cycle), neginf=0.0)
+            m = np.nan_to_num(tm_command_scores(segs, score_fn, trial_idx, cycle_idx), neginf=0.0)
             combined = weights[b] * m if combined is None else combined + weights[b] * m
         return combined
 
@@ -867,7 +867,7 @@ class TMCCAPipeline(DecodingPipeline):
                 raise ValueError(
                     f"reference.mode={cfg['reference']['mode']!r} needs spell_target in each "
                     f"calibration recording.")
-            onsets, trial, _, _ = cycle_arrays(rec.events)
+            onsets, trial_idx, _, _ = cycle_arrays(rec.events)
             band_segs = self._cycle_segments_per_band(
                 rec.signals[cfg["signal_key"]],
                 onsets, sd.codes.shape[2],
@@ -877,7 +877,7 @@ class TMCCAPipeline(DecodingPipeline):
             n_samples, n_frames = band_segs[0].shape[1], sd.codes.shape[2]
             row = {u: i for i, u in enumerate(sd.command_uids)}
             for b, segs in enumerate(band_segs):
-                for i, t in enumerate(trial):
+                for i, t in enumerate(trial_idx):
                     uid = str(sd.spell_target[int(t)])
                     band_segments[b].setdefault(uid, []).append(segs[i])
                     codes[uid] = np.asarray(sd.codes[row[uid], 0])

@@ -32,16 +32,16 @@ def _bit_onsets(cycle_onsets, n_frames, fps):
             + frame[None, :] / fps).ravel()
 
 
-def _trial_cycle_order(cycle_trial, cycle_idx):
+def _trial_cycle_order(trial_idx, cycle_idx):
     """Yield ``(trial, ordered_row_indices)``: each trial's cycle rows in ``cycle_idx`` order.
 
     The Layer-1 accumulators and the Layer-2 selector share this, so they go through a
     recording's cycles in the same order (each trial's rows sorted by ``cycle_idx``, stably).
     """
-    cycle_trial = np.asarray(cycle_trial, dtype=int)
+    trial_idx = np.asarray(trial_idx, dtype=int)
     cycle_idx = np.asarray(cycle_idx, dtype=int)
-    for t in np.unique(cycle_trial):
-        m = np.where(cycle_trial == t)[0]
+    for t in np.unique(trial_idx):
+        m = np.where(trial_idx == t)[0]
         yield int(t), m[np.argsort(cycle_idx[m], kind="stable")]
 
 

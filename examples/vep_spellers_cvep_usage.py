@@ -156,8 +156,8 @@ def accuracy_curve(pipe):
     per_cycle, target, base = {}, {}, 0
     for rec in test:
         sd = rec.experiment
-        _, trial, cycle, _ = cycle_arrays(rec.events)
-        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+        _, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)
+        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx,
                                    sd.trial_available_cmmds)
         for t in pc:                                    # re-key trials globally
             per_cycle[base + t] = pc[t]

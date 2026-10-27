@@ -44,8 +44,8 @@ def random_cvep_train_test(cvep_recording_factory, cvep_channels):
 def _accuracy_curve(pipe, test):
     """Per-cycle decoding accuracy (%) of ``pipe`` on one test recording."""
     sd = test.experiment
-    _, trial, cycle, _ = cycle_arrays(test.events)
-    _, per_cycle, _ = select_commands(pipe.predict(test), sd.command_uids, trial, cycle,
+    _, trial_idx, cycle_idx, _ = cycle_arrays(test.events)
+    _, per_cycle, _ = select_commands(pipe.predict(test), sd.command_uids, trial_idx, cycle_idx,
                                       sd.trial_available_cmmds)
     target = {t: sd.spell_target[t] for t in range(len(sd.spell_target))}
     return 100.0 * command_decoding_accuracy_per_cycle(per_cycle, target)

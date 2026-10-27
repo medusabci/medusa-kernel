@@ -104,9 +104,9 @@ print(f"Synthesised {n_trials} trials x {N_CYCLES} cycles of EEG "
 pipe = TMCCAPipeline(settings=zerocal_ssvep_settings(), channels=CHANNELS)
 
 sd = SpellerData.from_recording(rec)
-_, trial, cycle, _ = cycle_arrays(rec.events)              # per-cycle indices
+_, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)              # per-cycle indices
 _, per_cycle, _ = select_commands(                         # {trial: {cycle: uid}}
-    pipe.predict(rec), sd.command_uids, trial, cycle, sd.trial_available_cmmds)
+    pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx, sd.trial_available_cmmds)
 target = {t: spell_target[t] for t in range(n_trials)}
 curve = 100.0 * command_decoding_accuracy_per_cycle(per_cycle, target)
 

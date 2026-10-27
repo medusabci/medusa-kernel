@@ -351,9 +351,10 @@ def cycle_arrays(events: Events) -> "tuple[NDArray, NDArray, NDArray, NDArray]":
     Examples
     --------
     >>> from medusa.pipelines.bci.vep_spellers import cycle_arrays, select_commands
-    >>> onsets, trial, cycle, code_idx = cycle_arrays(recording.events)   # doctest: +SKIP
-    >>> selected, per_cycle, scores = select_commands(                    # doctest: +SKIP
-    ...     cycle_scores, speller_data.command_uids, trial, cycle,
+    >>> onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(        # doctest: +SKIP
+    ...     recording.events)
+    >>> sel_cmd, sel_cmd_per_cycle, scores = select_commands(         # doctest: +SKIP
+    ...     cycle_scores, speller_data.command_uids, trial_idx, cycle_idx,
     ...     speller_data.trial_available_cmmds)
     """
     df = events.df

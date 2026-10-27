@@ -365,7 +365,7 @@ def burst_cvep_settings(*, band: "Sequence[float]" = (1.0, 60.0), order: int = 7
         temp_scales_samples=(50, 25, 15))
 
 
-def _validation_groups(unit: str, cycle_trial: NDArray, n_frames: int) -> "NDArray | None":
+def _validation_groups(unit: str, trial_idx: NDArray, n_frames: int) -> "NDArray | None":
     """One validation-group id per frame epoch of a recording, per ``val_split_unit``.
 
     The epochs are cycle-major with ``n_frames`` per cycle, so a per-cycle id repeated
@@ -376,9 +376,9 @@ def _validation_groups(unit: str, cycle_trial: NDArray, n_frames: int) -> "NDArr
     if unit == "frame":
         return None
     if unit == "trial":
-        per_cycle = np.asarray(cycle_trial, dtype=int)
+        per_cycle = np.asarray(trial_idx, dtype=int)
     elif unit == "cycle":
-        per_cycle = np.arange(len(cycle_trial))
+        per_cycle = np.arange(len(trial_idx))
     else:
         raise ValueError(
             f"unknown val_split_unit {unit!r}; choose 'frame', 'cycle' or 'trial'.")
@@ -390,7 +390,7 @@ class BWREEGInceptionPipeline(TorchPipeline):
 
     The deep sibling of
     :class:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_lda.BWRLDAPipeline`. It runs the
-    same BWR *strategy* -- classify each code frame (which code level did it show), then
+    same BWR *strategy* -- classify each code frame (which class of the code it showed), then
     score each command by the correlation of its code with the frame scores -- and
     returns the same cumulative ``(n_cycles, n_commands)`` correlation matrix
     (:func:`~medusa.pipelines.bci.vep_spellers.decoding.bwr_command_scores_corr`) for
@@ -545,13 +545,13 @@ class BWREEGInceptionPipeline(TorchPipeline):
         X, y, groups, offset = [], [], [], 0
         for rec in recordings:
             self.check_consistency(rec)
-            onsets, trial, _, _ = cycle_arrays(rec.events)
+            onsets, trial_idx, _, _ = cycle_arrays(rec.events)
             sd = SpellerData.from_recording(rec)
             n_frames = sd.codes.shape[2]
             X.append(self._features(rec.signals[cfg["signal_key"]], onsets,
                                     n_frames, sd.fps_resolution, cfg))
             y.append(bwr_labels(rec))
-            ids = _validation_groups(unit, trial, n_frames)
+            ids = _validation_groups(unit, trial_idx, n_frames)
             if ids is not None:
                 groups.append(ids + offset)     # keep recordings' trials apart
                 offset += int(ids.max()) + 1
@@ -571,10 +571,11 @@ class BWREEGInceptionPipeline(TorchPipeline):
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
-        onsets, trial, cycle, code_idx = cycle_arrays(recording.events)
+        onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(recording.events)
         feats = self._features(
             recording.signals[self.cfg["signal_key"]],
             onsets, sd.codes.shape[2], sd.fps_resolution, self.cfg)
         proba = self.clf.predict_proba(feats)
         frame_scores = bwr_frame_scores(proba, self.clf.classes_)
-        return bwr_command_scores_corr(frame_scores, sd.codes, trial, cycle, code_idx)
+        return bwr_command_scores_corr(frame_scores, sd.codes, trial_idx, cycle_idx,
+                                       code_idx)

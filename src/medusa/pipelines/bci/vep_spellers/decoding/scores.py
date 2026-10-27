@@ -1,24 +1,26 @@
-"""Pure scoring functions for VEP spellers: BWR training labels and the cumulative accumulators.
+"""Score functions for VEP spellers: BWR training labels and cumulative command scores.
 
-These are the model-agnostic, family-level pure functions the Layer-1 pipelines lean on:
+The Layer-1 pipelines build on these pure functions. None of them depends on a specific
+model:
 
-* :func:`bwr_labels` -- per-frame target labels for BWR training, read straight from the codes.
-* :func:`bwr_frame_scores` + :func:`bwr_command_scores_corr` -- the BWR cumulative
-  ``(n_cycles, n_commands)`` matrix the BWR pipelines return (classify each frame, collapse
-  the posterior to one score per frame, then *concatenate-then-correlate* each command's
-  code with the frame scores).
-* :func:`bwr_loglik_command_scores` -- the Bayes alternative (add up, per command, the log
-  posterior of the levels its code claims). A pure function under study; no pipeline uses
-  it, see its docstring for the class-prior bias.
-* :func:`tm_command_scores` -- the template-matching cumulative matrix (coherently average a
-  trial's cycle segments, then score the average against each command's reference).
+* :func:`bwr_labels` -- per-frame training labels for a BWR frame classifier.
+* :func:`bwr_frame_scores` -- one score per frame from the classifier's probabilities.
+* :func:`bwr_command_scores_corr` -- BWR command scores: correlation between each
+  command's code and the frame scores.
+* :func:`tm_command_scores` -- template-matching command scores: average the trial's
+  cycles, then score the average against each command.
 
-Each accumulator owns only the family-level cumulation, not the scoring *method* -- the method
-(LDA frame classifier, CCA canonical correlation, a learned template, ...) lives in the
-pipeline that calls it. Both emit the cumulative ``(n_cycles, n_commands)`` matrix the
-paradigm-agnostic
-:func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`
-selects from.
+Both command-score functions return the same thing: a cumulative
+``(n_cycles, n_commands)`` matrix whose row ``i`` scores every command using all cycles of
+its trial up to and including cycle ``i``. This matrix is the input of
+:func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`. The
+functions only accumulate over cycles; the scoring method itself (LDA, CCA, a learned
+template, ...) comes from the pipeline.
+
+Conventions: ``n_cycles`` counts the cycle events of the whole recording (all trials
+stacked). The per-cycle trial, cycle and code indices come from
+:func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`. Per-frame arrays are in
+cycle-major order: all frames of the first cycle, then all frames of the second, and so on.
 """
 
 from __future__ import annotations
@@ -36,38 +38,38 @@ __all__ = [
     "bwr_labels",
     "bwr_frame_scores",
     "bwr_command_scores_corr",
-    "bwr_loglik_command_scores",
     "tm_command_scores",
 ]
 
 
 def bwr_labels(recording: Recording) -> NDArray:
-    """Per-frame target labels (1 or 0) for BWR training, taken straight from the codes.
+    """Per-frame training labels for a BWR frame classifier, read from the codes.
 
-    Each cycle contributes the trial target's code *for that cycle*. Take a cycle of a
-    trial whose target is command ``k`` and whose code index is ``c``. Its ``n_frames``
-    labels are ``codes[k][c]``: 1 on the frames that light the target, 0 elsewhere. The
-    labels are in cycle-major order, to match the per-frame scores.
+    The label of a frame is the class the trial's target command showed in that frame,
+    as written in its code: for a cycle with target ``k`` and code index ``c``, the labels
+    are ``codes[k, c]``. What each class stands for (a color, a texture, ...) depends on
+    the paradigm; here it is only an integer.
 
     Parameters
     ----------
     recording :
-        A calibration recording: a :class:`~medusa.pipelines.bci.vep_spellers.data.SpellerData`
-        experiment (for the codes and the ``spell_target``) plus one event row per
-        stimulation cycle (for the trial and code index of each cycle).
+        A calibration recording. Its experiment must be a
+        :class:`~medusa.pipelines.bci.vep_spellers.data.SpellerData` with ``spell_target``
+        set, and its events must have one row per stimulation cycle.
 
     Returns
     -------
     numpy.ndarray
-        ``(n_cycles * n_frames,)``. Integer labels, ``1`` on the frames that light the
-        trial's target command and ``0`` elsewhere, in cycle-major order. They line up
-        one-to-one with the per-frame features a BWR pipeline builds from the same
-        recording, so they can be passed straight to a frame classifier's ``fit``.
+        ``(n_cycles * n_frames,)``. Integer class labels in cycle-major order. They match the
+        per-frame features a BWR pipeline builds from the same recording, so they can go
+        straight into the frame classifier's ``fit``.
 
     Raises
     ------
+    TypeError
+        If ``recording.experiment`` is not a ``SpellerData``.
     ValueError
-        If the recording has no ``spell_target`` (labels cannot be derived).
+        If the recording has no ``spell_target``.
 
     Examples
     --------
@@ -79,66 +81,65 @@ def bwr_labels(recording: Recording) -> NDArray:
     sd = SpellerData.from_recording(recording)
     if sd.spell_target is None:
         raise ValueError("recording has no spell_target; cannot derive BWR labels.")
-    _, trial, _, code_idx = cycle_arrays(recording.events)
+    _, trial_idx, _, code_idx = cycle_arrays(recording.events)
     codes = sd.codes
     row = {uid: i for i, uid in enumerate(sd.command_uids)}
     target = list(sd.spell_target)
     return np.concatenate(
-        [codes[row[str(target[t])], c] for t, c in zip(trial, code_idx)]).astype(int)
+        [codes[row[str(target[t])], c] for t, c in zip(trial_idx, code_idx)]).astype(int)
 
 
 # --------------------------------------------------------------------------- #
 # Cumulative score accumulators (pure functions, one per family)
 # --------------------------------------------------------------------------- #
 def tm_command_scores(cycle_segments: NDArray, score_fn: Callable,
-                      cycle_trial: NDArray, cycle_idx: NDArray) -> NDArray:
-    """Cumulative template-matching command scores, shape ``(n_cycles, n_commands)``.
+                      trial_idx: NDArray, cycle_idx: NDArray) -> NDArray:
+    """Cumulative template-matching command scores.
 
-    The template-matching counterpart of :func:`bwr_command_scores_corr`. Row ``i`` holds
-    ``score_fn`` applied to the **coherent average** of the segments of all cycles of row
-    ``i``'s trial up to and including cycle ``i`` (the c-VEP/SSVEP averaging rule). The
-    per-command scoring *method* is passed in as ``score_fn``. It may be CCA canonical
-    correlation against a synthetic or a learned reference, TRCA-filtered correlation, and
-    so on. So this function owns only the family-level accumulation, not the method itself
-    (CCA is a method inside
-    :class:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.TMCCAPipeline`, not
-    built in here).
+    Template matching averages a trial's cycles before scoring (coherent averaging, as in
+    c-VEP and SSVEP). Row ``i`` of the output is ``score_fn`` applied to the average of
+    the segments of all cycles of its trial up to and including cycle ``i``. The scoring
+    method is ``score_fn`` (CCA against a synthetic or learned reference, TRCA-filtered
+    correlation, ...); this function only does the averaging.
 
     Parameters
     ----------
     cycle_segments :
-        ``(n_cycles, n_samples, n_channels)``. One multichannel EEG segment per cycle (as
-        produced inside a pipeline's ``predict``).
+        ``(n_cycles, n_samples, n_channels)``. One EEG segment per cycle.
     score_fn :
-        ``score_fn(avg_segment) -> ndarray (n_commands,)``. The per-command similarity for
-        one coherently-averaged segment (for example ``TMCCAPipeline``'s CCA scorer).
-    cycle_trial, cycle_idx :
-        ``(n_cycles,)`` each. Per-cycle trial index and repetition index (from the events).
+        ``score_fn(avg_segment) -> (n_commands,)``. Scores every command against one
+        averaged ``(n_samples, n_channels)`` segment; higher means a better match (for
+        example, the CCA scorer of
+        :class:`~medusa.pipelines.bci.vep_spellers.decoding.template_matching.TMCCAPipeline`).
+    trial_idx, cycle_idx :
+        ``(n_cycles,)`` each. Trial index and 0-based cycle index of each segment.
 
     Returns
     -------
     numpy.ndarray
-        ``(n_cycles, n_commands)``. Cumulative command scores, ready for
-        :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
+        ``(n_cycles, n_commands)``. Cumulative command scores, rows in input order. Input
+        of :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
 
     Examples
     --------
+    Row 1 scores the average of cycles 0 and 1:
+
     >>> import numpy as np
     >>> from medusa.pipelines.bci.vep_spellers.decoding import tm_command_scores
-    >>> cycle_segments = np.ones((2, 5, 3))     # 2 cycles, 5 samples, 3 channels
-    >>> score_fn = lambda avg: avg.mean(axis=(0, 1)) * np.array([1.0, 2.0])
-    >>> scores = tm_command_scores(cycle_segments, score_fn,
-    ...                            cycle_trial=np.array([0, 0]),
-    ...                            cycle_idx=np.array([0, 1]))
-    >>> scores.shape
-    (2, 2)
-    >>> int(scores[-1].argmax())        # command 1 scores higher
-    1
+    >>> cycle_segments = np.stack([np.full((5, 3), 1.0),     # cycle 0
+    ...                            np.full((5, 3), 3.0)])    # cycle 1
+    >>> score_fn = lambda avg: np.array([avg.mean(), 0.0])   # toy scorer, 2 commands
+    >>> cycle_scores = tm_command_scores(cycle_segments, score_fn,
+    ...                                  trial_idx=np.array([0, 0]),
+    ...                                  cycle_idx=np.array([0, 1]))
+    >>> cycle_scores
+    array([[1., 0.],
+           [2., 0.]])
     """
     cycle_segments = np.asarray(cycle_segments, dtype=float)
     n_cycles = cycle_segments.shape[0]
     rows = {}
-    for _, order in _trial_cycle_order(cycle_trial, cycle_idx):
+    for _, order in _trial_cycle_order(trial_idx, cycle_idx):
         for i in range(len(order)):
             avg = cycle_segments[order[:i + 1]].mean(axis=0)     # (n_samples, n_channels)
             rows[int(order[i])] = np.asarray(score_fn(avg), dtype=float)
@@ -150,11 +151,11 @@ def tm_command_scores(cycle_segments: NDArray, score_fn: Callable,
 
 
 def _corr_rows(codes: NDArray, scores: NDArray) -> NDArray:
-    """Absolute Pearson correlation ``|r|`` of every row of ``codes`` (n, m) with ``scores``.
+    """Absolute Pearson correlation ``|r|`` of each row of ``codes`` (n, m) with ``scores`` (m,).
 
-    Magnitude, not signed. This matches the proven BWR command decoder, which ranks commands
-    by ``|corr|`` (so a fully sign-inverted reconstruction still scores its code high). A row
-    (or ``scores``) with zero variance gives ``-inf``, so it is never selected.
+    The sign is dropped, as in the original BWR decoder, so a sign-inverted reconstruction
+    still matches its code. A constant row, or constant ``scores``, gives ``-inf`` so it is
+    never selected.
     """
     codes = codes.astype(float)
     scores = scores.astype(float)
@@ -169,86 +170,90 @@ def _corr_rows(codes: NDArray, scores: NDArray) -> NDArray:
 
 
 def bwr_frame_scores(proba: NDArray, classes: NDArray) -> NDArray:
-    """Collapse a frame classifier's posterior to one score per frame, monotone in the level.
+    """One score per frame from a frame classifier's probabilities.
 
-    ``proba`` is the ``(n_frames, n_levels)`` posterior of a classifier fitted on
-    :func:`bwr_labels`, with its columns ordered as ``classes`` (sklearn's ``classes_``:
-    the code levels seen at fit time, sorted). The score is the **posterior-expected code
-    level** ``proba @ classes``. For a binary code (``classes == [0, 1]``) that is exactly
-    ``proba[:, 1]``, the classic probability that the frame lit the target, so nothing
-    changes there.
-
-    A p-ary code needs the whole posterior. :func:`bwr_command_scores_corr` correlates the
-    frame scores with each command's code *values*, so the score has to grow with the
-    level the frame showed. Keeping one column alone (``proba[:, 1]``, the probability of
-    level 1) is a bump at one level, not a monotone score, and it decodes deterministically
-    wrong: a GF(p) m-sequence satisfies ``s[t + N/2] == (-s[t]) mod p``, so the command
-    whose code is the level-negation of the target -- the one half a period away -- then
-    scores higher than the target itself, from a perfect classifier included.
+    The score is the expected class label under the classifier: ``proba @ classes``. For
+    a binary code (``classes == [0, 1]``) this is ``proba[:, 1]``, the probability of
+    class 1.
 
     Parameters
     ----------
     proba :
-        ``(n_frames, n_levels)``. Class probabilities per frame, in cycle-major order.
+        ``(n_frames, n_classes)``. Class probabilities per frame, in cycle-major order
+        (``predict_proba`` of a classifier fitted on :func:`bwr_labels`).
     classes :
-        ``(n_levels,)``. The code level each column stands for (``clf.classes_``).
+        ``(n_classes,)``. The class label of each column of ``proba`` (``clf.classes_``).
 
     Returns
     -------
     numpy.ndarray
-        ``(n_frames,)``. Per-frame scores, ready for :func:`bwr_command_scores_corr`.
+        ``(n_frames,)``. Per-frame scores. Input of :func:`bwr_command_scores_corr`.
 
     Raises
     ------
     ValueError
-        If ``proba`` is not 2-D or its columns do not match ``classes``.
+        If ``proba`` is not 2-D or does not have one column per class.
+
+    Notes
+    -----
+    :func:`bwr_command_scores_corr` correlates these scores with the class labels in the
+    codes, read as numbers. So the score must grow with the label, and a single column
+    such as ``proba[:, 1]`` does not. With more than two classes, that decodes wrong even
+    with a perfect classifier: in a GF(p) m-sequence, the code half a period away is the
+    target's negation (``s[t + N/2] == -s[t] mod p``), and it scores higher than the
+    target itself.
 
     Examples
     --------
     >>> import numpy as np
     >>> from medusa.pipelines.bci.vep_spellers.decoding import bwr_frame_scores
     >>> proba = np.array([[0.2, 0.8], [0.9, 0.1]])
-    >>> bwr_frame_scores(proba, classes=[0, 1]).tolist()      # binary: P(target)
+    >>> bwr_frame_scores(proba, classes=[0, 1]).tolist()         # binary: P(class 1)
     [0.8, 0.1]
-    >>> bwr_frame_scores(np.eye(3), classes=[0, 1, 2]).tolist()  # 3 levels: the level
+    >>> bwr_frame_scores(np.eye(3), classes=[0, 1, 2]).tolist()  # 3 classes: the label
     [0.0, 1.0, 2.0]
     """
     proba = np.asarray(proba, dtype=float)
     classes = np.asarray(classes, dtype=float).reshape(-1)
     if proba.ndim != 2 or proba.shape[1] != classes.size:
         raise ValueError(
-            f"proba must be (n_frames, n_levels) with one column per class; got shape "
+            f"proba must be (n_frames, n_classes) with one column per class; got shape "
             f"{proba.shape} for {classes.size} classes {classes.tolist()}.")
     return proba @ classes
 
 
-def bwr_command_scores_corr(frame_scores: NDArray, codes: NDArray, cycle_trial: NDArray,
-                            cycle_idx: NDArray, cycle_code_idx: NDArray) -> NDArray:
-    """Cumulative per-cycle BWR command correlations, shape ``(n_cycles, n_commands)``.
+def bwr_command_scores_corr(frame_scores: NDArray, codes: NDArray, trial_idx: NDArray,
+                            cycle_idx: NDArray, code_idx: NDArray) -> NDArray:
+    """Cumulative BWR command scores by correlation.
 
-    Row ``i`` holds, for every command, the Pearson correlation between two things: the
-    frame scores of all cycles of row ``i``'s trial up to and including cycle ``i`` (joined
-    end to end), and that command's codes joined the same way. This is the
-    *concatenate-then-correlate* rule of the c-VEP/ERP BWR decoder, and what the BWR
-    pipelines return. Rows follow the input cycle order. A command whose code is constant
-    over the used cycles gets ``-inf``. Feed it :func:`bwr_frame_scores` so that a p-ary
-    code decodes right.
+    Row ``i`` holds, for every command, the absolute Pearson correlation between:
+
+    * the frame scores of all cycles of its trial up to and including cycle ``i``, joined
+      end to end in ``cycle_idx`` order, and
+    * the command's code for those same cycles (each with its own ``code_idx``), joined
+      the same way.
+
+    This is the decoding rule of the BWR pipelines. Taking the absolute value means a
+    sign-inverted reconstruction still matches its code. A command whose code is constant
+    over the used cycles gets ``-inf``.
 
     Parameters
     ----------
     frame_scores :
-        ``(n_cycles * n_frames,)``. Per-frame target-class scores, in cycle-major order
-        (as produced inside a BWR pipeline's ``predict``).
+        ``(n_cycles * n_frames,)``. One score per frame, in cycle-major order. It must grow
+        with the class label the frame showed: use :func:`bwr_frame_scores` so that codes
+        with more than two classes decode right.
     codes :
-        ``(n_commands, n_codes, n_frames)``. Per-command codes (``SpellerData.codes``).
-    cycle_trial, cycle_idx, cycle_code_idx :
-        ``(n_cycles,)`` each. Per-cycle trial index, repetition index, and code index
-        (from the events).
+        ``(n_commands, n_codes, n_frames)``. The codes of every command
+        (``SpellerData.codes``).
+    trial_idx, cycle_idx, code_idx :
+        ``(n_cycles,)`` each. Trial index, 0-based cycle index and code index of each cycle.
 
     Returns
     -------
     numpy.ndarray
-        ``(n_cycles, n_commands)``. Cumulative command correlations, ready for
+        ``(n_cycles, n_commands)``. Cumulative absolute correlations in ``[0, 1]`` (or
+        ``-inf``), rows in input order. Input of
         :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
 
     Raises
@@ -261,132 +266,30 @@ def bwr_command_scores_corr(frame_scores: NDArray, codes: NDArray, cycle_trial: 
     >>> import numpy as np
     >>> from medusa.pipelines.bci.vep_spellers.decoding import bwr_command_scores_corr
     >>> codes = np.array([[[1, 1, 0, 0]], [[1, 0, 1, 0]]])   # 2 commands, 1 code, 4 frames
-    >>> frame_scores = np.array([1.0, 1.0, 0.0, 0.0])        # 1 cycle; matches command 0
-    >>> scores = bwr_command_scores_corr(frame_scores, codes,
-    ...                             cycle_trial=np.array([0]), cycle_idx=np.array([0]),
-    ...                             cycle_code_idx=np.array([0]))
-    >>> scores.shape
-    (1, 2)
-    >>> int(scores.argmax())            # command 0 wins
-    0
+    >>> frame_scores = np.array([1.0, 1.0, 0.0, 0.0])        # 1 cycle, matches command 0
+    >>> cycle_scores = bwr_command_scores_corr(
+    ...     frame_scores, codes, trial_idx=np.array([0]), cycle_idx=np.array([0]),
+    ...     code_idx=np.array([0]))
+    >>> cycle_scores
+    array([[1., 0.]])
     """
     frame_scores = np.asarray(frame_scores, dtype=float)
     codes = np.asarray(codes)
-    cycle_code_idx = np.asarray(cycle_code_idx, dtype=int)
+    code_idx = np.asarray(code_idx, dtype=int)
     n_commands, _, n_frames = codes.shape
-    n_cycles = len(cycle_code_idx)
+    n_cycles = len(code_idx)
     if frame_scores.size != n_cycles * n_frames:
         raise ValueError(
             f"frame_scores has {frame_scores.size} values but expected "
             f"n_cycles*n_frames = {n_cycles}*{n_frames}.")
     scores_by_cycle = frame_scores.reshape(n_cycles, n_frames)
     out = np.full((n_cycles, n_commands), -np.inf)
-    for _, order in _trial_cycle_order(cycle_trial, cycle_idx):
+    for _, order in _trial_cycle_order(trial_idx, cycle_idx):
         for i in range(len(order)):
             used = order[:i + 1]
             s = scores_by_cycle[used].ravel()
             # every command's expected code over the used cycles (in `used` order),
             # concatenated to match the flattened frame scores.
-            exp = codes[:, cycle_code_idx[used]].reshape(n_commands, -1)
+            exp = codes[:, code_idx[used]].reshape(n_commands, -1)
             out[order[i]] = _corr_rows(exp, s)
-    return out
-
-
-def bwr_loglik_command_scores(proba: NDArray, classes: NDArray, codes: NDArray,
-                              cycle_trial: NDArray, cycle_idx: NDArray,
-                              cycle_code_idx: NDArray,
-                              eps: float = 1e-12) -> NDArray:
-    """Cumulative per-cycle BWR log-likelihoods, shape ``(n_cycles, n_commands)``.
-
-    The Bayes counterpart of :func:`bwr_command_scores_corr`. Row ``i`` holds, for every
-    command, ``sum_t log P(level = code_cmd(t) | x_t)`` over the frames of all cycles of
-    row ``i``'s trial up to and including cycle ``i``: how probable the levels that command
-    claims are under the classifier's posterior. It reads the whole posterior instead of a
-    scalar per frame, so a level-negated code (the half-period partner of a p-ary
-    m-sequence) is simply a wrong code. The frames are treated as independent; with
-    overlapping epochs the values are inflated, so they rank commands but are not
-    calibrated probabilities.
-
-    **Under study; the BWR pipelines do not use it.** The posterior carries the class
-    prior the classifier learned, so for a binary code this sum equals the *uncentred*
-    dot product of the code with the frame log-odds. When the commands' codes have
-    unequal weights (random codebooks), the prior offset favours the codes with fewer
-    lit frames, and this rule loses to :func:`bwr_command_scores_corr`, which centres
-    both signals. Dividing the posterior by the class prior removes the bias and brings
-    it level with correlation, not above it (synthetic random-code c-VEP, six seeds).
-
-    Parameters
-    ----------
-    proba :
-        ``(n_cycles * n_frames, n_levels)``. Per-frame posterior, columns as ``classes``,
-        cycle-major order (``clf.predict_proba`` of the BWR features).
-    classes :
-        ``(n_levels,)``. The code level each column stands for (``clf.classes_``).
-    codes, cycle_trial, cycle_idx, cycle_code_idx :
-        As in :func:`bwr_command_scores_corr`.
-    eps :
-        Floor on the probabilities before the log, so one over-confident wrong frame
-        cannot veto a command with ``-inf``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``(n_cycles, n_commands)``. Cumulative command log-likelihoods, ready for
-        :func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`.
-
-    Raises
-    ------
-    ValueError
-        If ``proba`` does not have one row per frame and one column per class, if the
-        codes are not integer levels, or if they show a level the classifier was not
-        fitted on.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from medusa.pipelines.bci.vep_spellers.decoding import bwr_loglik_command_scores
-    >>> codes = np.array([[[1, 1, 0, 0]], [[1, 0, 1, 0]]])   # 2 commands, 1 code, 4 frames
-    >>> proba = np.array([[0.1, 0.9], [0.2, 0.8], [0.9, 0.1], [0.8, 0.2]])  # P(0), P(1)
-    >>> scores = bwr_loglik_command_scores(proba, classes=[0, 1], codes=codes,
-    ...                                    cycle_trial=np.array([0]),
-    ...                                    cycle_idx=np.array([0]),
-    ...                                    cycle_code_idx=np.array([0]))
-    >>> scores.shape
-    (1, 2)
-    >>> int(scores.argmax())            # command 0 wins
-    0
-    """
-    proba = np.asarray(proba, dtype=float)
-    classes = np.asarray(classes).reshape(-1)
-    codes = np.asarray(codes)
-    levels = np.rint(codes).astype(int)
-    if not np.array_equal(levels, codes):
-        raise ValueError("codes must hold integer levels.")
-    codes = levels
-    cycle_code_idx = np.asarray(cycle_code_idx, dtype=int)
-    n_commands, _, n_frames = codes.shape
-    n_cycles = len(cycle_code_idx)
-    if proba.ndim != 2 or proba.shape != (n_cycles * n_frames, classes.size):
-        raise ValueError(
-            f"proba has shape {proba.shape} but expected (n_cycles*n_frames, n_levels) = "
-            f"({n_cycles * n_frames}, {classes.size}).")
-    # a level the classifier never saw has no posterior column: a mismatch
-    known = np.isin(codes, classes)
-    if not known.all():
-        raise ValueError(
-            f"codes show levels {np.unique(codes[~known]).tolist()} the classifier was "
-            f"not fitted on (classes {classes.tolist()}).")
-    # the `proba` column of every code level, so cols[k, c, t] indexes the posterior
-    column = np.full(int(classes.max()) + 1, -1)
-    column[classes.astype(int)] = np.arange(classes.size)
-    cols = column[codes]                                  # (n_commands, n_codes, n_frames)
-    logp = np.log(np.clip(proba, eps, 1.0)).reshape(n_cycles, n_frames, classes.size)
-    # per cycle, per command: sum over frames of log P(level = the command's level there)
-    per_cycle = np.empty((n_cycles, n_commands))
-    frame = np.arange(n_frames)
-    for i in range(n_cycles):
-        per_cycle[i] = logp[i][frame[None, :], cols[:, cycle_code_idx[i], :]].sum(axis=1)
-    out = np.full((n_cycles, n_commands), -np.inf)
-    for _, order in _trial_cycle_order(cycle_trial, cycle_idx):  # same order as corr/TM
-        out[order] = np.cumsum(per_cycle[order], axis=0)
     return out

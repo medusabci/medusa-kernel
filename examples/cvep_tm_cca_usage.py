@@ -66,8 +66,8 @@ for path in sorted(glob.glob(os.path.join(DATA, "cvep_test*.cvep.bson"))):
     target = {t: sd.spell_target[t] for t in range(n_trials)}
 
     # cumulative (n_cycles, n_commands) correlations (Layer 1) -> command selection (Layer 2)
-    _, trial, cycle, _ = cycle_arrays(rec.events)
-    _, per_cycle, _ = select_commands(pipe.predict(rec), sd.command_uids, trial, cycle,
+    _, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)
+    _, per_cycle, _ = select_commands(pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx,
                                       sd.trial_available_cmmds)
     n_cycles = int(rec.events.df["cycle_idx"].max()) + 1
     acc_per_cycle = command_decoding_accuracy_per_cycle(per_cycle, target)
