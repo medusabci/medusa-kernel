@@ -57,6 +57,13 @@ recording's events into the per-cycle arrays every layer consumes is
 :func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`; the remaining model-agnostic
 frame-onset and frequency-filtering plumbing lives in the private ``_common`` module.
 
+The monitor raster-latency correction lives in
+:mod:`~medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction`
+(:func:`~medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction.command_raster_latencies`,
+:func:`~medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction.raster_corrected_events`).
+A pipeline switches it on with its ``raster_scan_fraction`` setting. The latency model
+itself is :func:`~medusa.stimulation_hardware.display.raster_latency`.
+
 Everything below is re-exported at the package level, so the historical import path
 ``from medusa.pipelines.bci.vep_spellers.decoding import BWRLDAPipeline`` keeps working.
 """
@@ -84,6 +91,10 @@ from medusa.pipelines.bci.vep_spellers.decoding.template_matching import (
     uniform_weights,
     decaying_power_law_weights,
 )
+from medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction import (
+    command_raster_latencies,
+    raster_corrected_events,
+)
 
 __all__ = [
     # Layer-1 scoring pipelines
@@ -103,6 +114,9 @@ __all__ = [
     # filter-bank score weights (build the list, then pass it in)
     "uniform_weights",
     "decaying_power_law_weights",
+    # monitor raster-latency correction
+    "command_raster_latencies",
+    "raster_corrected_events",
     # Layer-2 selector + metrics (pure functions)
     "bwr_labels",
     "bwr_frame_scores",

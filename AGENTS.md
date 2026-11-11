@@ -31,6 +31,7 @@ Top-level packages, in dependency order:
 | `core/` | Foundation everything else depends on: the runtime data model (`core/data/`), serialization, the recording schema, configuration trees, and shared utilities. |
 | `signal/` | Operations on time-series arrays (signal → signal) at the root, and metrics (signal → scalar/vector) under `signal/metrics/`. |
 | `graph/` | Graph-theoretic metrics over weighted adjacency matrices. |
+| `stimulation_hardware/` | Models of the hardware that presents stimuli (`display/`, …): when and how a stimulus reaches the participant. NumPy only; pipelines may use it, never the reverse. |
 | `ml/` | scikit-learn–style machine-learning and deep-learning estimators. |
 | `plots/` | Matplotlib visualizations. |
 | `widgets/` | PySide6 GUI tools — the only place Qt is used. |
@@ -220,6 +221,16 @@ argument (`False` = off, a string selects the method). **Never shadow built-ins*
   `graph/`, and any future `image/`, `video/`) are named after the data they
   operate on; operations and metrics live one level down. A new data type slots
   in as a sibling package.
+- **Hardware models are grouped by device.** `stimulation_hardware/` is the one
+  top-level package named after hardware, not data. Each device type is a
+  subpackage (`display/`, later `audio/`), with one flat module per topic
+  (`display/raster.py`). It describes the device; applying it to a paradigm
+  (e.g. correcting speller onsets) belongs to that paradigm's pipeline.
+  Controlling the device needs the operating system (e.g. `display/screens.py`),
+  so that code is the one exception to "no OS-conditional imports": each OS
+  gets a private backend module (`_screens_windows.py`), imported when a
+  function is called, never at import time. The public module keeps one API,
+  and an unsupported OS raises `NotImplementedError`.
 - **Within a data-type package:** operations are flat at the root (signal →
   signal), metrics live under `metrics/<family>/` (signal → scalar/vector).
   `transforms.power_spectral_density` is an operation; `metrics/spectral/band_power`

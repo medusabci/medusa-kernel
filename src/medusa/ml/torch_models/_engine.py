@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import tempfile
+import time
 import warnings
 
 from . import require_lightning
@@ -27,7 +28,7 @@ from torch.utils.data import DataLoader, Subset, random_split
 
 from medusa.core.serialization import PickleableComponent
 from ._progress import (
-    normalize_verbose, MedusaProgressBar, EpochHistory, quiet_lightning,
+    normalize_verbose, EpochPrinter, EpochHistory, quiet_lightning,
     print_banner, print_summary)
 
 
@@ -274,9 +275,10 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
     verbose : int | str, default 1
         Training-output verbosity level (see
         :func:`~medusa.ml.torch_models._progress.normalize_verbose`):
-        ``0`` / ``'silent'`` -- no output; ``1`` / ``'epoch'`` (default) -- one clean line
-        per epoch (live progress + losses) with a banner and summary; ``2`` / ``'full'`` --
-        Lightning's full stock output (model summary, validation bars) for debugging.
+        ``0`` / ``'silent'`` -- no output; ``1`` / ``'epoch'`` (default) -- one line per
+        epoch (elapsed time, losses and validation scores, where early stopping stands)
+        with a banner and summary; ``2`` / ``'full'`` -- Lightning's full stock output
+        (progress bars, model summary) for debugging.
     random_state : int or None, default None
         Seed that makes a fit repeatable. ``None`` (the default) leaves training
         stochastic: every call draws its own validation split, batch order and
@@ -414,17 +416,20 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         return (DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
                 DataLoader(val_ds, batch_size=self.batch_size))
 
-    def _run_training(self, task: pl.LightningModule, train_loader, val_loader):
+    def _run_training(self, task: pl.LightningModule, train_loader, val_loader,
+                      metric_names: "list[str] | None" = None):
         """Train ``task``; restore best weights, append to ``history_``.
 
         ``history_`` is a list with one entry per ``fit`` — a multi-phase run
         (pretrain, then finetune) keeps every phase's curves, and ``history_[-1]``
-        is the phase that just ran.
+        is the phase that just ran. ``metric_names`` are the validation metrics
+        the task logs as ``'val_<name>'``; each gets a ``'val_<name>_curve'``.
 
         Output verbosity follows ``self.verbose`` (see
-        :func:`~medusa.ml.torch_models._progress.normalize_verbose`): level 1 (default) shows
-        one clean line per epoch via :class:`~medusa.ml.torch_models._progress.MedusaProgressBar`
-        with a banner and summary, level 0 is silent, level 2 is Lightning's full stock output.
+        :func:`~medusa.ml.torch_models._progress.normalize_verbose`): level 1 (default) prints
+        one line per epoch via :class:`~medusa.ml.torch_models._progress.EpochPrinter`
+        (elapsed time, metrics, ``best`` / ``wait k/patience``) with a banner and
+        summary, level 0 is silent, level 2 is Lightning's full stock output.
         Per-epoch loss curves are captured at every level by
         :class:`~medusa.ml.torch_models._progress.EpochHistory`.
         """
@@ -435,13 +440,16 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
 
         early = EarlyStopping(monitor=monitor, mode='min', patience=self.patience,
                               min_delta=self.min_delta)
-        history = EpochHistory()
+        history = EpochHistory(metric_names or [])
         console = Console() if level == 1 else None
-        bar = MedusaProgressBar(console) if level == 1 else None
         with tempfile.TemporaryDirectory() as ckpt_dir:
             checkpoint = ModelCheckpoint(dirpath=ckpt_dir, monitor=monitor,
                                          mode='min', save_top_k=1)
-            callbacks = [early, checkpoint, history] + ([bar] if bar is not None else [])
+            callbacks = [early, checkpoint, history]
+            if level == 1:
+                callbacks.append(EpochPrinter(console, monitor=monitor,
+                                              patience=self.patience,
+                                              min_delta=self.min_delta))
             with quiet_lightning(enabled=level <= 1):
                 trainer = pl.Trainer(
                     max_epochs=self.max_epochs,
@@ -449,7 +457,7 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                     devices=devices,
                     callbacks=callbacks,
                     logger=False,
-                    enable_progress_bar=level >= 1,
+                    enable_progress_bar=level >= 2,   # level 1 prints its own lines
                     enable_model_summary=level >= 2,
                     num_sanity_val_steps=0)
                 if level == 1:
@@ -466,9 +474,13 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                         continuing=bool(getattr(self, 'history_', [])),
                         max_epochs=self.max_epochs,
                         batch_size=self.batch_size,
+                        lr=self.lr,
                         monitor=monitor,
-                        patience=self.patience)
+                        patience=self.patience,
+                        min_delta=self.min_delta)
+                fit_start_s = time.perf_counter()
                 trainer.fit(task, train_loader, val_loader)
+                fit_seconds = time.perf_counter() - fit_start_s
             best_score = (float(checkpoint.best_model_score)
                           if checkpoint.best_model_score is not None else float('nan'))
             if checkpoint.best_model_path:  # restore best weights
@@ -491,15 +503,23 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
             'train_loss_curve': history.train_curve,
             'val_loss_curve': history.val_curve,
         }
+        for name, curve in history.metric_curves.items():
+            phase[f'val_{name}_curve'] = curve
         self.history_ = getattr(self, 'history_', []) + [phase]
         if level == 1:
+            # The scores of the epoch whose weights the model now holds
+            best_scores = {monitor: best_score}
+            if history.best_epoch >= 0:
+                for name, curve in history.metric_curves.items():
+                    best_scores[f'val_{name}'] = curve[history.best_epoch]
             print_summary(
                 console,
                 epochs=phase['epochs'],
+                max_epochs=self.max_epochs,
                 stopped_early=phase['stopped_early'],
-                monitor=monitor,
-                best_score=best_score,
-                best_epoch=history.best_epoch)
+                fit_seconds=fit_seconds,
+                best_epoch=history.best_epoch,
+                best_scores=best_scores)
         return task
 
     # ---- inference ---- #

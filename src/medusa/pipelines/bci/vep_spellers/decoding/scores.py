@@ -246,8 +246,16 @@ def bwr_command_scores_corr(frame_scores: NDArray, codes: NDArray, trial_idx: ND
     codes :
         ``(n_commands, n_codes, n_frames)``. The codes of every command
         (``SpellerData.codes``).
-    trial_idx, cycle_idx, code_idx :
-        ``(n_cycles,)`` each. Trial index, 0-based cycle index and code index of each cycle.
+    trial_idx :
+        ``(n_cycles,)``. Trial of each cycle. ``n_cycles`` counts the cycles of
+        the whole recording, so this is a flat array with one entry per
+        cycle. Trials may have different numbers of cycles.
+    cycle_idx :
+        ``(n_cycles,)``. Index of each cycle within its trial. Sets the order
+        in which a trial's cycles are accumulated, so the rows need not be sorted.
+    code_idx :
+        ``(n_cycles,)``. Code shown in each cycle, as an index into the
+        ``n_codes`` axis of ``codes``.
 
     Returns
     -------

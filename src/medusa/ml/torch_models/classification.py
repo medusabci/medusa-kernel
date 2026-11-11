@@ -27,6 +27,8 @@ the private engine (:mod:`._engine`); end users never touch ``pl.Trainer``.
 """
 from __future__ import annotations
 
+import warnings
+
 from . import require_lightning
 
 require_lightning()  # friendly error if torch / Lightning is missing
@@ -39,6 +41,7 @@ import torch.nn.functional as F
 import lightning.pytorch as pl
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from sklearn.base import ClassifierMixin
+from sklearn.metrics import accuracy_score, balanced_accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import TensorDataset
 
@@ -80,6 +83,14 @@ def _class_weights(class_weight, classes, y_idx):
     return np.asarray(weights, dtype=np.float32)
 
 
+#: The scores :class:`TorchClassifier` can record on the validation fold after
+#: every epoch (its ``epoch_metrics``), each a function of ``(y_true, y_pred)``.
+EPOCH_METRICS = {
+    'accuracy': accuracy_score,
+    'balanced_accuracy': balanced_accuracy_score,
+}
+
+
 # ---------------------------------------------------------------------------- #
 # Lightning tasks (training view: loss + loop). Internal — the estimators below
 # build these in ``fit`` and hand them to the engine; users don't instantiate.
@@ -111,10 +122,15 @@ class ClassificationTask(pl.LightningModule):
         is turned into this array by :func:`_class_weights`, in
         :meth:`TorchClassifier.fit`. Registered as a buffer, so it follows the
         module to its device.
+    epoch_metrics : dict of {str: callable} or None, optional
+        Scores of the validation fold, ``{name: fn(y_true, y_pred)}`` on class
+        indices, logged as ``'val_<name>'`` at the end of every validation pass.
+        ``None`` (the default) logs the loss only.
     """
 
     def __init__(self, backbone: nn.Module, n_classes: int, lr: float = 1e-3,
-                 class_weight=None, head: "nn.Linear | None" = None):
+                 class_weight=None, head: "nn.Linear | None" = None,
+                 epoch_metrics: "dict | None" = None):
         super().__init__()
         self.backbone = backbone
         self.head = (head if head is not None
@@ -124,25 +140,48 @@ class ClassificationTask(pl.LightningModule):
             'class_weight',
             None if class_weight is None
             else torch.as_tensor(class_weight, dtype=torch.float32))
+        self.epoch_metrics = epoch_metrics or {}
+        # The validation pass's true and predicted classes, kept until its end
+        self._val_true, self._val_pred = [], []
 
     def forward(self, x):
         """Return logits: ``head(backbone(x))``."""
         return self.head(self.backbone(x))
 
+    def _loss(self, logits, y):
+        """Cross-entropy, weighted per class when ``class_weight`` is set.
+
+        The one definition of the loss, for training and validation alike, so the
+        two stay comparable and early stopping watches the objective the model is
+        trained on.
+        """
+        return F.cross_entropy(logits, y, weight=self.class_weight)
+
     def training_step(self, batch, batch_idx):
         x, y = batch
-        loss = F.cross_entropy(self(x), y, weight=self.class_weight)
+        loss = self._loss(self(x), y)
         self.log('train_loss', loss, prog_bar=True, on_step=False,
                  on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # weighted the same way as training, so the two losses stay comparable
-        # and early stopping watches the objective the model is trained on
         x, y = batch
-        self.log('val_loss',
-                 F.cross_entropy(self(x), y, weight=self.class_weight),
-                 prog_bar=True)
+        logits = self(x)
+        self.log('val_loss', self._loss(logits, y), prog_bar=True)
+        if self.epoch_metrics:
+            self._val_true.append(y.cpu())
+            self._val_pred.append(logits.argmax(dim=1).cpu())
+
+    def on_validation_epoch_end(self):
+        # The metrics need the whole fold at once (balanced accuracy does not
+        # average over batches), so they are scored here, not per batch
+        if not self.epoch_metrics:
+            return
+        y_true = torch.cat(self._val_true).numpy()
+        y_pred = torch.cat(self._val_pred).numpy()
+        for name, score in self.epoch_metrics.items():
+            self.log(f'val_{name}', float(score(y_true, y_pred)), prog_bar=True)
+        self._val_true, self._val_pred = [], []
 
     def configure_optimizers(self):
         """Adam with PyTorch defaults over the trainable parameters."""
@@ -237,6 +276,14 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
         ``{label: weight}`` sets the weights yourself, in the original encoding
         of ``y``. The weighting applies to the validation loss too, so early
         stopping watches the objective the model is trained on.
+    epoch_metrics : sequence of str, optional
+        Scores of the validation fold to record after every epoch, besides its
+        loss: ``'accuracy'``, ``'balanced_accuracy'``. They are computed in the
+        validation pass training already runs, so they cost almost nothing and
+        never change the model, and they land in ``history_`` as
+        ``'val_<metric>_curve'``. They need ``val_split``; without it there is no
+        fold to score and ``fit`` warns. Empty (the default) records the losses
+        only.
 
     Examples
     --------
@@ -246,6 +293,13 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
     A rare positive class, weighted up so training does not ignore it:
 
     >>> clf = TorchClassifier(EEGInceptionV2(...), class_weight='balanced')
+
+    The validation balanced accuracy of every epoch, next to the losses:
+
+    >>> clf = TorchClassifier(EEGInceptionV2(...), val_split=0.2,
+    ...                       epoch_metrics=['balanced_accuracy'])
+    >>> clf.fit(X_train, y_train)
+    >>> clf.history_[-1]['val_balanced_accuracy_curve']     # one value per epoch
     """
 
     # The engine's parameters are written out again here because scikit-learn
@@ -253,12 +307,14 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
     # from ``clone()``, from ``cross_validate`` and from the saved bundle.
     def __init__(self, backbone, *, lr=1e-3, max_epochs=100, batch_size=64,
                  val_split=None, patience=10, min_delta=0.0, device='auto',
-                 verbose=1, class_weight=None, random_state=None):
+                 verbose=1, class_weight=None, random_state=None,
+                 epoch_metrics=()):
         super().__init__(backbone, lr=lr, max_epochs=max_epochs,
                          batch_size=batch_size, val_split=val_split,
                          patience=patience, min_delta=min_delta, device=device,
                          verbose=verbose, random_state=random_state)
         self.class_weight = class_weight
+        self.epoch_metrics = epoch_metrics
 
     def fit(self, X, y, groups=None):
         """Fit backbone and head on ``X`` (epochs) and ``y`` (labels).
@@ -279,12 +335,19 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
             an epoch never has a near-copy of itself on the other side (see
             :meth:`_loaders_from_dataset`). ``None`` (the default) splits single
             epochs, stratified by label.
+
+        Raises
+        ------
+        ValueError
+            If ``X`` and ``y`` differ in length, or an ``epoch_metrics`` name is
+            unknown.
         """
         classes, y_idx = encode_labels(y)
         if len(y_idx) != len(X):
             raise ValueError(
                 f"X and y have different lengths: {len(X)} vs {len(y_idx)}.")
         head = self._head_to_continue(classes)
+        metrics = self._epoch_metric_functions()
         self.classes_ = classes
         with self._rng_scope():   # head init, split, batch order and dropout
             dataset = TensorDataset(self._prepare(X), torch.as_tensor(y_idx))
@@ -294,12 +357,29 @@ class TorchClassifier(ClassifierMixin, _BaseTorchEstimator):
                 lr=self.lr,
                 class_weight=_class_weights(self.class_weight, self.classes_,
                                             y_idx),
-                head=head)
+                head=head,
+                epoch_metrics=metrics)
             train_loader, val_loader = self._loaders_from_dataset(
                 dataset, labels=y_idx, groups=groups)
-            self._run_training(task, train_loader, val_loader)
+            self._run_training(task, train_loader, val_loader,
+                               metric_names=list(metrics))
         self.head_ = task.head
         return self
+
+    def _epoch_metric_functions(self) -> dict:
+        """``{name: fn(y_true, y_pred)}`` for every ``epoch_metrics`` entry; empty,
+        with a warning, when there is no validation fold to score."""
+        unknown = [name for name in self.epoch_metrics if name not in EPOCH_METRICS]
+        if unknown:
+            raise ValueError(f"unknown epoch_metrics {unknown}; choose among "
+                             f"{list(EPOCH_METRICS)}.")
+        if self.epoch_metrics and not self.val_split:
+            warnings.warn(
+                f"epoch_metrics {list(self.epoch_metrics)} are scored on the "
+                f"validation fold, and val_split is off: nothing is recorded.",
+                UserWarning, stacklevel=3)
+            return {}
+        return {name: EPOCH_METRICS[name] for name in self.epoch_metrics}
 
     def _head_to_continue(self, classes):
         """The fitted head when it still fits ``classes``, else ``None`` or an error."""

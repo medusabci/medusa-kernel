@@ -44,6 +44,12 @@ _PKG_DESCRIPTIONS: dict[str, str] = {
     ),
     "medusa.signal.metrics.discriminability": "Discriminability metrics (signed r²).",
     "medusa.graph": "Graph-theoretic metrics (clustering, path length, centrality, …).",
+    "medusa.stimulation_hardware": (
+        "Models of the hardware that presents stimuli (displays, …)."
+    ),
+    "medusa.stimulation_hardware.display": (
+        "Displays: raster latency, and the screens with their refresh rates."
+    ),
     "medusa.ml": (
         "Machine-learning utilities and PyTorch models "
         "(``torch_models`` backbones + classifiers)."

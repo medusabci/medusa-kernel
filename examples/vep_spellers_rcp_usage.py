@@ -79,12 +79,14 @@ print(f"Loaded {len(train)} calibration runs ({n_cmd} commands, {sd0.fps_resolut
 # --------------------------------------------------------------------------- #
 # 2) Configure + train the bit-wise-reconstruction pipeline (shallow LDA). A P300
 #    speller wants a longer epoch (the ERP unfolds over ~800 ms) and a low-pass band.
+#    The segments are resampled to 20 Hz, which keeps only what is below 10 Hz, so the
+#    band stops at 10 Hz.
 # --------------------------------------------------------------------------- #
 channels = list(train[0].signals["eeg"].channel_set.labels)    # use the full montage
 pipe = BWRLDAPipeline(
     channels=channels,
     freq_filtering={"filterbank": [
-        {"filt_type": "iir", "band_type": "bandpass", "cutoff": [0.5, 16.0], "order": 5}]},
+        {"filt_type": "iir", "band_type": "bandpass", "cutoff": [0.5, 10.0], "order": 5}]},
     segmentation={"w_segment_t": [0.0, 800.0], "baseline_t": [-200.0, 0.0], "target_fs": 20.0},
 )
 print(f"\nPipeline config: {pipe.cfg}")
@@ -122,7 +124,11 @@ def pooled_per_cycle(pipe, verbose=False):
         n_trials = len(sd.spell_target)
         tgt = {t: sd.spell_target[t] for t in range(n_trials)}
         _, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)
-        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx,
+        cmd_scores = pipe.predict(rec)
+        if isinstance(cmd_scores, tuple):
+            # BWREEGInceptionPipeline.predict also returns the time shift it used
+            cmd_scores, time_shift = cmd_scores
+        _, pc, _ = select_commands(cmd_scores, sd.command_uids, trial_idx, cycle_idx,
                                    sd.trial_available_cmmds)
         if verbose:
             n_cyc = int(rec.events.df["cycle_idx"].max()) + 1

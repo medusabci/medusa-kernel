@@ -218,7 +218,8 @@ class TestEstimatorParameters:
         params = TorchClassifier(nn.Identity()).get_params(deep=False)
         assert set(params) == {"backbone", "lr", "max_epochs", "batch_size",
                                "val_split", "patience", "min_delta", "device",
-                               "verbose", "class_weight", "random_state"}
+                               "verbose", "class_weight", "random_state",
+                               "epoch_metrics"}
 
     def test_clone_preserves_it(self):
         clf = TorchClassifier(nn.Identity(), class_weight="balanced", val_split=0.3)

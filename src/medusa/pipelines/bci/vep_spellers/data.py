@@ -74,44 +74,97 @@ def _ensure_2d_code(code, uid=""):
     return arr.tolist()
 
 
+def _ensure_screen_pos(pos, uid=""):
+    """Coerce ``screen_pos`` to an ``(x, y)`` tuple of floats in ``[0, 1]``; ``None`` passes.
+
+    A ``.mat`` round-trip can return the pair as a ``(1, 2)`` array; this flattens it.
+    """
+    if pos is None:
+        return None
+    arr = np.ravel(np.asarray(pos, dtype=float))
+    if arr.shape != (2,) or not np.all((arr >= 0) & (arr <= 1)):
+        raise ValueError(
+            f"command {uid!r} screen_pos must be an (x, y) pair relative to the screen, "
+            f"each in [0, 1]; got {pos!r}.")
+    return float(arr[0]), float(arr[1])
+
+
 @dataclass
-class CommandInfo:
-    """One speller command (paradigm-agnostic), with its codebook rows.
+class CommandInfo(SerializableComponent):
+    """One speller command: what it shows, where it is, and the code that drives it.
 
-    ``code`` is **always** 2-D ``(n_codes, n_frames)``: one row per selectable code, each
-    a per-frame stimulation pattern (a frame is one display refresh). Single-code
-    paradigms (c-VEP, SSVEP) have ``n_codes == 1``. A multi-code paradigm (an RCP/P300
-    speller that re-randomises its flash order each cycle) stores one code per order. A
-    1-D ``code`` is coerced to ``(1, n_frames)`` at construction, so callers never have to
-    treat single-code and multi-code apart.
+    Parameters
+    ----------
+    uid :
+        Unique identifier of the command. It is the command's key in
+        :attr:`SpellerData.commands_info`, and the value stored in ``spell_target`` and
+        ``spell_result``.
+    code :
+        ``(n_codes, n_frames)`` stimulation pattern, one value per frame (one display
+        refresh). Single-code paradigms (c-VEP, SSVEP) have one row. A multi-code
+        paradigm (an RCP/P300 speller that shuffles its flash order every cycle) has one
+        row per order, and each cycle picks its row with ``code_idx``. A 1-D code is
+        stored as a single row.
+    content :
+        What the command shows, for example the letter ``"A"``. The codebook generators
+        leave it ``None``; the application sets it.
+    content_type :
+        Kind of ``content``, for example ``"text"`` or ``"image"``.
+    screen_pos :
+        ``(x, y)`` centre of the stimulus, relative to the whole screen. Each value is in
+        ``[0, 1]``: ``(0, 0)`` is the top-left corner and ``(1, 1)`` the bottom-right one.
+        Measure it on the full monitor, not the application window, because the monitor
+        draws each frame from its top line. Used to correct the monitor raster latency
+        (see :func:`~medusa.stimulation_hardware.display.raster_latency`). ``None`` when
+        unknown.
+    action :
+        What the application does when the user selects the command, for example
+        ``"delete"``. ``None`` for a plain command.
+    extra :
+        Paradigm-specific values, for example ``{"row": 0, "col": 2}`` for a grid
+        position or ``{"stim_freq": 12.0}`` for an SSVEP command.
 
-    ``content`` and ``content_type`` describe what is shown (for example the letter
-    ``"A"``). They default to ``None`` because the codebook generators do not know them;
-    the application fills them in. Paradigm-specific fields (for example ``{'row': 0,
-    'col': 2}`` or ``{'stim_freq': 12.0}``) live in ``extra``.
+    Raises
+    ------
+    ValueError
+        If ``code`` is ragged or not 1-D or 2-D, or if ``screen_pos`` is not an
+        ``(x, y)`` pair in ``[0, 1]``.
+
+    Examples
+    --------
+    >>> from medusa.pipelines.bci.vep_spellers import CommandInfo
+    >>> cmd = CommandInfo(uid="0", code=[0, 1, 1, 0], content="A",
+    ...                   screen_pos=(0.125, 0.25))
+    >>> cmd.code
+    [[0, 1, 1, 0]]
     """
 
     uid: str
     code: list
     content: "str | None" = None
     content_type: "str | None" = None
-    layout_pos: object = None
+    screen_pos: "tuple[float, float] | None" = None
     action: "str | None" = None
     extra: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.code = _ensure_2d_code(self.code, self.uid)
+        self.screen_pos = _ensure_screen_pos(self.screen_pos, self.uid)
 
-    def to_record(self) -> dict:
+    def to_serializable_obj(self) -> dict:
         """Return this command as a plain ``dict`` (``.mat``-safe: a record, not an int-keyed struct)."""
         rec = asdict(self)
         rec["code"] = np.asarray(self.code).tolist()    # list of lists (2-D)
+        rec["screen_pos"] = None if self.screen_pos is None else list(self.screen_pos)
         return rec
 
     @classmethod
-    def from_record(cls, record: dict) -> "CommandInfo":
-        """Rebuild a :class:`CommandInfo` from a plain record dict (re-coerces ``code`` to 2-D)."""
-        return cls(**dict(record))                       # __post_init__ re-coerces to 2-D
+    def from_serializable_obj(cls, data: dict) -> "CommandInfo":
+        """Rebuild a :class:`CommandInfo` from :meth:`to_serializable_obj` output."""
+        data = dict(data)
+        # Files written before screen_pos existed carry a layout_pos that was always None.
+        data.pop("layout_pos", None)
+        return cls(**data)                               # __post_init__ re-coerces
 
 
 class SpellerData(SerializableComponent):
@@ -127,8 +180,9 @@ class SpellerData(SerializableComponent):
         ``"train"`` or ``"test"``.
     paradigm_conf :
         Free-form scenario and GUI configuration shown to the user (command layout,
-        stimuli, and so on), built from simple types. Decoding never reads it. The only
-        thing decoding needs about the layout is ``trial_available_cmmds``.
+        stimuli, and so on), built from simple types. Decoding never reads it. What
+        decoding needs about the layout is ``trial_available_cmmds`` and each command's
+        ``screen_pos``.
     commands_info :
         The codebook: ``{uid: CommandInfo}`` (each command carries its per-frame
         ``code``). Saved as a list of records (``.mat``-safe).
@@ -182,7 +236,7 @@ class SpellerData(SerializableComponent):
         return {
             "mode": self.mode,
             "paradigm_conf": self.paradigm_conf,
-            "commands_info": [c.to_record() for c in self.commands_info.values()],
+            "commands_info": [c.to_serializable_obj() for c in self.commands_info.values()],
             "fps_resolution": self.fps_resolution,
             # Flat (trial_idx, uid) records: a nested list[list[str]] does not survive
             # the .mat round-trip, but a flat list of records does (like commands_info).
@@ -204,7 +258,7 @@ class SpellerData(SerializableComponent):
         """
         data = dict(data)
         # A single-command run round-trips through .mat with the list squeezed away.
-        records = [CommandInfo.from_record(r)
+        records = [CommandInfo.from_serializable_obj(r)
                    for r in ensure_list(data.get("commands_info") or [])]
         commands_info = {c.uid: c for c in records}
         available = data.get("trial_available_cmmds")

@@ -6,7 +6,7 @@ Verify that the core surface of `medusa-kernel` is fully importable without
 Contract:
 
 - The non-visual core (``medusa.core`` / ``medusa.signal`` / ``medusa.ml`` /
-  ``medusa.graph``) must load WITHOUT importing PySide6, so a headless DSP /
+  ``medusa.graph`` / ``medusa.stimulation_hardware``) must load WITHOUT importing PySide6, so a headless DSP /
   server install never pulls Qt. ``medusa.plots`` is exempt: it applies the
   light medusa-style theme on import, which initializes the theme manager and
   loads ``PySide6.QtCore`` (PySide6 is a core dependency) — the same QtCore
@@ -58,6 +58,8 @@ HEADLESS_MODULES: list[str] = [
     "medusa.signal.metrics.discriminability",
     "medusa.signal.metrics.connectivity",
     "medusa.graph",
+    "medusa.stimulation_hardware",
+    "medusa.stimulation_hardware.display",
     "medusa.plots",
     "medusa.ml",
 ]

@@ -136,7 +136,7 @@ def test_deep_pipeline_fits_a_mixed_rate_corpus(deep_pipeline_factory,
 
     pipe.fit(recordings)
 
-    scores = pipe.predict(recordings[1])
+    scores, _ = pipe.predict(recordings[1])
     assert scores.shape[1] == N_CMDS
     assert np.isfinite(scores).all()
 

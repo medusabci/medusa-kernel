@@ -1,41 +1,36 @@
 """Levelled, rich-rendered training output for the torch estimators.
 
-Everything here shapes what a user *sees* during ``fit`` -- a single tidy line per epoch, a
-one-line banner and summary, and suppression of Lightning's noisier defaults. Nothing here
-changes what the model learns; it is pure presentation, kept out of the training engine
+Everything here shapes what a user *sees* during ``fit`` -- one line per epoch, a short
+banner and summary, and suppression of Lightning's noisier defaults. Nothing here changes
+what the model learns; it is pure presentation, kept out of the training engine
 (:mod:`._engine`) so the engine stays about *running* the fit.
 
 Three verbosity levels (see :func:`normalize_verbose`):
 
-* **0 -- silent**: no bar, no banner, no summary; Lightning's chatter is suppressed.
-* **1 -- epoch (default)**: one clean :class:`MedusaProgressBar` line per epoch (live
-  progress + losses), a banner before and a summary after; Lightning's info logs and the
-  ``num_workers`` warning are silenced.
-* **2 -- full/debug**: no custom bar -- Lightning's stock progress bar, model summary and all
-  its output, kept intentionally verbose for debugging.
+* **0 -- silent**: no banner, no epoch lines, no summary; Lightning's chatter is suppressed.
+* **1 -- epoch (default)**: one :class:`EpochPrinter` line per epoch (elapsed time, losses
+  and validation scores, where early stopping stands), a banner before and a summary after;
+  Lightning's progress bar, info logs and ``num_workers`` warning are off.
+* **2 -- full/debug**: Lightning's stock progress bar, model summary and all its output,
+  kept intentionally verbose for debugging.
 
-The one-clean-line-per-epoch behaviour comes from subclassing the **base**
-:class:`~lightning.pytorch.callbacks.ProgressBar` and overriding **only the train hooks**, so
-Lightning never creates a validation or sanity progress bar -- that is what removes the
-multi-line ``Validation DataLoader`` spam by construction, rather than trying to hide it.
+Level 1 has no progress bar. Each line is printed once, when its epoch ends, so the output
+is the same on a terminal, in an IDE console and in a log file.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import time
 import warnings
 
 import lightning.pytorch as pl
-from lightning.pytorch.callbacks import ProgressBar
 from rich.console import Console
-from rich.progress import (
-    Progress, BarColumn, TextColumn, TaskProgressColumn, MofNCompleteColumn,
-    TimeElapsedColumn)
 
 __all__ = [
     "normalize_verbose",
-    "MedusaProgressBar",
+    "EpochPrinter",
     "EpochHistory",
     "quiet_lightning",
     "print_banner",
@@ -44,6 +39,13 @@ __all__ = [
 
 #: The three verbosity levels, keyed by their canonical string name.
 _LEVELS = {"silent": 0, "epoch": 1, "full": 2}
+
+#: Shorter titles for the long metric names in the printed lines. ``history_`` keeps the
+#: full names; a metric that is not here is printed under its own name.
+_SHORT_TITLES = {
+    "val_accuracy": "val_acc",
+    "val_balanced_accuracy": "val_bal_acc",
+}
 
 
 def normalize_verbose(v) -> int:
@@ -70,72 +72,107 @@ def normalize_verbose(v) -> int:
         f"verbose must be int (0-2) or str {sorted(_LEVELS)}, got {type(v).__name__}.")
 
 
-class MedusaProgressBar(ProgressBar):
-    """One tidy ``rich`` line per training epoch; no validation/sanity bars by construction.
+def _print(console: Console, text: str) -> None:
+    """Print one line of ``rich`` markup whole.
 
-    Subclasses the *base* :class:`~lightning.pytorch.callbacks.ProgressBar` and overrides
-    **only** the train hooks, so Lightning never spins up a validation or sanity progress bar.
-    Each epoch shows a live bar (``Epoch k/N`` + progress + per-epoch elapsed) that finalises
-    with that epoch's losses and stays on its own line (Keras-style history). ``rich`` renders
-    it: coloured and animated on a real terminal, one plain finalised line per epoch when the
-    output is piped to a file or notebook.
+    ``soft_wrap`` stops ``rich`` from wrapping or cutting the line at the console width,
+    which it takes to be 80 columns when the output is not a terminal.
+    """
+    console.print(text, soft_wrap=True, highlight=False)
+
+
+def _format_seconds(seconds: float) -> str:
+    """``0.8s`` under a minute, ``1m05s`` under an hour, ``1h02m`` beyond."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+    return f"{int(seconds // 3600)}h{int(seconds % 3600 // 60):02d}m"
+
+
+def _format_value(value: float) -> str:
+    """A loss or a score with four decimals; scientific notation where those would hide it."""
+    if value == 0 or 1e-3 <= abs(value) < 1e4:
+        return f"{value:.4f}"
+    return f"{value:.2e}"                            # also prints 'nan' and 'inf' as they are
+
+
+def _format_scores(scores: dict) -> list[str]:
+    """``rich`` markup of each ``{metric: value}`` entry: a green title and its value."""
+    return [f"[green]{_SHORT_TITLES.get(name, name)}[/] {_format_value(value)}"
+            for name, value in scores.items()]
+
+
+class EpochPrinter(pl.Callback):
+    """Print one line when each training epoch ends.
+
+    The line holds the time the epoch took (training plus validation), every metric the
+    task logs with ``prog_bar=True``, and where early stopping stands::
+
+        Epoch  6/12   0.8s  train_loss 0.0647  val_loss 0.0506  val_bal_acc 0.9806  best
+        Epoch  7/12   0.8s  train_loss 0.0541  val_loss 0.0526  val_bal_acc 0.9806  wait 1/3
+
+    ``best`` marks a new minimum of the monitored metric: the weights that are restored
+    after the fit. ``wait k/patience`` counts the epochs that did not improve it by more
+    than ``min_delta``; the fit stops when ``k`` reaches ``patience``.
+
+    Parameters
+    ----------
+    console : rich.console.Console
+        Where the lines are written.
+    monitor : str
+        The metric early stopping watches, lower being better (``'val_loss'``).
+    patience : int
+        Epochs without improvement that early stopping tolerates.
+    min_delta : float
+        Smallest drop of ``monitor`` that early stopping counts as an improvement.
     """
 
-    def __init__(self, console: "Console | None" = None) -> None:
-        super().__init__()
-        self._enabled = True
-        self.console = console or Console()
-        self._prog: "Progress | None" = None
-        self._task = None
-
-    # Lightning calls enable()/disable() (e.g. to mute non-zero ranks under DDP).
-    def enable(self) -> None:
-        self._enabled = True
-
-    def disable(self) -> None:
-        self._enabled = False
-
-    def _active(self, trainer) -> bool:
-        return self._enabled and trainer.is_global_zero
-
-    @staticmethod
-    def _format_metrics(metrics: dict) -> str:
-        """``rich`` markup for the epoch's metrics: ``train_loss`` first, then ``val_loss``."""
-        order = {"train_loss": 0, "val_loss": 1}
-        items = [(k, v) for k, v in metrics.items() if k != "v_num"]
-        items.sort(key=lambda kv: order.get(kv[0], 2))
-        return "  ".join(f"[green]{k}[/] {float(v):.3f}" for k, v in items)
+    def __init__(self, console: Console, *, monitor: str, patience: int,
+                 min_delta: float) -> None:
+        self.console = console
+        self.monitor = monitor
+        self.patience = patience
+        self.min_delta = min_delta
+        self.epoch_start_s = 0.0
+        self.best_score = float("inf")               # lowest monitored value so far
+        self.patience_score = float("inf")           # the value patience is counted from
+        self.wait_count = 0
 
     def on_train_epoch_start(self, trainer, pl_module) -> None:
-        if not self._active(trainer):
-            return
-        self._prog = Progress(
-            TextColumn("[bold cyan]Epoch {task.fields[ep]}/{task.fields[tot]}[/]"),
-            BarColumn(bar_width=24),
-            TaskProgressColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            TextColumn("{task.fields[metrics]}"),
-            console=self.console, transient=False)   # transient=False -> leave the line
-        total = self.total_train_batches
-        total = None if total == float("inf") else total
-        self._prog.start()
-        self._task = self._prog.add_task(
-            "", total=total, ep=trainer.current_epoch + 1,
-            tot=trainer.max_epochs, metrics="")
-
-    def on_train_batch_end(self, trainer, pl_module, *args) -> None:
-        if self._prog is not None and self._active(trainer):
-            self._prog.update(self._task, advance=1)
+        self.epoch_start_s = time.perf_counter()
 
     def on_train_epoch_end(self, trainer, pl_module) -> None:
         # Validation (if any) has already run by now, so val_loss is populated.
-        if self._prog is None or not self._active(trainer):
-            return
-        metrics = self._format_metrics(self.get_metrics(trainer, pl_module))
-        self._prog.update(self._task, metrics=metrics)
-        self._prog.stop()                            # commit the finished line
-        self._prog = self._task = None
+        epoch_seconds = time.perf_counter() - self.epoch_start_s
+        metrics = dict(trainer.progress_bar_metrics)
+
+        # train_loss first, then val_loss, then the rest in the order the task logged them
+        names = [name for name in ("train_loss", "val_loss") if name in metrics]
+        names += [name for name in metrics if name not in names]
+        scores = {name: metrics[name] for name in names}
+
+        # Lightning runs EarlyStopping and ModelCheckpoint after this callback, so neither
+        # has seen this epoch yet. Their two rules are applied here: any new minimum is the
+        # new best checkpoint, and only a drop larger than min_delta resets the patience.
+        score = metrics[self.monitor]
+        status = []
+        if score < self.best_score:
+            self.best_score = score
+            status.append("[bold green]best[/]")
+        if score < self.patience_score - self.min_delta:
+            self.patience_score = score
+            self.wait_count = 0
+        else:
+            self.wait_count += 1
+            status.append(f"[yellow]wait {self.wait_count}/{self.patience}[/]")
+
+        # The epoch number is padded so that the lines of a fit stay aligned
+        n_epochs = str(trainer.max_epochs)
+        epoch = str(trainer.current_epoch + 1).rjust(len(n_epochs))
+        label = (f"[bold cyan]Epoch {epoch}/{n_epochs}[/] "
+                 f"[cyan]{_format_seconds(epoch_seconds).rjust(6)}[/]")
+        _print(self.console, "  ".join([label] + _format_scores(scores) + status))
 
 
 class EpochHistory(pl.Callback):
@@ -143,11 +180,15 @@ class EpochHistory(pl.Callback):
 
     Decoupled from presentation so ``history_`` is uniform even in silent or headless runs (a
     tutorial can plot the loss curve after ``fit`` with no logger and no disk artifact).
+    ``metric_names`` are the validation metrics the task logs as ``'val_<name>'``; each gets
+    its own curve in ``metric_curves``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, metric_names: "list[str] | None" = None) -> None:
         self.train_curve: list[float] = []
         self.val_curve: list[float] = []
+        self.metric_curves: dict[str, list[float]] = {
+            name: [] for name in (metric_names or [])}
         self.best_score: float = float("inf")
         self.best_epoch: int = -1
 
@@ -156,6 +197,9 @@ class EpochHistory(pl.Callback):
         tl, vl = m.get("train_loss"), m.get("val_loss")
         self.train_curve.append(float(tl) if tl is not None else float("nan"))
         self.val_curve.append(float(vl) if vl is not None else float("nan"))
+        for name, curve in self.metric_curves.items():
+            value = m.get(f"val_{name}")
+            curve.append(float(value) if value is not None else float("nan"))
         monitored = vl if vl is not None else tl
         if monitored is not None and float(monitored) < self.best_score:
             self.best_score = float(monitored)
@@ -198,35 +242,48 @@ def quiet_lightning(enabled: bool):
 
 def print_banner(console: Console, *, estimator: str, device, n_params: int,
                  n_train: int, n_val: "int | None", max_epochs: int, batch_size: int,
-                 monitor: str, patience: int, phase: int = 1,
-                 continuing: bool = False) -> None:
-    """One-line-ish banner before training: what is being trained, on what data, and how.
+                 lr: float, monitor: str, patience: int, min_delta: float = 0.0,
+                 phase: int = 1, continuing: bool = False) -> None:
+    """Short banner before training: what is being trained, on what data, and how.
+
+    ``min_delta`` is only printed when it is set.
 
     ``continuing`` marks a fit that starts from a model this estimator has already
     trained, rather than a fresh one. It is printed because it is otherwise invisible:
     reusing one estimator (or pipeline) across a loop keeps adding training to the same
     model, which quietly invalidates a comparison between configurations.
     """
-    console.print(
-        f"[bold]Training {estimator}[/] on [cyan]{device}[/] "
-        f"([magenta]{n_params:,}[/] trainable params)")
+    _print(console,
+           f"[bold]Training {estimator}[/] on [cyan]{device}[/] | "
+           f"[magenta]{n_params:,}[/] trainable params")
     if continuing:
-        console.print(
-            f"  [yellow]phase {phase}[/] -- continuing an already-trained model "
-            f"(restart() to start over)")
-    data = (f"[magenta]{n_train:,}[/] training observations, "
-            f"[magenta]{n_val:,}[/] for validation" if n_val is not None
-            else f"[magenta]{n_train:,}[/] training observations (no validation set)")
-    console.print(f"  {data}")
-    console.print(
-        f"  up to {max_epochs} epochs, batch size {batch_size}, "
-        f"early stop on [green]{monitor}[/] (patience {patience})")
+        _print(console,
+               f"  [yellow]phase {phase}[/] -- continuing an already-trained model "
+               f"(restart() to start over)")
+    if n_val is None:
+        data = f"[magenta]{n_train:,}[/] train observations, no validation set"
+    else:
+        data = f"[magenta]{n_train:,}[/] train + [magenta]{n_val:,}[/] val observations"
+    _print(console, f"  {data} | batch size {batch_size}")
+    tolerance = f", min_delta {min_delta:g}" if min_delta else ""
+    _print(console,
+           f"  up to {max_epochs} epochs | lr {lr:g} | early stop on "
+           f"[green]{monitor}[/] (patience {patience}{tolerance})")
 
 
-def print_summary(console: Console, *, epochs: int, stopped_early: bool, monitor: str,
-                  best_score: float, best_epoch: int) -> None:
-    """One-line summary after training: epochs run, early stop, and the best score."""
-    tail = " (stopped early)" if stopped_early else ""
-    best = (f", best [green]{monitor}[/] {best_score:.4f} @ epoch {best_epoch + 1}"
-            if best_epoch >= 0 else "")
-    console.print(f"[bold green]Done:[/] {epochs} epochs{tail}{best}")
+def print_summary(console: Console, *, epochs: int, max_epochs: int, stopped_early: bool,
+                  fit_seconds: float, best_epoch: int, best_scores: dict) -> None:
+    """Two lines after training: how it ended, and the epoch whose weights were kept.
+
+    ``best_scores`` are the ``{metric: value}`` of the best epoch (``best_epoch``, counted
+    from 0). The second line is skipped when no epoch was the best (``best_epoch`` is -1).
+    """
+    took = _format_seconds(fit_seconds)
+    if stopped_early:
+        _print(console, f"[bold]Early stop[/] at epoch {epochs}/{max_epochs} after {took}")
+    else:
+        _print(console, f"[bold]Finished[/] {epochs}/{max_epochs} epochs in {took}")
+    if best_epoch >= 0:
+        _print(console,
+               f"[bold green]Best epoch {best_epoch + 1}[/] (weights restored): "
+               + " | ".join(_format_scores(best_scores)))

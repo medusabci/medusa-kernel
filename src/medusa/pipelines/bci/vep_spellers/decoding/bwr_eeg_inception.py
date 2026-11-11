@@ -66,7 +66,10 @@ from medusa.pipelines.bci._filtering import (
 from medusa.pipelines.bci._torch_backbones import (
     add_architecture_settings, build_backbone)
 from medusa.pipelines.bci.vep_spellers.decoding._common import (
-    _bit_onsets, _check_target_fs)
+    _bit_onsets, _check_target_fs, _trial_cycle_order)
+from medusa.pipelines.bci.vep_spellers.decoding.command_decoder import _available
+from medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction import (
+    add_raster_latency_settings, command_raster_latencies, raster_corrected_events)
 from medusa.pipelines.bci.vep_spellers.decoding.scores import (
     bwr_labels, bwr_frame_scores, bwr_command_scores_corr)
 
@@ -227,6 +230,7 @@ def bwr_eeg_inception_settings(
                  value_range=[1.0, None],
                  info="Resample segments to this rate (Hz); "
                       "switch it off to keep the native rate")
+    add_raster_latency_settings(s)
     clf = s.add_group("classifier",
                       info="EEG-Inception frame classifier")
     add_architecture_settings(
@@ -385,6 +389,24 @@ def _validation_groups(unit: str, trial_idx: NDArray, n_frames: int) -> "NDArray
     return np.repeat(per_cycle, n_frames)
 
 
+def _decision_margin(cmd_scores: NDArray, trial_idx: NDArray, cycle_idx: NDArray,
+                     sd: SpellerData) -> float:
+    """Mean decision margin of a recording's cumulative ``(n_cycles, n_commands)`` scores.
+
+    A trial's margin is its best score minus its second best, among the commands available
+    in that trial, on the trial's last row (all of its cycles). Trials with fewer than two
+    finite scores are skipped; ``-inf`` if none is left.
+    """
+    col = {uid: i for i, uid in enumerate(sd.command_uids)}
+    margins = []
+    for t, order in _trial_cycle_order(trial_idx, cycle_idx):
+        avail = _available(sd.trial_available_cmmds, sd.command_uids, t)
+        r = np.sort(cmd_scores[order[-1], [col[u] for u in avail]])
+        if r.size > 1 and np.isfinite(r[-2]):
+            margins.append(r[-1] - r[-2])
+    return float(np.mean(margins)) if margins else -np.inf
+
+
 class BWREEGInceptionPipeline(TorchPipeline):
     """Bit-wise-reconstruction speller pipeline with an EEG-Inception classifier.
 
@@ -427,6 +449,20 @@ class BWREEGInceptionPipeline(TorchPipeline):
       **one** band-pass (checked in :meth:`check_consistency`); every profile builds exactly
       one, so they all satisfy it.
 
+    **Raster latency.** A monitor draws each frame from top to bottom, so a command lower on
+    the screen is drawn later, by up to 95% of a frame. Switch the ``raster_scan_fraction``
+    setting on to correct it: :meth:`fit` shifts each calibration cycle by its target's
+    latency, and :meth:`predict` scores each command at its own latency. Every command then
+    needs a :attr:`~medusa.pipelines.bci.vep_spellers.data.CommandInfo.screen_pos`. It is
+    off by default (see
+    :mod:`~medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction`).
+
+    **Time shift.** The recorded onsets can be off from the EEG by a lag that is the same
+    for every command (clock offsets, acquisition buffers). :meth:`estimate_time_shift`
+    measures it on a recording whose targets are known, :meth:`fit` takes one shift per
+    recording (``time_shifts``) to train on aligned epochs, and :meth:`predict` searches
+    it without labels. The raster latency adds on top of it.
+
     Configure it with a profile
     (``BWREEGInceptionPipeline(settings=burst_cvep_settings(), channels=[...])``), through
     the live :attr:`~medusa.core.settings_tree.Configurable.settings` tree (see
@@ -450,9 +486,10 @@ class BWREEGInceptionPipeline(TorchPipeline):
 
         The tree mirrors :meth:`BWRLDAPipeline.default_settings
         <medusa.pipelines.bci.vep_spellers.decoding.bwr_lda.BWRLDAPipeline.default_settings>`
-        (``channels``, ``signal_key``, ``car``, ``freq_filtering``, ``segmentation``) and swaps
-        the ``classifier`` group for the EEG-Inception configuration: the ``arch`` selector,
-        the shared architecture knobs, and a ``training`` subgroup.
+        (``channels``, ``signal_key``, ``car``, ``freq_filtering``, ``segmentation``), adds
+        the ``raster_scan_fraction`` switch, and swaps the ``classifier`` group for the
+        EEG-Inception configuration: the ``arch`` selector, the shared architecture knobs,
+        and a ``training`` subgroup.
         """
         return bwr_eeg_inception_settings()
 
@@ -504,24 +541,43 @@ class BWREEGInceptionPipeline(TorchPipeline):
         :meth:`BWRLDAPipeline._features`, but the epochs are **not** flattened (the conv
         backbone consumes them raw), and only the single configured band is used.
         """
+        return self._segments(self._filtered_signal(signal, cfg), cycle_onsets,
+                              n_frames, fps, cfg)
+
+    def _filtered_signal(self, signal: Signal,
+                         cfg: dict) -> tuple[NDArray, NDArray, float]:
+        """The configured channels, re-referenced and band-passed: ``(times, filtered, fs)``.
+
+        The part of the feature path that does not depend on the onsets. :meth:`predict`
+        and :meth:`estimate_time_shift` cut one recording at many onset shifts, so they
+        filter it once and pass the result to :meth:`_segments` for every shift.
+        """
         x = harmonize_channels(signal, cfg["channels"])
         raw = car(x.signal) if cfg["car"] else x.signal
         # Single band (validated in check_consistency): use the sole filter-bank entry.
-        xf = apply_notch_and_filterbank(raw, x.fs, cfg["notch_filtering"],
-                                        cfg["freq_filtering"]["filterbank"])[0]
+        filtered = apply_notch_and_filterbank(raw, x.fs, cfg["notch_filtering"],
+                                              cfg["freq_filtering"]["filterbank"])[0]
+        return x.times, filtered, x.fs
+
+    def _segments(self, filtered_signal: tuple[NDArray, NDArray, float],
+                  cycle_onsets: NDArray, n_frames: int, fps: float, cfg: dict) -> NDArray:
+        """Per-frame segments of a :meth:`_filtered_signal`, resampled to
+        ``segmentation.target_fs``: ``(n_segments, n_samples, n_channels)`` (cycle-major)."""
+        times, filtered, fs = filtered_signal
         onsets = _bit_onsets(cycle_onsets, n_frames, fps)
         seg_cfg = cfg["segmentation"]
         window = tuple(seg_cfg["w_segment_t"])
         baseline = tuple(seg_cfg["baseline_t"]) if seg_cfg["baseline_t"] else None
         seg = segment_signal_around_events(
-            x.times, xf, onsets, x.fs, window, baseline,
+            times, filtered, onsets, fs, window, baseline,
             norm=seg_cfg["norm"] if baseline is not None else None)
         if seg_cfg["target_fs"]:
             seg = resample_segments(seg, window, seg_cfg["target_fs"])
         return seg
 
     # ---- offline ----
-    def fit(self, recordings) -> "BWREEGInceptionPipeline":
+    def fit(self, recordings: "Sequence[Recording]",
+            time_shifts: "Sequence[float] | None" = None) -> "BWREEGInceptionPipeline":
         """Fit the EEG-Inception classifier on the per-frame BWR features and labels of all
         recordings; return ``self``.
 
@@ -538,17 +594,69 @@ class BWREEGInceptionPipeline(TorchPipeline):
         window against a 17 ms frame period), so a frame-level split puts near-copies of
         the training epochs into the validation fold; holding out whole trials keeps the
         two apart. Trials of different recordings are always distinct groups.
+
+        With the ``raster_scan_fraction`` setting on, each cycle onset is first shifted by
+        the raster latency of its trial's target
+        (:func:`~medusa.pipelines.bci.vep_spellers.decoding.raster_latency_correction.raster_corrected_events`),
+        so the classifier learns from epochs aligned with the moment the target was drawn.
+        The recordings are not modified.
+
+        Parameters
+        ----------
+        recordings :
+            Calibration recordings. Every trial needs a target (``spell_target``).
+        time_shifts :
+            One onset shift per recording, in seconds, added to all its cycle onsets: the
+            lag between its recorded onsets and its EEG, for example as
+            :meth:`estimate_time_shift` measures it. Positive when the EEG response comes
+            later than the recorded onsets. The raster latency is added on top. ``None``
+            cuts every recording at its recorded onsets.
+
+        Returns
+        -------
+        BWREEGInceptionPipeline
+            ``self``, fitted.
+
+        Raises
+        ------
+        ValueError
+            If ``time_shifts`` does not hold one finite value per recording, or if a
+            recording does not match the pipeline (see :meth:`check_consistency`).
+
+        Examples
+        --------
+        >>> pipe = BWREEGInceptionPipeline(settings=mseq_cvep_settings(),
+        ...                                channels=channels)              # doctest: +SKIP
+        >>> pipe.fit([run_1, run_2], time_shifts=[0.004, -0.020])          # doctest: +SKIP
         """
         self._check_settings()          # re-validate (the live tree may have been edited)
         cfg = self.cfg
+        recordings = list(recordings)
+        # One onset shift per recording, in seconds; None keeps the recorded onsets
+        if time_shifts is None:
+            time_shifts = np.zeros(len(recordings))
+        time_shifts = np.asarray(time_shifts, dtype=float)
+        if time_shifts.shape != (len(recordings),):
+            raise ValueError(
+                f"time_shifts needs one value per recording: there are {len(recordings)} "
+                f"recording(s), but time_shifts has shape {time_shifts.shape}.")
+        if not np.isfinite(time_shifts).all():
+            raise ValueError(f"time_shifts must be finite numbers (seconds), got "
+                             f"{time_shifts.tolist()}.")
         unit = cfg["classifier"]["training"]["val_split_unit"]
+        scan_fraction = cfg["raster_scan_fraction"]     # None when the correction is off
         X, y, groups, offset = [], [], [], 0
-        for rec in recordings:
+        for rec, time_shift in zip(recordings, time_shifts):
             self.check_consistency(rec)
-            onsets, trial_idx, _, _ = cycle_arrays(rec.events)
             sd = SpellerData.from_recording(rec)
+            # Raster correction: shift each cycle by its target's latency (a new Events)
+            events = rec.events
+            if scan_fraction:
+                events = raster_corrected_events(rec.events, sd, scan_fraction)
+            onsets, trial_idx, _, _ = cycle_arrays(events)
             n_frames = sd.codes.shape[2]
-            X.append(self._features(rec.signals[cfg["signal_key"]], onsets,
+            # The recording's time shift moves every cycle alike
+            X.append(self._features(rec.signals[cfg["signal_key"]], onsets + time_shift,
                                     n_frames, sd.fps_resolution, cfg))
             y.append(bwr_labels(rec))
             ids = _validation_groups(unit, trial_idx, n_frames)
@@ -565,17 +673,251 @@ class BWREEGInceptionPipeline(TorchPipeline):
         return build_backbone(cfg["classifier"], input_samples=X.shape[1],
                               n_cha=X.shape[2], rate=rate)
 
-    def predict(self, recording: Recording) -> NDArray:
-        """Cumulative ``(n_cycles, n_commands)`` command correlations for one recording."""
+    def _raster_latencies(self, sd: SpellerData) -> NDArray:
+        """Raster latency of each command, in seconds; all zeros when the correction is
+        off."""
+        scan_fraction = self.cfg["raster_scan_fraction"]
+        if scan_fraction:
+            return command_raster_latencies(sd, scan_fraction)
+        return np.zeros(len(sd.command_uids))
+
+    def _command_scores(self, filtered_signal: tuple[NDArray, NDArray, float],
+                        sd: SpellerData, onsets: NDArray, trial_idx: NDArray,
+                        cycle_idx: NDArray, code_idx: NDArray) -> NDArray:
+        """One scoring pass: cumulative ``(n_cycles, n_commands)`` scores for these onsets.
+
+        Cuts every frame epoch from the cycle ``onsets`` out of the
+        :meth:`_filtered_signal`, classifies it, and correlates each command's code with
+        the frame scores. Every command is scored with the same onsets.
+        """
+        feats = self._segments(filtered_signal, onsets, sd.codes.shape[2],
+                               sd.fps_resolution, self.cfg)
+        proba = self.clf.predict_proba(feats)
+        frame_scores = bwr_frame_scores(proba, self.clf.classes_)
+        return bwr_command_scores_corr(frame_scores, sd.codes, trial_idx, cycle_idx,
+                                       code_idx)
+
+    def _shifted_command_scores(self, filtered_signal: tuple[NDArray, NDArray, float],
+                                sd: SpellerData, onsets: NDArray, trial_idx: NDArray,
+                                cycle_idx: NDArray, code_idx: NDArray,
+                                time_shift: float, latencies: NDArray) -> NDArray:
+        """Cumulative ``(n_cycles, n_commands)`` scores at one time shift, every command
+        at its own raster latency.
+
+        Runs one scoring pass per distinct latency: commands drawn at the same latency
+        (the same screen row) share it.
+        """
+        cmd_scores = np.zeros((len(onsets), len(latencies)))
+        for latency in np.unique(latencies):
+            # Commands drawn at this latency (same screen height)
+            cmd_idx = np.flatnonzero(latencies == latency)
+            # Score every command with the onsets shifted by this latency...
+            pass_scores = self._command_scores(
+                filtered_signal, sd, onsets + time_shift + latency,
+                trial_idx, cycle_idx, code_idx)
+            # ...but keep only the scores of the commands drawn at this latency
+            cmd_scores[:, cmd_idx] = pass_scores[:, cmd_idx]
+        return cmd_scores
+
+    def predict(
+            self,
+            recording: Recording,
+            max_time_shift: float = 0.0,
+            center_time_shift: float = 0.0) -> tuple[NDArray, float]:
+        """Score every command of one recording, and return the time shift used.
+
+        The frames of each cycle are cut into epochs and classified. Each command is scored
+        by the correlation of its code with the frame scores, accumulated over its trial's
+        cycles. The command with the best score is the decoded one
+        (:func:`~medusa.pipelines.bci.vep_spellers.decoding.command_decoder.select_commands`).
+
+        Two onset corrections are applied, and they add up:
+
+        * **Time shift** (unknown, searched). An offset between the event onsets and the
+          EEG (clock offsets, buffers, drift) is the same for every command. The onsets are
+          tried at shifts from ``center_time_shift - max_time_shift`` to
+          ``center_time_shift + max_time_shift``, about one sample apart. The shift with
+          the largest mean decision margin wins: best minus second-best command on each
+          trial's last row. The margin peaks more sharply than the best score, because a
+          misaligned onset lowers the target's score and raises a competitor's. No labels
+          are used, and one shift serves the whole recording.
+        * **Raster latency** (known, per command). With the ``raster_scan_fraction``
+          setting on, each command is scored with the onsets shifted by its own raster
+          latency, as if it were the target. Commands with the same latency (the same
+          screen row) share one scoring pass.
+
+        So each candidate time shift runs one scoring pass per distinct raster latency.
+
+        Parameters
+        ----------
+        recording :
+            The recording to decode. It needs the configured signal and channels, a
+            :class:`~medusa.pipelines.bci.vep_spellers.data.SpellerData`, and speller
+            events. It is not modified.
+        max_time_shift :
+            Half-width of the time-shift search, in seconds. ``0`` tries only
+            ``center_time_shift``.
+        center_time_shift :
+            Centre of the time-shift search, in seconds, for example a known device lag.
+
+        Returns
+        -------
+        cmd_scores :
+            ``(n_cycles, n_commands)`` cumulative command scores at the chosen time shift.
+            Rows follow :func:`~medusa.pipelines.bci.vep_spellers.data.cycle_arrays`;
+            columns follow ``SpellerData.command_uids``.
+        time_shift :
+            The chosen time shift, in seconds. It does not include the raster latencies.
+
+        Raises
+        ------
+        RuntimeError
+            If the pipeline is not fitted.
+        ValueError
+            If the recording does not match the pipeline (see :meth:`check_consistency`),
+            or if the raster correction is on and a command has no ``screen_pos``.
+
+        Examples
+        --------
+        >>> from medusa.pipelines.bci.vep_spellers import (
+        ...     BWREEGInceptionPipeline, mseq_cvep_settings)                 # doctest: +SKIP
+        >>> pipe = BWREEGInceptionPipeline(settings=mseq_cvep_settings(), channels=channels,
+        ...                                raster_scan_fraction=0.95)        # doctest: +SKIP
+        >>> pipe.fit(train)                                                  # doctest: +SKIP
+        >>> cmd_scores, time_shift = pipe.predict(test, max_time_shift=0.016)   # doctest: +SKIP
+        """
         if not self._fitted:
             raise RuntimeError("pipeline is not fitted; call fit() first.")
         self.check_consistency(recording)
         sd = SpellerData.from_recording(recording)
         onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(recording.events)
-        feats = self._features(
-            recording.signals[self.cfg["signal_key"]],
-            onsets, sd.codes.shape[2], sd.fps_resolution, self.cfg)
-        proba = self.clf.predict_proba(feats)
-        frame_scores = bwr_frame_scores(proba, self.clf.classes_)
-        return bwr_command_scores_corr(frame_scores, sd.codes, trial_idx, cycle_idx,
-                                       code_idx)
+        latencies = self._raster_latencies(sd)
+
+        # Candidate time shifts, centre first: argmax keeps the first of tied shifts, so
+        # ties (and a recording with no usable trial) keep the centre
+        offsets = np.linspace(
+            -max_time_shift,
+            max_time_shift,
+            int(round(2 * max_time_shift * self.fs)) + 1,
+        )
+        time_shifts = center_time_shift + offsets[np.argsort(np.abs(offsets))]
+
+        # Filter once; every scoring pass cuts its segments from the same signal
+        filtered_signal = self._filtered_signal(
+            recording.signals[self.cfg["signal_key"]], self.cfg)
+        shifted_cmd_scores = []
+        for time_shift in time_shifts:
+            shifted_cmd_scores.append(self._shifted_command_scores(
+                filtered_signal, sd, onsets, trial_idx, cycle_idx, code_idx,
+                time_shift, latencies))
+
+        # Keep the most discriminative time shift
+        margins = [_decision_margin(s, trial_idx, cycle_idx, sd)
+                   for s in shifted_cmd_scores]
+        best = int(np.argmax(margins))
+        return shifted_cmd_scores[best], time_shifts[best]
+
+    def estimate_time_shift(
+            self,
+            recording: Recording,
+            max_time_shift: float,
+            center_time_shift: float = 0.0) -> tuple[float, NDArray, NDArray]:
+        """Measure the onset time shift of a recording whose targets are known.
+
+        The lag between the recorded onsets and the EEG (clock offsets, acquisition
+        buffers) is considered to be the same for every command. The onsets are
+        tried at whole samples (at the recording's own rate) from ``center_time_shift``,
+        up to ``max_time_shift`` rounded to the nearest sample on each side,
+        so the centre is always tried. At each shift, every trial's target is
+        scored as :meth:`predict` scores it (at its own raster latency,
+        when the ``raster_scan_fraction`` setting is on), and the shift
+        where the mean target score is highest wins. A tie keeps the candidate closest to
+        the centre.
+
+        Knowing the targets is what lets the search go wide. :meth:`predict`'s label-free
+        search must stay within half the spacing between two commands' codes, because a
+        lag one spacing away decodes the neighbouring command just as well. The target's
+        own score peaks only at the true lag. It needs no competing command, so a
+        calibration recording with a single command works too.
+
+        Parameters
+        ----------
+        recording :
+            The recording to measure, with a target for every trial (``spell_target``).
+            Every cycle its events hold is used. It is not modified.
+        max_time_shift :
+            Half-width of the search, in seconds.
+        center_time_shift :
+            Centre of the search, in seconds.
+
+        Returns
+        -------
+        time_shift :
+            The shift with the highest mean target score, in seconds. It does not include
+            the raster latencies: pass it to :meth:`fit` (``time_shifts``) or to
+            :meth:`predict` (``center_time_shift``) as it is.
+        candidate_shifts :
+            ``(n_candidates,)`` every shift tried, in seconds, ascending, one sample apart.
+        target_scores :
+            ``(n_candidates,)`` the mean target score at each candidate shift. Each trial's
+            score is its cumulative score after its last cycle.
+
+        Raises
+        ------
+        RuntimeError
+            If the pipeline is not fitted.
+        ValueError
+            If ``max_time_shift`` is negative, if a trial has no target, if no candidate
+            gives a finite score, or if the recording does not match the pipeline (see
+            :meth:`check_consistency`).
+
+        Examples
+        --------
+        >>> pipe.fit(train)                                                  # doctest: +SKIP
+        >>> time_shift, candidate_shifts, target_scores = pipe.estimate_time_shift(
+        ...     calibration_run, max_time_shift=0.040)                       # doctest: +SKIP
+        """
+        if not self._fitted:
+            raise RuntimeError("pipeline is not fitted; call fit() first.")
+        if max_time_shift < 0:
+            raise ValueError(f"max_time_shift must be >= 0, got {max_time_shift}.")
+        self.check_consistency(recording)
+        sd = SpellerData.from_recording(recording)
+        onsets, trial_idx, cycle_idx, code_idx = cycle_arrays(recording.events)
+        latencies = self._raster_latencies(sd)
+
+        # Score-matrix column of each trial's target
+        spell_target = sd.spell_target or []
+        target_col = {}
+        for trial in np.unique(trial_idx):
+            if trial >= len(spell_target) or spell_target[trial] is None:
+                raise ValueError(
+                    f"trial {trial} has no target: estimate_time_shift needs the target "
+                    f"of every trial (speller_data.spell_target). Without targets, use "
+                    f"predict's time-shift search.")
+            target_col[int(trial)] = sd.command_uids.index(str(spell_target[trial]))
+
+        # Candidate shifts: whole samples from the centre at the recording's own rate,
+        # ascending, so the centre is always one of them
+        signal = recording.signals[self.cfg["signal_key"]]
+        n_steps = int(round(max_time_shift * signal.fs))
+        candidate_shifts = center_time_shift + np.arange(-n_steps, n_steps + 1) / signal.fs
+
+        # Filter once; every candidate cuts its segments from the same signal
+        filtered_signal = self._filtered_signal(signal, self.cfg)
+        target_scores = np.zeros(len(candidate_shifts))
+        for i, time_shift in enumerate(candidate_shifts):
+            cmd_scores = self._shifted_command_scores(
+                filtered_signal, sd, onsets, trial_idx, cycle_idx, code_idx,
+                time_shift, latencies)
+            # The scores are cumulative: a trial's last row holds all its cycles
+            trial_scores = [cmd_scores[rows[-1], target_col[trial]]
+                            for trial, rows in _trial_cycle_order(trial_idx, cycle_idx)]
+            target_scores[i] = np.mean(trial_scores)
+
+        if not np.isfinite(target_scores).any():
+            raise ValueError("no candidate time shift gave a finite target score.")
+        # The best candidate; a tie keeps the one closest to the centre
+        tied = np.flatnonzero(target_scores == np.nanmax(target_scores))
+        best = tied[np.argmin(np.abs(candidate_shifts[tied] - center_time_shift))]
+        return float(candidate_shifts[best]), candidate_shifts, target_scores

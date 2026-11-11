@@ -61,7 +61,7 @@ def test_fit_and_predict_through_every_architecture(cvep_train_test, arch):
     train, test, channels = cvep_train_test
     pipe = _pipeline(channels, arch).fit([train])
 
-    scores = pipe.predict(test)
+    scores, _ = pipe.predict(test)
     assert scores.shape == (_n_cycles(test), len(test.experiment.command_uids))
     assert np.isfinite(scores).all()
 
@@ -71,14 +71,14 @@ def test_a_fitted_pipeline_round_trips(cvep_train_test, arch, tmp_path):
     """The per-architecture group and its group-list must survive save/load untouched."""
     train, test, channels = cvep_train_test
     pipe = _pipeline(channels, arch).fit([train])
-    expected = pipe.predict(test)
+    expected, _ = pipe.predict(test)
 
     path = tmp_path / "pipe.pkl"
     pipe.save(str(path))
     reloaded = BWREEGInceptionPipeline.load(str(path))
 
     assert reloaded.cfg["classifier"] == pipe.cfg["classifier"]
-    np.testing.assert_allclose(reloaded.predict(test), expected, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(reloaded.predict(test)[0], expected, rtol=1e-5, atol=1e-6)
 
 
 def _fitted_scores(channels, train, test, training):
@@ -86,7 +86,8 @@ def _fitted_scores(channels, train, test, training):
     pipe = BWREEGInceptionPipeline(
         settings=bwr_eeg_inception_settings(arch="eeg_inception_v2", **SETTINGS),
         channels=channels, classifier={"training": training})
-    return pipe.fit([train]).predict(test)
+    scores, _ = pipe.fit([train]).predict(test)
+    return scores
 
 
 def test_a_seeded_fit_is_reproducible(cvep_train_test):

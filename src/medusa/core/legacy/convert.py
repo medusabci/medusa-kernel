@@ -342,6 +342,46 @@ def _recorder_experiment(legacy_recording, marks, abs_origin):
     return experiment
 
 
+def _cvep_screen_positions(exp, first_onset):
+    """Relative ``(x, y)`` centre of each command, keyed by ``(row, col)``, from ``resize_info``.
+
+    The legacy c-VEP speller logs a ``resize_info`` entry each time it lays out its window:
+    the screen size and the pixel centre of every command, per mode (``'train'`` /
+    ``'test'``). ``resize_onset`` holds the time of each entry. The layout used is the last
+    one logged before the first cycle onset, which is the one on screen when stimulation
+    starts. Only matrix 0 is read, like the codebook.
+
+    Returns ``{}`` when the file has no ``resize_info`` (older recordings) or when a
+    position falls outside the screen, so the commands keep ``screen_pos=None``.
+    """
+    resize_info = getattr(exp, "resize_info", None)
+    if not resize_info:
+        return {}
+    # Pick the layout on screen when the stimulation starts
+    resize_onset = getattr(exp, "resize_onset", None)
+    layout = resize_info[-1]
+    if resize_onset is not None and len(resize_onset) == len(resize_info):
+        before = [i for i, t in enumerate(resize_onset) if t <= first_onset]
+        layout = resize_info[before[-1]] if before else resize_info[0]
+        if len(before) < len(resize_info):
+            warnings.warn("the speller layout changed during the run; screen_pos uses "
+                          "the layout on screen when the stimulation started.",
+                          stacklevel=3)
+    # Pixel centres -> positions relative to the screen
+    width, height = layout["screen_size"]
+    positions = {}
+    for entry in layout["new_position"].get(exp.mode, []):
+        matrix, row, col = entry["coord"]
+        if matrix == 0:
+            x, y = entry["new_pos"]
+            positions[(row, col)] = (x / width, y / height)
+    if any(not (0 <= x <= 1 and 0 <= y <= 1) for x, y in positions.values()):
+        warnings.warn(f"resize_info places commands outside the {width}x{height} screen; "
+                      f"screen_pos is left unset.", stacklevel=3)
+        return {}
+    return positions
+
+
 def cvep_recording_to_v2(legacy_recording, *, spell_target=None,
                          signal_key="eeg", task="cvep"):
     """Convert a legacy c-VEP speller recording to a 2.0 :class:`Recording`.
@@ -352,6 +392,12 @@ def cvep_recording_to_v2(legacy_recording, *, spell_target=None,
     per-trial available commands, targets) stored in ``Recording.experiment``, and the
     per-cycle stimulation ``onsets`` to a 2.0 :class:`~medusa.core.data.events.Events`
     timeline (one row per cycle, with ``trial_idx`` / ``cycle_idx``).
+
+    When the file has a ``resize_info`` log, each command also gets its
+    :attr:`~medusa.pipelines.bci.vep_spellers.data.CommandInfo.screen_pos`: its pixel
+    centre divided by the screen size, from the layout on screen when the stimulation
+    started. The raster-latency correction needs it. Older files have no such log, and
+    their commands keep ``screen_pos=None``.
 
     Parameters
     ----------
@@ -386,11 +432,15 @@ def cvep_recording_to_v2(legacy_recording, *, spell_target=None,
                     times=np.asarray(eeg.times))
 
     # -- Codebook (single matrix): {uid: CommandInfo(code=sequence)} ---------
+    # Each command's screen position comes from the resize_info log, when there is one.
+    onsets = np.asarray(exp.onsets, dtype=float)
+    positions = _cvep_screen_positions(exp, onsets.min() if onsets.size else np.inf)
     matrix0 = exp.commands_info[0]
     commands_info = {
         str(uid): CommandInfo(
             uid=str(uid), code=list(info["sequence"]),
             content=info.get("text", info.get("label")),
+            screen_pos=positions.get((info.get("row"), info.get("col"))),
             extra={k: info[k] for k in ("row", "col") if k in info})
         for uid, info in matrix0.items()
     }
@@ -398,7 +448,6 @@ def cvep_recording_to_v2(legacy_recording, *, spell_target=None,
     # -- Events: one row per stimulation cycle -------------------------------
     trial = np.asarray(exp.trial_idx, dtype=int)
     cycle = np.asarray(exp.cycle_idx, dtype=int)
-    onsets = np.asarray(exp.onsets, dtype=float)
     events = Events(optional_columns={"trial_idx": "Int64", "cycle_idx": "Int64",
                                       "code_idx": "Int64"})
     events.append([{"onset": float(o), "duration": 0.0,

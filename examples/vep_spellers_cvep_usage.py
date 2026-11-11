@@ -157,7 +157,11 @@ def accuracy_curve(pipe):
     for rec in test:
         sd = rec.experiment
         _, trial_idx, cycle_idx, _ = cycle_arrays(rec.events)
-        _, pc, _ = select_commands(pipe.predict(rec), sd.command_uids, trial_idx, cycle_idx,
+        cmd_scores = pipe.predict(rec)
+        if isinstance(cmd_scores, tuple):
+            # BWREEGInceptionPipeline.predict also returns the time shift it used
+            cmd_scores, time_shift = cmd_scores
+        _, pc, _ = select_commands(cmd_scores, sd.command_uids, trial_idx, cycle_idx,
                                    sd.trial_available_cmmds)
         for t in pc:                                    # re-key trials globally
             per_cycle[base + t] = pc[t]

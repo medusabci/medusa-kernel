@@ -58,6 +58,8 @@ from medusa.pipelines.bci.vep_spellers.decoding import (
     select_commands,
     command_decoding_accuracy,
     command_decoding_accuracy_per_cycle,
+    command_raster_latencies,
+    raster_corrected_events,
 )
 
 __all__ = [
@@ -93,6 +95,9 @@ __all__ = [
     "select_commands",
     "command_decoding_accuracy",
     "command_decoding_accuracy_per_cycle",
+    # monitor raster-latency correction
+    "command_raster_latencies",
+    "raster_corrected_events",
     # deep decoding + its stimulation profiles (torch-gated; resolved lazily
     # via __getattr__)
     "BWREEGInceptionPipeline",

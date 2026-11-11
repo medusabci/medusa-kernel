@@ -85,7 +85,7 @@ from typing import TYPE_CHECKING, Self
 
 from medusa.core.serialization import pack_pickleable, unpack_pickleable
 from medusa.ml.torch_models._engine import seeded_rng
-from medusa.ml.torch_models.classification import TorchClassifier
+from medusa.ml.torch_models.classification import EPOCH_METRICS, TorchClassifier
 from medusa.pipelines.base import DecodingPipeline
 
 if TYPE_CHECKING:
@@ -196,6 +196,12 @@ def add_training_settings(clf_group: "SettingsTree", *,
     tr.add_item("verbose", value="epoch", value_options=["silent", "epoch", "full"],
                 info="Training log: 'silent' / 'epoch' (one line per epoch) / "
                      "'full' (Lightning debug)")
+    tr.add_item("epoch_metrics", value=[],
+                element_schema={"value_options": list(EPOCH_METRICS)},
+                info="Scores of the validation split recorded after every epoch, "
+                     "besides its loss: "
+                     + ", ".join(f"'{name}'" for name in EPOCH_METRICS)
+                     + ". They need val_split; empty records the losses only")
 
 
 def training_kwargs(cfg_training: dict) -> dict:
@@ -211,7 +217,9 @@ def training_kwargs(cfg_training: dict) -> dict:
                 patience=int(t["patience"]), min_delta=float(t["min_delta"]),
                 device=t["device"], verbose=t["verbose"],
                 random_state=(None if t["random_state"] is None
-                              else int(t["random_state"])))
+                              else int(t["random_state"])),
+                # absent from configurations written before the item existed
+                epoch_metrics=list(t.get("epoch_metrics", [])))
 
 
 # --------------------------------------------------------------------------- #
