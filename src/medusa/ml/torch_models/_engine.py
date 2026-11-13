@@ -438,6 +438,9 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
         monitor = 'val_loss' if val_loader is not None else 'train_loss'
         level = normalize_verbose(self.verbose)
 
+        n_train = _n_observations(train_loader)
+        n_val = _n_observations(val_loader) if val_loader is not None else 0
+
         early = EarlyStopping(monitor=monitor, mode='min', patience=self.patience,
                               min_delta=self.min_delta)
         history = EpochHistory(metric_names or [])
@@ -467,9 +470,8 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
                         device=self.device_,
                         n_params=sum(p.numel() for p in task.parameters()
                                      if p.requires_grad),
-                        n_train=_n_observations(train_loader),
-                        n_val=(_n_observations(val_loader)
-                               if val_loader is not None else None),
+                        n_train=n_train,
+                        n_val=n_val if val_loader is not None else None,
                         phase=len(getattr(self, 'history_', [])) + 1,
                         continuing=bool(getattr(self, 'history_', [])),
                         max_epochs=self.max_epochs,
@@ -492,6 +494,8 @@ class _BaseTorchEstimator(BaseEstimator, PickleableComponent):
 
         self.backbone.to(self.device_)
         phase = {
+            'n_train': n_train,              # observations trained on
+            'n_val': n_val,                  # observations held out (0: no validation)
             'epochs': int(trainer.current_epoch),
             'train_loss': _metric(trainer, 'train_loss'),
             'val_loss': (_metric(trainer, 'val_loss')
